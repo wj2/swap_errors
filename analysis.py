@@ -2,7 +2,7 @@
 import numpy as np
 import pickle
 import pystan as ps
-import arviz
+import arviz as az
 
 import general.neural_analysis as na
 import general.utility as u
@@ -67,4 +67,4 @@ def fit_bhv_model(data, model_path=bmp, targ_field='LABthetaTarget',
                       control=control, **stan_params)
     diag = ps.diagnostics.check_hmc_diagnostics(fit)
     fit_av = az.from_pystan(posterior=fit, **arviz)
-    return fit, diag, fit_av
+    return fit, diag, fit_av, stan_data

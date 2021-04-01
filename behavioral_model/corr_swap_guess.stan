@@ -81,7 +81,7 @@ model {
   // model
   for (t in 1:T) {
     run = run_ind[t];
-    outcome_lps[1] = log(guess_prob[run]) + uniform_lpdf(err | -pi(), pi());
+    outcome_lps[1] = log(guess_prob[run]) + uniform_lpdf(err[t] | -pi(), pi());
     outcome_lps[2] = log(swap_prob[run])
       + normal_lpdf(dist_err[t] | 0, report_var[run]);
     outcome_lps[3] = log(1 - guess_prob[run] - swap_prob[run])
