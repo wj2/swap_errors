@@ -14,6 +14,7 @@ import general.data_io as gio
 busch_bhv_fields = ('StopCondition', 'ReactionTime', 'Block',
                     'is_one_sample_displayed', 'IsUpperSample',
                     'TargetTheta', 'DistTheta', 'ResponseTheta',
+                    'LABthetaTarget', 'LABthetaDist', 'LABthetaResp',
                     'CueDelay', 'CueDelay2', 'CueRespDelay', 'FIXATE_ON_diode',
                     'CUE1_ON_diode', 'SAMPLES_ON_diode', 'CUE2_ON_diode',
                     'WHEEL_ON_diode')
