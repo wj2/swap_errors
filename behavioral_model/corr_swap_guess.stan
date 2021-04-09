@@ -30,10 +30,10 @@ parameters {
   real<lower=0> report_var_mean;
   real<lower=0> report_var_var;
 
-  real<lower=0> swap_weight_mean;
+  real swap_weight_mean;
   real<lower=0> swap_weight_var;
 
-  real<lower=0> guess_weight_mean;
+  real guess_weight_mean;
   real<lower=0> guess_weight_var;
 
   // data-related

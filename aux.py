@@ -55,9 +55,13 @@ def split_spks_bhv(chan, ids, ts, beg_ts, end_ts, extra):
     for i, bt in enumerate(beg_ts):
         bt = np.squeeze(bt)
         et = np.squeeze(end_ts[i])
+        if np.isnan(bt):
+            print('bt {}/{}'.format(i+1, len(beg_ts)), bt, et)
         if np.isnan(et):
             et = bt + extra
         mask = np.logical_and(ts > bt - extra, ts < et + extra)
+        if np.sum(mask) == 0:
+            print('mask empty', bt, et)
         chan_m, ids_m, ts_m = chan[mask], ids[mask], ts[mask]
         for j, un in enumerate(unique_neurs):
             mask_n = np.logical_and(chan_m == un[0], ids_m == un[1])
@@ -91,6 +95,7 @@ def load_buschman_data(folder, template='[0-9]{2}[01][0-9][0123][0-9]',
     for fl in fls:
         m = re.match(template, fl)
         if m is not None:
+            print(fl)
             run_data, trl_data = load_bhv_data(os.path.join(folder, fl,
                                                             bhv_sub))
             spks_path = os.path.join(folder, fl, spikes_sub)
@@ -99,6 +104,7 @@ def load_buschman_data(folder, template='[0-9]{2}[01][0-9][0123][0-9]',
                                               trl_data[trl_beg_field],
                                               trl_data[trl_end_field],
                                               extra_time)
+            print(spk_split.shape, len(list(trl_data.values())[0]))
             data_lab = load_label_data(os.path.join(folder, fl, label_sub),
                                        neurs)
             n_trls = spk_split.shape[0]

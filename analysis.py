@@ -3,20 +3,73 @@ import numpy as np
 import pickle
 import pystan as ps
 import arviz as az
+import sklearn.manifold as skm
 
 import general.neural_analysis as na
 import general.utility as u
 
+def nonlinear_dimred(data, tbeg, tend, twindow=None, tstep=None,
+                     time_key='SAMPLES_ON_diode', color_key='LABthetaTarget',
+                     regions=None, dim_red=skm.LocallyLinearEmbedding,
+                     n_components=2, **kwargs):
+    if twindow is not None and tstep is not None:
+        pops, xs = data.get_populations(twindow, tbeg, tend, tstep,
+                                        time_zero_field=time_key)
+    else:
+        pops, xs = data.get_populations(tend - tbeg, tbeg, tend,
+                                        time_zero_field=time_key)
+    colors = data[color_key]
+    emb_pops = []
+    drs = []
+    for i, pop in enumerate(pops):
+        if twindow is not None and tstep is not None:
+            pop_swap = np.swapaxes(pop, 0, 1)
+            pop_all = np.concatenate(pop_swap, axis=0)
+        else:
+            pop = pop[..., :1]
+            pop_all = np.squeeze(pop)
+            xs = xs[:1]
+        dr = dim_red(n_components=n_components, **kwargs)
+        dr.fit(pop_all)
+        emb_pop = np.zeros((pop.shape[0], n_components, len(xs)))
+        for j in range(len(xs)):
+            emb_pop[..., j] = dr.transform(pop[..., j])
+        emb_pops.append(emb_pop)
+        drs.append(dr)
+    return emb_pops, drs, colors, xs
+
 def decode_color(data, tbeg, tend, twindow, tstep, time_key='SAMPLES_ON_diode',
-                 color_key='TargetTheta', regions=None, n_folds=10, **kwargs):
+                 color_key='LABthetaTarget', regions=None, n_folds=10,
+                 transform_color=True, **kwargs):
     pops, xs = data.get_populations(twindow, tbeg, tend, tstep,
                                     time_zero_field=time_key, skl_axes=True)
     regs = data[color_key]
     outs = []
     for i, pop in enumerate(pops):
-        tcs = na.pop_regression_skl(pop, regs[i], n_folds, mean=False,
+        if transform_color:
+            regs_i = np.stack((np.cos(regs[i]), np.sin(regs[i])), axis=1)
+        else:
+            regs_i = regs[i]
+        tcs = na.pop_regression_skl(pop, regs_i, n_folds, mean=False,
                                     **kwargs)
         outs.append(tcs)
+    return outs, xs
+
+def single_neuron_color(data, tbeg, tend, twindow, tstep,
+                        time_key='SAMPLES_ON_diode',
+                        color_key='LABthetaTarget', neur_chan='neur_channels',
+                        neur_id='neur_ids', neur_region='neur_regions'):
+    pops, xs = data.get_populations(twindow, tbeg, tend, tstep,
+                                    time_zero_field=time_key)
+    regs = data[color_key]
+    outs = {}
+    for i, pop in enumerate(pops):
+        for j in range(pop.shape[1]):
+            val = (pop[:, j], regs[i])
+            k1 = data[neur_chan][i].iloc[0][j]
+            k2 = data[neur_id][i].iloc[0][j]
+            k3 = data[neur_region][i].iloc[0][j]
+            outs[(k1, k2, k3)] = val
     return outs, xs
 
 mixture_arviz = {'observed_data':'err',
