@@ -19,7 +19,7 @@ busch_bhv_fields = ('StopCondition', 'ReactionTime', 'Block',
                     'CUE1_ON_diode', 'SAMPLES_ON_diode', 'CUE2_ON_diode',
                     'WHEEL_ON_diode')
 def load_bhv_data(fl, flname='bhv.mat', const_fields=('Date', 'Monkey'),
-                  extract_fields=busch_bhv_fields):
+                  extract_fields=busch_bhv_fields, add_color=True):
     bhv = sio.loadmat(os.path.join(fl, flname))['bhv']
     const_dict = {cf:np.squeeze(bhv[cf][0,0]) for cf in const_fields}
     trl_dict = {}
@@ -29,6 +29,19 @@ def load_bhv_data(fl, flname='bhv.mat', const_fields=('Date', 'Monkey'),
             if len(el) == 0:
                 elements[i] = np.array([[np.nan]])
         trl_dict[tf] = np.squeeze(np.stack(elements, axis=0))
+    if add_color:
+        targ_color = trl_dict['LABthetaTarget']
+        dist_color = trl_dict['LABthetaDist']
+        upper_col = np.zeros(len(targ_color))
+        lower_col = np.zeros_like(upper_col)
+        upper_mask = trl_dict['IsUpperSample'] == 1
+        n_upper_mask = np.logical_not(upper_mask)
+        upper_col[upper_mask] = targ_color[upper_mask]
+        upper_col[n_upper_mask] = dist_color[n_upper_mask]
+        lower_col[upper_mask] = dist_color[upper_mask]
+        lower_col[n_upper_mask] = targ_color[n_upper_mask]
+        trl_dict['upper_color'] = upper_col
+        trl_dict['lower_color'] = lower_col
     return const_dict, trl_dict
 
 busch_spks_templ_unsrt = 'selWM_001_chan([0-9]+)_4sd\.mat'
@@ -55,13 +68,13 @@ def split_spks_bhv(chan, ids, ts, beg_ts, end_ts, extra):
     for i, bt in enumerate(beg_ts):
         bt = np.squeeze(bt)
         et = np.squeeze(end_ts[i])
-        if np.isnan(bt):
-            print('bt {}/{}'.format(i+1, len(beg_ts)), bt, et)
-        if np.isnan(et):
-            et = bt + extra
+        # if np.isnan(bt):
+        #     print('bt {}/{}'.format(i+1, len(beg_ts)), bt, et)
+        # if np.isnan(et):
+        #     et = bt + extra
         mask = np.logical_and(ts > bt - extra, ts < et + extra)
-        if np.sum(mask) == 0:
-            print('mask empty', bt, et)
+        #if np.sum(mask) == 0:
+        #      print('mask empty', bt, et)
         chan_m, ids_m, ts_m = chan[mask], ids[mask], ts[mask]
         for j, un in enumerate(unique_neurs):
             mask_n = np.logical_and(chan_m == un[0], ids_m == un[1])
@@ -92,10 +105,11 @@ def load_buschman_data(folder, template='[0-9]{2}[01][0-9][0123][0-9]',
     counter = 0
     super_df = pd.DataFrame(columns=('experiment', 'animal', 'date', 'data'))
     dates, expers, monkeys, datas = [], [], [], []
+    n_neurs = []
     for fl in fls:
         m = re.match(template, fl)
         if m is not None:
-            print(fl)
+            # print(fl)
             run_data, trl_data = load_bhv_data(os.path.join(folder, fl,
                                                             bhv_sub))
             spks_path = os.path.join(folder, fl, spikes_sub)
@@ -104,7 +118,7 @@ def load_buschman_data(folder, template='[0-9]{2}[01][0-9][0123][0-9]',
                                               trl_data[trl_beg_field],
                                               trl_data[trl_end_field],
                                               extra_time)
-            print(spk_split.shape, len(list(trl_data.values())[0]))
+            # print(spk_split.shape, len(list(trl_data.values())[0]))
             data_lab = load_label_data(os.path.join(folder, fl, label_sub),
                                        neurs)
             n_trls = spk_split.shape[0]
@@ -119,10 +133,11 @@ def load_buschman_data(folder, template='[0-9]{2}[01][0-9][0123][0-9]',
             dates.append(run_data['Date'])
             monkeys.append(run_data['Monkey'])
             expers.append('WMrecall')
+            n_neurs.append(len(d_dict['neur_ids'][0]))
             counter = counter + 1
         if counter >= max_files:
             break
     super_dict = dict(date=dates, experiment=expers, animal=monkeys,
-                      data=datas)
+                      data=datas, n_neurs=n_neurs)
     return super_dict
 
