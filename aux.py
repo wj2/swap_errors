@@ -68,13 +68,7 @@ def split_spks_bhv(chan, ids, ts, beg_ts, end_ts, extra):
     for i, bt in enumerate(beg_ts):
         bt = np.squeeze(bt)
         et = np.squeeze(end_ts[i])
-        # if np.isnan(bt):
-        #     print('bt {}/{}'.format(i+1, len(beg_ts)), bt, et)
-        # if np.isnan(et):
-        #     et = bt + extra
         mask = np.logical_and(ts > bt - extra, ts < et + extra)
-        #if np.sum(mask) == 0:
-        #      print('mask empty', bt, et)
         chan_m, ids_m, ts_m = chan[mask], ids[mask], ts[mask]
         for j, un in enumerate(unique_neurs):
             mask_n = np.logical_and(chan_m == un[0], ids_m == un[1])
