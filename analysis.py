@@ -15,7 +15,7 @@ import general.data_io as dio
 import general.neural_analysis as na
 import general.utility as u
 import general.decoders as gd
-import swap_errors.aux as swa
+import swap_errors.auxiliary as swa
 
 def nonlinear_dimred(data, tbeg, tend, twindow=None, tstep=None,
                      time_key='SAMPLES_ON_diode', color_key='LABthetaTarget',
