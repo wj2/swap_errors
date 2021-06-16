@@ -4,7 +4,7 @@ import scipy.io as sio
 import pandas as pd
 import os
 import re
-from sklearn import svm
+import pickle
 
 import general.utility as u
 import general.neural_analysis as na
@@ -19,7 +19,8 @@ busch_bhv_fields = ('StopCondition', 'ReactionTime', 'Block',
                     'CUE1_ON_diode', 'SAMPLES_ON_diode', 'CUE2_ON_diode',
                     'WHEEL_ON_diode')
 def load_bhv_data(fl, flname='bhv.mat', const_fields=('Date', 'Monkey'),
-                  extract_fields=busch_bhv_fields, add_color=True):
+                  extract_fields=busch_bhv_fields, add_color=True,
+                  add_err=True):
     bhv = sio.loadmat(os.path.join(fl, flname))['bhv']
     const_dict = {cf:np.squeeze(bhv[cf][0,0]) for cf in const_fields}
     trl_dict = {}
@@ -42,6 +43,10 @@ def load_bhv_data(fl, flname='bhv.mat', const_fields=('Date', 'Monkey'),
         lower_col[n_upper_mask] = targ_color[n_upper_mask]
         trl_dict['upper_color'] = upper_col
         trl_dict['lower_color'] = lower_col
+    if add_err:
+        err = u.normalize_periodic_range(trl_dict['LABthetaTarget']
+                                         - trl_dict['LABthetaResp'])
+        trl_dict['err'] = err
     return const_dict, trl_dict
 
 busch_spks_templ_unsrt = 'selWM_001_chan([0-9]+)_4sd\.mat'
@@ -89,30 +94,60 @@ def load_label_data(labelpath, unique_neurs, templ='([0-9a-zA-Z]+)\.txt'):
                 region_labels[mask] = m.group(1)
     return region_labels
 
+def transform_bhv_model(fit, mapping_dict, transform_prob=True, take_mean=True):
+    probs = fit['outcome_lps']
+    if transform_prob:
+        tot = np.sum(np.exp(probs), axis=2, keepdims=True)
+        probs = np.exp(probs)/tot
+    session_dict = {}
+    for i in range(probs.shape[1]):
+        pi = probs[:, i]
+        if take_mean:
+            pi = np.mean(pi, axis=0)
+        key = mapping_dict[i]
+        ind = key[0]
+        session_ident = key[1:]
+        l = session_dict.get(session_ident, [])
+        l.append((ind, pi))
+        session_dict[session_ident] = l
+    return session_dict
+
 def load_buschman_data(folder, template='[0-9]{2}[01][0-9][0123][0-9]',
                        bhv_sub='bhv', spikes_sub='spikes', label_sub='labels',
                        spks_template=busch_spks_templ,
                        trl_beg_field='FIXATE_ON_diode',
                        trl_end_field='WHEEL_ON_diode', extra_time=1,
-                       max_files=np.inf):
+                       max_files=np.inf, load_bhv_model=None):
     fls = os.listdir(folder)
     counter = 0
     super_df = pd.DataFrame(columns=('experiment', 'animal', 'date', 'data'))
     dates, expers, monkeys, datas = [], [], [], []
     n_neurs = []
+    if load_bhv_model is not None:
+        bhv_model = pickle.load(open(load_bhv_model, 'rb'))
     for fl in fls:
         m = re.match(template, fl)
         if m is not None:
-            # print(fl)
             run_data, trl_data = load_bhv_data(os.path.join(folder, fl,
                                                             bhv_sub))
+            if load_bhv_model is not None:
+                key = (str(run_data['Monkey']), str(run_data['Date']))
+                dat = bhv_model[key]
+                n_trls = len(trl_data['LABthetaTarget'])
+                store = np.zeros((n_trls, dat[0][1].shape[-1]))
+                store[...] = np.nan
+                for ind, data in dat:
+                    store[ind] = data
+                trl_data['guess_prob'] = store[:, 0]
+                trl_data['swap_prob'] = store[:, 1]
+                trl_data['corr_prob'] = store[:, 2]
+            
             spks_path = os.path.join(folder, fl, spikes_sub)
             chans, ids, ts = load_spikes_data(spks_path, templ=spks_template)
             spk_split, neurs = split_spks_bhv(chans, ids, ts,
                                               trl_data[trl_beg_field],
                                               trl_data[trl_end_field],
                                               extra_time)
-            # print(spk_split.shape, len(list(trl_data.values())[0]))
             data_lab = load_label_data(os.path.join(folder, fl, label_sub),
                                        neurs)
             n_trls = spk_split.shape[0]

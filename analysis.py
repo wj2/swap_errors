@@ -15,6 +15,7 @@ import general.data_io as dio
 import general.neural_analysis as na
 import general.utility as u
 import general.decoders as gd
+import swap_errors.aux as swa
 
 def nonlinear_dimred(data, tbeg, tend, twindow=None, tstep=None,
                      time_key='SAMPLES_ON_diode', color_key='LABthetaTarget',
@@ -145,6 +146,7 @@ def _get_leftout_color_dists(pop_i, targ_cols, dist_cols,
         if i == 0:
             targ_dists = np.zeros((n_splits, len(te_ind), 2, pop_test.shape[3]))
             dist_dists = np.zeros_like(targ_dists)
+            vec_dists = np.zeros((n_splits, len(te_ind), pop_test.shape[3]))
         targ_means[i] = {}
         dist_means[i] = {}
         for uc in u_cols:
@@ -161,16 +163,44 @@ def _get_leftout_color_dists(pop_i, targ_cols, dist_cols,
             targ_dists[i, j, 1] = _get_trl_dist(pop_test[:, 0, j],
                                                 targ_means[i][dc],
                                                 norm_neurons=norm_neurons)
+            vec_dists[i, j] = _get_vec_dist(pop_test[:, 0, j],
+                                            targ_means[i][tc],
+                                            targ_means[i][dc])
             dist_dists[i, j, 0] = _get_trl_dist(pop_test[:, 0, j],
                                                 dist_means[i][tc],
                                                 norm_neurons=norm_neurons)
             dist_dists[i, j, 1] = _get_trl_dist(pop_test[:, 0, j],
                                                 dist_means[i][dc],
                                                 norm_neurons=norm_neurons)
-    out = targ_dists, dist_dists, targ_means, dist_means
+    out = targ_dists, vec_dists, dist_dists, targ_means, dist_means
     if return_norm and norm:
         out = out + (m, s)
     return out
+
+def _get_vec_dist(pop, targ, dist):
+    vec = targ - dist
+    cent = np.nanmean(np.stack((targ, dist), axis=0), axis=0)
+    mid = np.nansum(vec*cent, axis=0)
+    vec_len = np.sqrt(np.nansum(vec**2, axis=0, keepdims=True))
+    
+    proj = (np.nansum(pop*vec, axis=0) - mid)/vec_len
+    return proj
+    
+def get_dist_diff_prop(corr_dist, err_dist, n_boots=1000):
+    outs = []
+    for i, cd in enumerate(corr_dist):
+        ed = err_dist[i]
+        out_i = np.zeros((len(ed), n_boots, ed.shape[-1]))
+        cd_diff = np.diff(cd, axis=2)[:, :, 0]
+        assert cd.shape[1] == 1
+        ed_diff = np.squeeze(np.diff(ed, axis=2))
+        diff_diff = ed_diff - cd_diff
+        func = lambda x: np.mean(x > 0, axis=0)
+        for j, dd in enumerate(diff_diff):
+            out_i[j] = u.bootstrap_list(dd, func, n=n_boots,
+                                        out_shape=(ed.shape[-1],))
+        outs.append(out_i)
+    return outs    
 
 def get_test_color_dists(data, tbeg, tend, twindow, tstep, 
                          targ_means, dist_means,
@@ -232,14 +262,18 @@ def get_color_means(data, tbeg, tend, twindow, tstep, color_window=.2,
                     dist_key='LABthetaDist',
                     regions=None, leave_out=0,
                     norm=True, norm_neurons=True,
-                    test_data=None):
+                    test_data=None, pops_xs=None):
     targ_cols = data[targ_key]
     dist_cols = data[dist_key]
     u_cols = np.unique(np.concatenate(targ_cols))
-    pops, xs = data.get_populations(twindow, tbeg, tend, tstep,
-                                    time_zero_field=time_key,
-                                    skl_axes=True)
+    if pops_xs is not None:
+        pops, xs = pops_xs
+    else:
+        pops, xs = data.get_populations(twindow, tbeg, tend, tstep,
+                                        time_zero_field=time_key,
+                                        skl_axes=True)
     targ_dists_all = []
+    vec_dists_all = []
     dist_dists_all = []
     targ_means_all = []
     dist_means_all = []
@@ -250,14 +284,15 @@ def get_color_means(data, tbeg, tend, twindow, tstep, color_window=.2,
                                        norm=norm, u_cols=u_cols,
                                        color_window=color_window,
                                        return_norm=True)
-        targ_dists, dist_dists, targ_means, dist_means, m, s = out
+        targ_dists, vec_dists, dist_dists, targ_means, dist_means, m, s = out
         means.append(m)
         stds.append(s)
         targ_dists_all.append(targ_dists)
+        vec_dists_all.append(vec_dists)
         dist_dists_all.append(dist_dists)
         targ_means_all.append(targ_means)
         dist_means_all.append(dist_means)
-    out_dists = (targ_dists_all, dist_dists_all)
+    out_dists = (targ_dists_all, vec_dists_all, dist_dists_all)
     if test_data is not None:
         test_dists = get_test_color_dists(test_data, tbeg, tend, twindow, tstep,
                                           targ_means_all, dist_means_all,
@@ -340,6 +375,23 @@ def single_neuron_color(data, tbeg, tend, twindow, tstep,
             outs[(k1, k2, k3)] = val
     return outs, xs
 
+def fit_animal_bhv_models(data, *args, animal_key='animal', retro_masking=True,
+                          **kwargs):
+    if retro_masking:
+        bhv_retro = (data['is_one_sample_displayed'] == 0).rs_and(
+            data['Block'] > 1)
+        bhv_retro = bhv_retro.rs_and(data['StopCondition'] > -2)
+        data = data.mask(bhv_retro)
+    animals = np.unique(np.array(data[animal_key]))
+    map_dict = {}
+    full_dict = {}
+    for i, animal in enumerate(animals):
+        dbhv_mi = data.session_mask(data[animal_key] == animal)
+        sd_i = fit_bhv_model(dbhv_mi, *args, **kwargs)
+        full_dict[str(animal)] = sd_i
+        map_dict.update(swa.transform_bhv_model(sd_i[0], sd_i[-1]))
+    return full_dict, map_dict
+
 mixture_arviz = {'observed_data':'err',
                  'log_likelihood':{'err':'log_lik'},
                  'posterior_predictive':'err_hat',
@@ -363,15 +415,23 @@ default_prior_dict = {'report_var_var_mean':1,
 def fit_bhv_model(data, model_path=bmp, targ_field='LABthetaTarget',
                   dist_field='LABthetaDist', resp_field='LABthetaResp',
                   prior_dict=None, stan_iters=2000, stan_chains=4,
-                  arviz=mixture_arviz, **stan_params):
+                  arviz=mixture_arviz, adapt_delta=.9, **stan_params):
     if prior_dict is None:
         prior_dict = default_prior_dict
     targs_is = data[targ_field]
+    session_list = np.array(data[['animal', 'date']])
+    mapping_list = []
     session_nums = np.array([], dtype=int)
     for i, x in enumerate(targs_is):
         sess = np.ones(len(x), dtype=int)*(i + 1)
         session_nums = np.concatenate((session_nums,
                                        sess))
+        indices = x.index
+        sess_info0 = (str(session_list[i, 0]),)*len(x)
+        sess_info1 = (str(session_list[i, 1]),)*len(x)
+        mapping_list = mapping_list + list(zip(indices, sess_info0,
+                                               sess_info1))
+    mapping_dict = {i:mapping_list[i] for i in range(len(session_nums))}
     targs = np.concatenate(targs_is, axis=0)
     dists = np.concatenate(data[dist_field], axis=0)
     resps = np.concatenate(data[resp_field], axis=0)
@@ -388,4 +448,4 @@ def fit_bhv_model(data, model_path=bmp, targ_field='LABthetaTarget',
                       control=control, **stan_params)
     diag = ps.diagnostics.check_hmc_diagnostics(fit)
     fit_av = az.from_pystan(posterior=fit, **arviz)
-    return fit, diag, fit_av, stan_data
+    return fit, diag, fit_av, stan_data, mapping_dict
