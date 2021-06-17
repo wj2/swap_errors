@@ -210,16 +210,18 @@ def get_test_color_dists(data, tbeg, tend, twindow, tstep,
                          resp_field='LABthetaResp',
                          regions=None, norm=True,
                          norm_neurons=True, m=None, s=None,
-                         err_thr=2):
+                         err_thr=None, use_cache=False):
     targ_cols = data[targ_key]
     dist_cols = data[dist_key]
     pops, xs = data.get_populations(twindow, tbeg, tend, tstep,
                                     time_zero_field=time_key,
-                                    skl_axes=True)
+                                    skl_axes=True, regions=regions,
+                                    cache=use_cache)
     if m is None:
         m = (None,)*len(pops)
         s = (None,)*len(pops)
     out_dists = []
+    out_vecs = []
     for i, pop_i in enumerate(pops):
         tc_i = np.array(targ_cols[i])
         dc_i = np.array(dist_cols[i])
@@ -234,16 +236,19 @@ def get_test_color_dists(data, tbeg, tend, twindow, tstep,
                             targ_means[i],
                             norm_neurons=norm_neurons,
                             mean=m[i], std=s[i])
-        out_dists.append(out)
-    return out_dists
+        out_dist, out_vec = out
+        out_dists.append(out_dist)
+        out_vecs.append(out_vec)
+    return out_dists, out_vecs
     
 def compute_dists(pop_test, trl_targs, trl_dists, col_means,
                   norm_neurons=True, mean=None, std=None):
-    if mean is not None:
+    if mean is not None and pop_test.shape[2] > 0:
         pop_test = (pop_test - mean)/std
     n_models = len(col_means)
     n_tests = pop_test.shape[2]
     out_dists = np.zeros((n_models, n_tests, 2, pop_test.shape[3]))
+    vec_dists = np.zeros((n_models, n_tests, pop_test.shape[3]))
     for i in range(n_models):
         for j in range(pop_test.shape[2]):
             tc = trl_targs[j]
@@ -254,7 +259,11 @@ def compute_dists(pop_test, trl_targs, trl_dists, col_means,
             out_dists[i, j, 1] = _get_trl_dist(pop_test[:, 0, j],
                                                col_means[i][dc],
                                                norm_neurons=norm_neurons)
-    return out_dists
+            vec_dists[i, j] = _get_vec_dist(pop_test[:, 0, j],
+                                            col_means[i][tc],
+                                            col_means[i][dc])
+
+    return out_dists, vec_dists
 
 def get_color_means(data, tbeg, tend, twindow, tstep, color_window=.2,
                     time_key='SAMPLES_ON_diode',
@@ -262,7 +271,8 @@ def get_color_means(data, tbeg, tend, twindow, tstep, color_window=.2,
                     dist_key='LABthetaDist',
                     regions=None, leave_out=0,
                     norm=True, norm_neurons=True,
-                    test_data=None, pops_xs=None):
+                    test_data=None, pops_xs=None,
+                    use_cache=False):
     targ_cols = data[targ_key]
     dist_cols = data[dist_key]
     u_cols = np.unique(np.concatenate(targ_cols))
@@ -271,7 +281,8 @@ def get_color_means(data, tbeg, tend, twindow, tstep, color_window=.2,
     else:
         pops, xs = data.get_populations(twindow, tbeg, tend, tstep,
                                         time_zero_field=time_key,
-                                        skl_axes=True)
+                                        regions=regions,
+                                        skl_axes=True, cache=use_cache)
     targ_dists_all = []
     vec_dists_all = []
     dist_dists_all = []
@@ -294,13 +305,14 @@ def get_color_means(data, tbeg, tend, twindow, tstep, color_window=.2,
         dist_means_all.append(dist_means)
     out_dists = (targ_dists_all, vec_dists_all, dist_dists_all)
     if test_data is not None:
-        test_dists = get_test_color_dists(test_data, tbeg, tend, twindow, tstep,
-                                          targ_means_all, dist_means_all,
-                                          time_key=time_key, dist_key=dist_key,
-                                          regions=regions, norm=norm,
-                                          norm_neurons=norm_neurons, m=means,
-                                          s=stds)
-        out_dists = out_dists + (test_dists,)
+        out = get_test_color_dists(test_data, tbeg, tend, twindow, tstep,
+                                   targ_means_all, dist_means_all,
+                                   time_key=time_key, dist_key=dist_key,
+                                   regions=regions, norm=norm,
+                                   norm_neurons=norm_neurons, m=means,
+                                   s=stds, use_cache=use_cache)
+        test_dists, test_vecs = out
+        out_dists = out_dists + (test_dists, test_vecs)
     out_means = (targ_means_all, dist_means_all)
     out = out_dists, out_means, xs
     return out
@@ -375,6 +387,13 @@ def single_neuron_color(data, tbeg, tend, twindow, tstep,
             outs[(k1, k2, k3)] = val
     return outs, xs
 
+def retro_mask(data):
+    bhv_retro = (data['is_one_sample_displayed'] == 0).rs_and(
+        data['Block'] > 1)
+    bhv_retro = bhv_retro.rs_and(data['StopCondition'] > -2)
+    data_retro = data.mask(bhv_retro)
+    return data_retro
+
 def fit_animal_bhv_models(data, *args, animal_key='animal', retro_masking=True,
                           **kwargs):
     if retro_masking:
@@ -415,7 +434,8 @@ default_prior_dict = {'report_var_var_mean':1,
 def fit_bhv_model(data, model_path=bmp, targ_field='LABthetaTarget',
                   dist_field='LABthetaDist', resp_field='LABthetaResp',
                   prior_dict=None, stan_iters=2000, stan_chains=4,
-                  arviz=mixture_arviz, adapt_delta=.9, **stan_params):
+                  arviz=mixture_arviz, adapt_delta=.9, diagnostics=True,
+                  **stan_params):
     if prior_dict is None:
         prior_dict = default_prior_dict
     targs_is = data[targ_field]
@@ -446,6 +466,9 @@ def fit_bhv_model(data, model_path=bmp, targ_field='LABthetaTarget',
     sm = pickle.load(open(model_path, 'rb'))
     fit = sm.sampling(data=stan_data, iter=stan_iters, chains=stan_chains,
                       control=control, **stan_params)
-    diag = ps.diagnostics.check_hmc_diagnostics(fit)
+    if diagnostics:
+        diag = ps.diagnostics.check_hmc_diagnostics(fit)
+    else:
+        diag = None
     fit_av = az.from_pystan(posterior=fit, **arviz)
     return fit, diag, fit_av, stan_data, mapping_dict
