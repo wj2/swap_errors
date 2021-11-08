@@ -9,6 +9,7 @@ import sklearn.neighbors as skn
 import sklearn.model_selection as skms
 import sklearn.svm as skc
 import scipy.stats as sts
+import itertools as it
 # import ripser as r
 
 import general.data_io as dio
@@ -16,6 +17,71 @@ import general.neural_analysis as na
 import general.utility as u
 import general.decoders as gd
 import swap_errors.auxiliary as swa
+
+
+def _get_key_mu(posterior, cols, keys, mean=True, mask=None):
+    for i, k in enumerate(keys):
+        arr = np.concatenate(posterior[k], axis=0)
+        if mask is not None:
+            cols_use = cols[i, mask].T
+        else:
+            cols_use = cols[i].T
+        dot_arr = np.dot(arr, cols_use)
+        if i == 0:
+            mu_arr = dot_arr
+        else:
+            mu_arr = mu_arr + dot_arr
+    if mean:
+        mu_arr = np.mean(mu_arr, axis=0)
+    return mu_arr.T
+
+def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
+                                     col_keys=('C_u', 'C_l'), 
+                                     cent1_keys=(('mu_d_u', 'mu_l'),
+                                                 ('mu_u', 'mu_d_l')),
+                                     cent2_keys=(('mu_l', 'mu_d_u'),
+                                                 ('mu_d_l', 'mu_u')),
+                                     resp_key='y', cue_key='cue',
+                                     p_thresh=.5, p_key='p', p_ind=1,
+                                     eps=1e-3):
+    cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
+    pp = np.concatenate(fit_az.posterior_predictive[eh_key], axis=0)
+    cues = data[cue_key]
+    u_cues = np.unique(cues)
+    resp = data[resp_key]
+    if p_thresh is not None:
+        mask = data[p_key][:, p_ind] > p_thresh
+    else:
+        mask = np.ones(len(data[p_key]), dtype=bool)
+    true_arr = []
+    pred_arr = []
+    p_vals = []
+    for i, cue in enumerate(u_cues):
+        cue_mask = np.logical_and(mask, cues == cue)
+        p_vals.append(data[p_key][cue_mask])
+        mu1 = _get_key_mu(fit_az.posterior, cols, cent1_keys[i],
+                          mask=cue_mask)
+        mu2 = _get_key_mu(fit_az.posterior, cols, cent2_keys[i],
+                          mask=cue_mask)
+        v_len = np.sqrt(np.sum((mu2 - mu1)**2, axis=1))
+        v_len[v_len < eps] = 1
+        resp_c = resp[cue_mask]
+        pp_c = pp[:, cue_mask]
+        true_arr_i = np.sum((resp_c - mu1)*(mu2 - mu1), axis=1)/v_len**2
+        true_arr.append(true_arr_i)
+        pred_arr_i = np.sum((pp_c - mu1)*(mu2 - mu1), axis=2)/v_len**2
+        pred_arr.append(pred_arr_i)
+        big_mask = np.abs(true_arr_i) > 10
+        if np.any(big_mask):
+            print(true_arr_i[big_mask])
+            print(v_len[big_mask])
+            print(resp_c[big_mask])
+            print(data['C_u'][cue_mask][big_mask])
+            print(data['C_l'][cue_mask][big_mask])
+    true_arr_full = np.concatenate(true_arr, axis=0)
+    pred_arr_full = np.concatenate(pred_arr, axis=1).flatten()
+    p_vals_full = np.concatenate(p_vals, axis=0)
+    return true_arr_full, pred_arr_full, p_vals_full
 
 def nonlinear_dimred(data, tbeg, tend, twindow=None, tstep=None,
                      time_key='SAMPLES_ON_diode', color_key='LABthetaTarget',
@@ -62,6 +128,20 @@ def compute_persistent_homology_pops(data, tbeg=.05, tend=.55, twindow=.1,
         bettis.append(bs)
     return bettis
 
+def get_pareto_k(fit, k_thresh=.7):
+    x = az.loo(fit, pointwise=True)
+    k_val = x['pareto_k']
+    k_mask = k_val > k_thresh
+    inds = np.where(k_mask)[0]
+    trls = fit.observed_data.y[k_mask]
+    return k_val, inds, trls
+
+def get_pareto_k_dict(fit_dict, **kwargs):
+    k_dict = {}
+    for k, v in fit_dict.items():
+        k_dict[k] = get_pareto_k(v, **kwargs)
+    return k_dict
+        
 def compute_persistent_homology(pop, dim_red=10, dim_red_method=skm.Isomap,
                                 neighborhood=True, n_neighbors=5,
                                 thresh_percent=20):
@@ -109,24 +189,39 @@ def decode_fake_data(n_times, n_neurons, n_trials, n_colors, noise_std=.1):
     xs = np.arange(n_times)
     return out, xs
 
-def _get_cmean(trls, trl_cols, targ_col, all_cols, color_window=.2):
-    col_dists = np.abs(u.normalize_periodic_range(targ_col - all_cols))
-    col_mask = col_dists < color_window
-    use_cols = all_cols[col_mask]
-    trial_mask = np.isin(trl_cols, use_cols)
-    pop_col = trls[:, 0, trial_mask]
-    m = np.nanmean(pop_col, axis=1)
-    return m   
+def _get_cmean(trls, trl_cols, targ_col, all_cols, color_window=.2,
+               positions=None):
+    if positions is None:
+        u_pos = [0]
+        positions = np.zeros(trls.shape[2])
+    else:
+        u_pos = np.unique(positions)
+    out = np.zeros((len(u_pos), trls.shape[0], trls.shape[-1]))
+    for i, pos in enumerate(u_pos):
+        pos_mask = pos == positions
+        col_dists = np.abs(u.normalize_periodic_range(targ_col - all_cols))
+        col_mask = col_dists < color_window
+        use_cols = all_cols[col_mask]
+        col_trl_mask = np.isin(trl_cols, use_cols)
+        trial_mask = np.logical_and(pos_mask, col_trl_mask)
+        pop_col = trls[:, 0, trial_mask]
+        out[i] = np.nanmean(pop_col, axis=1)
+    if positions is None:
+        out = out[0]
+    return out
 
 def _get_trl_dist(trl, m, norm_neurons=True):
     d = np.sqrt(np.nansum((trl - m)**2, axis=0))/m.shape[0]
     return d
 
-def _get_leftout_color_dists(pop_i, targ_cols, dist_cols,
+def _get_leftout_color_dists(pop_i, targ_cols, dist_cols, upper_samp,
                              splitter=skms.LeaveOneOut, norm=True,
                              u_cols=None, color_window=.2, norm_neurons=True,
                              return_norm=False):
     cols_arr = np.stack((np.array(targ_cols), np.array(dist_cols)), axis=1)
+    cols_pos = np.stack((np.array(upper_samp),
+                        np.logical_not(np.array(upper_samp))),
+                       axis=1)
     if u_cols is None:
         u_cols = np.unique(cols_arr)
     if norm:
@@ -141,37 +236,49 @@ def _get_leftout_color_dists(pop_i, targ_cols, dist_cols,
     for i, (tr_ind, te_ind) in enumerate(spl.split(cols_arr)):
         pop_train = pop_i[:, :, tr_ind]
         cols_train = cols_arr[tr_ind]
+        pos_train = cols_pos[tr_ind]
         pop_test = pop_i[:, :, te_ind]
         cols_test = cols_arr[te_ind]
+        pos_test = cols_pos[te_ind]
         if i == 0:
-            targ_dists = np.zeros((n_splits, len(te_ind), 2, pop_test.shape[3]))
+            targ_dists = np.zeros((n_splits, len(te_ind), 4, pop_test.shape[3]))
             dist_dists = np.zeros_like(targ_dists)
-            vec_dists = np.zeros((n_splits, len(te_ind), pop_test.shape[3]))
+            vec_dists = np.zeros((n_splits, len(te_ind), 3, pop_test.shape[3]))
         targ_means[i] = {}
         dist_means[i] = {}
         for uc in u_cols:
             targ_means[i][uc] = _get_cmean(pop_train, cols_train[:, 0], uc,
-                                           u_cols, color_window=color_window)
+                                           u_cols, color_window=color_window,
+                                           positions=pos_train[:, 0])
             dist_means[i][uc] = _get_cmean(pop_train, cols_train[:, 1], uc,
-                                           u_cols, color_window=color_window)
+                                           u_cols, color_window=color_window,
+                                           positions=pos_train[:, 1])
         for j in range(pop_test.shape[2]):
             tc = cols_test[j, 0]
             dc = cols_test[j, 1]
+            t_pos = pos_test[j, 0]
+            d_pos = pos_test[j, 1]
             targ_dists[i, j, 0] = _get_trl_dist(pop_test[:, 0, j],
-                                                targ_means[i][tc],
+                                                targ_means[i][tc][t_pos],
                                                 norm_neurons=norm_neurons)
             targ_dists[i, j, 1] = _get_trl_dist(pop_test[:, 0, j],
-                                                targ_means[i][dc],
+                                                targ_means[i][dc][t_pos],
                                                 norm_neurons=norm_neurons)
-            vec_dists[i, j] = _get_vec_dist(pop_test[:, 0, j],
-                                            targ_means[i][tc],
-                                            targ_means[i][dc])
-            dist_dists[i, j, 0] = _get_trl_dist(pop_test[:, 0, j],
-                                                dist_means[i][tc],
+            targ_dists[i, j, 2] = _get_trl_dist(pop_test[:, 0, j],
+                                                targ_means[i][tc][d_pos],
                                                 norm_neurons=norm_neurons)
-            dist_dists[i, j, 1] = _get_trl_dist(pop_test[:, 0, j],
-                                                dist_means[i][dc],
+            targ_dists[i, j, 3] = _get_trl_dist(pop_test[:, 0, j],
+                                                targ_means[i][dc][d_pos],
                                                 norm_neurons=norm_neurons)
+            vec_dists[i, j, 0] = _get_vec_dist(pop_test[:, 0, j],
+                                               targ_means[i][tc][t_pos],
+                                               targ_means[i][dc][t_pos])
+            vec_dists[i, j, 1] = _get_vec_dist(pop_test[:, 0, j],
+                                               targ_means[i][tc][t_pos],
+                                               targ_means[i][tc][d_pos])
+            vec_dists[i, j, 2] = _get_vec_dist(pop_test[:, 0, j],
+                                               targ_means[i][tc][t_pos],
+                                               targ_means[i][dc][d_pos])
     out = targ_dists, vec_dists, dist_dists, targ_means, dist_means
     if return_norm and norm:
         out = out + (m, s)
@@ -208,11 +315,13 @@ def get_test_color_dists(data, tbeg, tend, twindow, tstep,
                          targ_key='LABthetaTarget',
                          dist_key='LABthetaDist',
                          resp_field='LABthetaResp',
+                         upper_key='IsUpperSample',
                          regions=None, norm=True,
                          norm_neurons=True, m=None, s=None,
                          err_thr=None, use_cache=False):
     targ_cols = data[targ_key]
     dist_cols = data[dist_key]
+    targ_pos = data[upper_key]
     pops, xs = data.get_populations(twindow, tbeg, tend, tstep,
                                     time_zero_field=time_key,
                                     skl_axes=True, regions=regions,
@@ -225,15 +334,10 @@ def get_test_color_dists(data, tbeg, tend, twindow, tstep,
     for i, pop_i in enumerate(pops):
         tc_i = np.array(targ_cols[i])
         dc_i = np.array(dist_cols[i])
-        if err_thr is not None:
-            resps = np.array(data[resp_field][i])
-            err = u.normalize_periodic_range(tc_i - resps)
-            mask = np.abs(err) > err_thr
-            pop_i = pop_i[:, :, mask]
-            dc_i = dc_i[mask]
-            tc_i = tc_i[mask]
+        tp_i = np.array(targ_pos[i])
+        dp_i = np.logical_not(np.array(targ_pos[i])).astype(int)
         out = compute_dists(pop_i, tc_i, dc_i,
-                            targ_means[i],
+                            tp_i, dp_i, targ_means[i], 
                             norm_neurons=norm_neurons,
                             mean=m[i], std=s[i])
         out_dist, out_vec = out
@@ -241,27 +345,41 @@ def get_test_color_dists(data, tbeg, tend, twindow, tstep,
         out_vecs.append(out_vec)
     return out_dists, out_vecs
     
-def compute_dists(pop_test, trl_targs, trl_dists, col_means,
-                  norm_neurons=True, mean=None, std=None):
+def compute_dists(pop_test, trl_targs, trl_dists, targ_pos, dist_pos,
+                  col_means, norm_neurons=True, mean=None, std=None):
     if mean is not None and pop_test.shape[2] > 0:
         pop_test = (pop_test - mean)/std
     n_models = len(col_means)
     n_tests = pop_test.shape[2]
-    out_dists = np.zeros((n_models, n_tests, 2, pop_test.shape[3]))
-    vec_dists = np.zeros((n_models, n_tests, pop_test.shape[3]))
+    out_dists = np.zeros((n_models, n_tests, 4, pop_test.shape[3]))
+    vec_dists = np.zeros((n_models, n_tests, 3, pop_test.shape[3]))
     for i in range(n_models):
         for j in range(pop_test.shape[2]):
             tc = trl_targs[j]
             dc = trl_dists[j]
+            t_pos = targ_pos[j]
+            d_pos = dist_pos[j]
             out_dists[i, j, 0] = _get_trl_dist(pop_test[:, 0, j],
-                                               col_means[i][tc],
+                                               col_means[i][tc][t_pos],
                                                norm_neurons=norm_neurons)
             out_dists[i, j, 1] = _get_trl_dist(pop_test[:, 0, j],
-                                               col_means[i][dc],
+                                               col_means[i][dc][t_pos],
                                                norm_neurons=norm_neurons)
-            vec_dists[i, j] = _get_vec_dist(pop_test[:, 0, j],
-                                            col_means[i][tc],
-                                            col_means[i][dc])
+            out_dists[i, j, 2] = _get_trl_dist(pop_test[:, 0, j],
+                                               col_means[i][tc][d_pos],
+                                               norm_neurons=norm_neurons)
+            out_dists[i, j, 3] = _get_trl_dist(pop_test[:, 0, j],
+                                               col_means[i][dc][d_pos],
+                                               norm_neurons=norm_neurons)
+            vec_dists[i, j, 0] = _get_vec_dist(pop_test[:, 0, j],
+                                               col_means[i][tc][t_pos],
+                                               col_means[i][dc][t_pos])
+            vec_dists[i, j, 1] = _get_vec_dist(pop_test[:, 0, j],
+                                               col_means[i][tc][t_pos],
+                                               col_means[i][tc][d_pos])
+            vec_dists[i, j, 2] = _get_vec_dist(pop_test[:, 0, j],
+                                               col_means[i][tc][t_pos],
+                                               col_means[i][dc][d_pos])
 
     return out_dists, vec_dists
 
@@ -269,12 +387,14 @@ def get_color_means(data, tbeg, tend, twindow, tstep, color_window=.2,
                     time_key='SAMPLES_ON_diode',
                     targ_key='LABthetaTarget',
                     dist_key='LABthetaDist',
+                    upper_key='IsUpperSample',
                     regions=None, leave_out=0,
                     norm=True, norm_neurons=True,
                     test_data=None, pops_xs=None,
                     use_cache=False):
     targ_cols = data[targ_key]
     dist_cols = data[dist_key]
+    upper_samps = data[upper_key]
     u_cols = np.unique(np.concatenate(targ_cols))
     if pops_xs is not None:
         pops, xs = pops_xs
@@ -292,6 +412,7 @@ def get_color_means(data, tbeg, tend, twindow, tstep, color_window=.2,
     stds = []
     for i, pop_i in enumerate(pops):
         out = _get_leftout_color_dists(pop_i, targ_cols[i], dist_cols[i],
+                                       upper_samps[i],
                                        norm=norm, u_cols=u_cols,
                                        color_window=color_window,
                                        return_norm=True)
@@ -369,6 +490,72 @@ def decode_color(data, tbeg, tend, twindow, tstep, time_key='SAMPLES_ON_diode',
                                         model=model, n_jobs=n_jobs, **kwargs)
         outs.append(out)
     return outs, xs
+
+def quantify_swap_loo(mdict, data, method='weighted', threshold=.5, data_key='p',
+                      data_ind=1, comb_func=np.sum):
+    loo_i_dict = {}
+    sum_loo_dict = {}
+    new_m = {}
+    for (k, model) in mdict.items():
+        m_copy = model.copy()
+        data_col = np.expand_dims(data[data_key][:, data_ind], (0, 1))
+        if method == 'weighted':
+            adj_loo = m_copy.log_likelihood*data_col
+        elif method == 'log_weighted':
+            adj_loo = m_copy.log_likelihood + np.log(data_col)
+        elif method == 'threshold':
+            mask = data_col > threshold
+            adj_loo = m_copy.log_likelihood*mask
+        elif method == 'none':
+            adj_loo = m_copy.log_likelihood
+        else:
+            raise IOError('unrecognized method')
+        m_copy.log_likelihood = adj_loo
+        new_m[k] = m_copy
+    comp = az.compare(new_m)
+    return comp
+
+def spline_color(cols, num_bins):
+    '''
+    cols should be given between 0 and 2 pi, bins also
+    '''
+    
+    bins = np.linspace(0, 2*np.pi, num_bins+1)[:num_bins]
+    
+    dc = 2*np.pi/(len(bins))
+
+    # get the nearest bin
+    diffs = np.exp(1j*bins)[:,None]/np.exp(1j*cols)[None,:]
+    distances = np.arctan2(diffs.imag,diffs.real)
+    dist_near = np.abs(distances).min(0)
+    nearest = np.abs(distances).argmin(0)
+    # see if the color is to the "left" or "right" of that bin
+    sec_near = np.sign(distances[nearest,np.arange(len(cols))]+1e-8).astype(int)
+    # add epsilon to handle 0
+    # fill in the convex array
+    alpha = np.zeros((len(bins),len(cols)))
+    alpha[nearest, np.arange(len(cols))] = (dc-dist_near)/dc
+    alpha[np.mod(nearest-sec_near,len(bins)), np.arange(len(cols))] = 1 - (dc-dist_near)/dc
+    
+    return alpha
+
+# def spline_color(cols, num_bins):
+#     '''
+#     cols should be given between 0 and 2 pi, bins also
+#     '''
+#     bins = np.linspace(0, 2*np.pi, num_bins+1)[:num_bins]
+
+#     dc = 2*np.pi/(len(bins))
+
+#     diffs = np.exp(1j*bins)[:,None]/np.exp(1j*cols)[None,:]
+#     distances = np.arctan2(diffs.imag,diffs.real)
+#     dist_near = (distances).max(0)
+#     nearest = (distances).argmax(0)
+#     alpha = np.zeros((len(bins),len(cols)))
+#     alpha[nearest, np.arange(len(cols))] = (dist_near-dc)/dc
+#     alpha[np.mod(nearest+1,len(bins)), np.arange(len(cols))] = 1 - (dist_near-dc)/dc
+    
+#     return alpha    
 
 def single_neuron_color(data, tbeg, tend, twindow, tstep,
                         time_key='SAMPLES_ON_diode',

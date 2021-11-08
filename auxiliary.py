@@ -10,6 +10,55 @@ import general.utility as u
 import general.neural_analysis as na
 import general.data_io as gio
 
+guess_model_names = ('arviz_fit_cue_mistake_model.pkl',
+                     'arviz_fit_spatial_errors_model.pkl',
+                     'arviz_fit_null_guess_model.pkl')
+no_guess_model_names = ('arviz_fit_cue_mistake_no_guess_model.pkl',
+                        'arviz_fit_spatial_errors_no_guess_model.pkl',
+                        'arviz_fit_linear_interp_color_model.pkl')
+guess_model_keys = ('cue', 'spatial', 'lin')
+no_guess_model_keys = ('cue ng', 'spatial ng', 'lin ng')
+
+model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
+                         'sess_{session_num}/{time_period}/{time_bin}/'
+                         'pca_0.95_before/impute_True/')
+
+def load_many_sessions(session_nums, num_cols, time_period, time_bin,
+                       **kwargs):
+    session_dict = {}
+    for sn in session_nums:
+        session_dict[sn] = load_model_fits_templ(num_cols, sn, time_period,
+                                                 time_bin)
+    return session_dict
+
+def load_model_fits_templ(num_cols, session_num, time_period, time_bin,
+                          template=model_folder_template, **kwargs):
+    folder = template.format(num_cols=num_cols, session_num=session_num,
+                             time_period=time_period, time_bin=time_bin)
+    return load_model_fits(folder, **kwargs)
+
+def load_model_fits(folder, guess_model_names=guess_model_names,
+                    no_guess_model_names=no_guess_model_names,
+                    guess_model_keys=guess_model_keys,
+                    no_guess_model_keys=no_guess_model_keys,
+                    data_name='stan_data.pkl', load_guess=False,
+                    load_no_guess=True):
+    load_names = ()
+    load_keys = ()
+    if load_guess:
+        load_names = load_names + guess_model_names
+        load_keys = load_keys + guess_model_keys
+    if load_no_guess:
+        load_names = load_names + no_guess_model_names
+        load_keys = load_keys + no_guess_model_keys
+    model_dict = {}
+    for i, ln in enumerate(load_names):
+        path = os.path.join(folder, ln)
+        m = pickle.load(open(path, 'rb'))
+        model_dict[load_keys[i]] = m
+    data_path = os.path.join(folder, data_name)
+    data = pickle.load(open(data_path, 'rb'))
+    return model_dict, data        
 
 busch_bhv_fields = ('StopCondition', 'ReactionTime', 'Block',
                     'is_one_sample_displayed', 'IsUpperSample',
@@ -120,7 +169,6 @@ def load_buschman_data(folder, template='[0-9]{2}[01][0-9][0123][0-9]',
                        max_files=np.inf, load_bhv_model=None):
     fls = os.listdir(folder)
     counter = 0
-    super_df = pd.DataFrame(columns=('experiment', 'animal', 'date', 'data'))
     dates, expers, monkeys, datas = [], [], [], []
     n_neurs = []
     if load_bhv_model is not None:
