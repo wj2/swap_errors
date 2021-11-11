@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from mpl_toolkits import mplot3d
 import sklearn.decomposition as skd
+import sklearn.manifold as skm
 import arviz as az
 import itertools as it
 
@@ -137,14 +138,43 @@ def plot_color_means(cmeans, ax=None, dimred=3, t_ind=5,
 
 def _plot_mu(mu_format, trs, color, style, ax, ms=5, **kwargs):
     plot_mu = trs(mu_format)
-    print(plot_mu.shape)
     plot_mu_append = np.concatenate((plot_mu, plot_mu[:, :1]), axis=1)
     l = ax.plot(*plot_mu_append[:3], color=color, ls=style, **kwargs)
     col = l[0].get_color()
     ax.plot(*plot_mu_append[:3], 'o', color=col, ls=style, markersize=ms)
     return ax, col
 
-def visualize_model_collection(mdict, dim_red=True, trs_key='null',
+def visualize_model_collection_views(mdict, dim_red_model=skm.Isomap,
+                                     n_neighbors=16, dim_red=True,
+                                     c_u=None, axs=None, fwid=3,
+                                     kwarg_combs=None, mu_g_keys=(),
+                                     **kwargs):
+    if kwarg_combs is None:
+        kwarg_combs = ({'mu_u_keys':('mu_u',), 'mu_l_keys':('mu_l',)},
+                       {'mu_u_keys':()},
+                       {'mu_l_keys':()})
+    n_plots = len(kwarg_combs)
+    if axs is None:
+        f = plt.figure(figsize=(fwid*n_plots, fwid))
+        axs = list(f.add_subplot(1, n_plots, i + 1, projection='3d')
+                   for i in range(n_plots))
+    for i, ax in enumerate(axs):
+        kwarg_combs[i].update(kwargs)
+        if i == 0:
+            legend = True
+        else:
+            legend = False
+        visualize_model_collection(mdict, dim_red=dim_red,
+                                   dim_red_model=dim_red_model,
+                                   n_neighbors=n_neighbors,
+                                   c_u=c_u, ax=ax, mu_g_keys=mu_g_keys,
+                                   legend=legend,
+                                   **kwarg_combs[i])
+    return axs
+    
+    
+
+def visualize_model_collection(mdict, dim_red=True,
                                ax=None, **kwargs):
     trs = None
     if ax is None:
@@ -293,6 +323,7 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
                           mu_g_keys=('mu_g',), trs=None,
                           styles=('solid', 'dashed'), ax=None,
                           label_cu='', label_cl='', same_color=True,
+                          legend=True, 
                           n_cols=64, dim_red_model=skd.PCA, **kwargs):
     if ax is None:
         f = plt.figure()
@@ -327,7 +358,8 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
         mu_format = np.mean(fit_az.posterior[mu_k], axis=(0, 1))
         mu_format = np.expand_dims(mu_format, 1)
         _, c_g = _plot_mu(mu_format, trs, c_g, styles[i], ax)
-    ax.legend(frameon=False)
+    if legend:
+        ax.legend(frameon=False)
     return ax, trs
 
 def plot_k_trials(fit_az, k_thresh=.7, dim_red=None, ax=None,

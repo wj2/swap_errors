@@ -18,7 +18,6 @@ import general.utility as u
 import general.decoders as gd
 import swap_errors.auxiliary as swa
 
-
 def _get_key_mu(posterior, cols, keys, mean=True, mask=None):
     for i, k in enumerate(keys):
         arr = np.concatenate(posterior[k], axis=0)

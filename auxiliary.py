@@ -10,18 +10,21 @@ import general.utility as u
 import general.neural_analysis as na
 import general.data_io as gio
 
-guess_model_names = ('arviz_fit_cue_mistake_model.pkl',
-                     'arviz_fit_spatial_errors_model.pkl',
-                     'arviz_fit_null_guess_model.pkl')
-no_guess_model_names = ('arviz_fit_cue_mistake_no_guess_model.pkl',
+guess_model_names = ('arviz_fit_null_guess_model.pkl',
+                     'arviz_fit_cue_mistake_model.pkl',
+                     'arviz_fit_spatial_errors_model.pkl')
+no_guess_model_names = ('arviz_fit_linear_interp_color_model.pkl',
+                        'arviz_fit_cue_mistake_no_guess_model.pkl',
                         'arviz_fit_spatial_errors_no_guess_model.pkl',
-                        'arviz_fit_linear_interp_color_model.pkl')
-guess_model_keys = ('cue', 'spatial', 'lin')
-no_guess_model_keys = ('cue ng', 'spatial ng', 'lin ng')
+                        'arviz_fit_spatial_errors_hierarchical_model.pkl',
+                        'arviz_fit_hybrid_error_model.pkl')
+guess_model_keys = ('lin', 'cue', 'spatial')
+no_guess_model_keys = ('lin ng', 'cue ng', 'spatial ng',
+                       'spatial h ng', 'hybrid ng')
 
 model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
                          'sess_{session_num}/{time_period}/{time_bin}/'
-                         'pca_0.95_before/impute_True/')
+                         'pca_0.95_before/impute_True/interpolated_knots/')
 
 def load_many_sessions(session_nums, num_cols, time_period, time_bin,
                        **kwargs):
