@@ -136,23 +136,46 @@ def plot_color_means(cmeans, ax=None, dimred=3, t_ind=5,
     print(u.pr_only(p.explained_variance_ratio_))
     return ax         
 
-def _plot_mu(mu_format, trs, color, style, ax, ms=5, **kwargs):
+def _plot_mu(mu_format, trs, color, style, ax, ms=5, hsv_color=True,
+             bckgd_color=(.9, .9, .9), n_col_pts=64, **kwargs):
     plot_mu = trs(mu_format)
     plot_mu_append = np.concatenate((plot_mu, plot_mu[:, :1]), axis=1)
-    l = ax.plot(*plot_mu_append[:3], color=color, ls=style, **kwargs)
-    col = l[0].get_color()
-    ax.plot(*plot_mu_append[:3], 'o', color=col, ls=style, markersize=ms)
+    if hsv_color:
+        cmap = plt.get_cmap('hsv')
+        n_bins = plot_mu.shape[1]
+        pts = np.linspace(0, 1, n_col_pts + 1)[:-1]
+        cols = pts*np.pi*2
+        col_rep = swan.spline_color(cols, n_bins)
+        plot_mu_pts = np.dot(trs(mu_format), col_rep)
+        pt_colors = cmap(pts)
+        col = None
+        ax.plot(*plot_mu_append[:3], color=bckgd_color, ls=style,
+                **kwargs)
+        for i in range(plot_mu_pts.shape[1]):
+            ax.plot(*plot_mu_pts[:3, i:i+1], 'o', color=pt_colors[i], ls=style,
+                    markersize=ms)
+    else:    
+        l = ax.plot(*plot_mu_append[:3], color=color, ls=style, **kwargs)
+        col = l[0].get_color()
+        ax.plot(*plot_mu_append[:3], 'o', color=col, ls=style, markersize=ms)
     return ax, col
 
-def visualize_model_collection_views(mdict, dim_red_model=skm.Isomap,
+def visualize_model_collection_views(mdict, dim_red_model=skd.PCA,
                                      n_neighbors=16, dim_red=True,
                                      c_u=None, axs=None, fwid=3,
                                      kwarg_combs=None, mu_g_keys=(),
-                                     **kwargs):
+                                     use_isomap=True, **kwargs):
+    if use_isomap:
+        dim_red_model = skm.Isomap
+        vis_kwargs = {'dim_red_model':dim_red_model,
+                      'n_neighbors':n_neighbors}
+    else:
+        vis_kwargs = {'dim_red_model':skd.PCA}
     if kwarg_combs is None:
         kwarg_combs = ({'mu_u_keys':('mu_u',), 'mu_l_keys':('mu_l',)},
                        {'mu_u_keys':()},
-                       {'mu_l_keys':()})
+                       {'mu_l_keys':()},
+                       {'mu_u_keys':('mu_d_u',), 'mu_l_keys':('mu_d_l',)},)
     n_plots = len(kwarg_combs)
     if axs is None:
         f = plt.figure(figsize=(fwid*n_plots, fwid))
@@ -160,13 +183,12 @@ def visualize_model_collection_views(mdict, dim_red_model=skm.Isomap,
                    for i in range(n_plots))
     for i, ax in enumerate(axs):
         kwarg_combs[i].update(kwargs)
+        kwarg_combs[i].update(vis_kwargs)
         if i == 0:
             legend = True
         else:
             legend = False
         visualize_model_collection(mdict, dim_red=dim_red,
-                                   dim_red_model=dim_red_model,
-                                   n_neighbors=n_neighbors,
                                    c_u=c_u, ax=ax, mu_g_keys=mu_g_keys,
                                    legend=legend,
                                    **kwarg_combs[i])
@@ -316,6 +338,31 @@ def plot_swap_distr(fit_az, data, ax=None, n_bins=10, **kwargs):
             bins=bins)
     gpl.add_vlines([0, 1], ax)
     return ax
+
+class MultiSessionFit():
+    
+    def __init__(self, fit_list):
+        self.posterior = {}
+        for k in fit_list[0].posterior.keys():
+            k_list = []
+            for fl in fit_list:
+                add_arr = fl.posterior[k]
+                if len(add_arr.shape) < 3:
+                    add_arr = np.expand_dims(add_arr, 2)
+                k_list.append(add_arr)
+            self.posterior[k] = np.concatenate(k_list, axis=2)
+
+def make_multi_session_fit(sdict):
+    post_lists = {}
+    for session_id, (m, _) in sdict.items():
+        for mk, fit_az in m.items():
+            mk_list = post_lists.get(mk, [])
+            mk_list.append(fit_az)
+            post_lists[mk] = mk_list
+    msf = {}
+    for k, pl in post_lists.items():
+        msf[k] = MultiSessionFit(pl)
+    return msf        
 
 def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
                           mu_l_keys=('mu_l', 'mu_d_l'), dim_red=True,

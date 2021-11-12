@@ -13,14 +13,18 @@ import general.data_io as gio
 guess_model_names = ('arviz_fit_null_guess_model.pkl',
                      'arviz_fit_cue_mistake_model.pkl',
                      'arviz_fit_spatial_errors_model.pkl')
-no_guess_model_names = ('arviz_fit_linear_interp_color_model.pkl',
-                        'arviz_fit_cue_mistake_no_guess_model.pkl',
-                        'arviz_fit_spatial_errors_no_guess_model.pkl',
-                        'arviz_fit_spatial_errors_hierarchical_model.pkl',
-                        'arviz_fit_hybrid_error_model.pkl')
-guess_model_keys = ('lin', 'cue', 'spatial')
-no_guess_model_keys = ('lin ng', 'cue ng', 'spatial ng',
-                       'spatial h ng', 'hybrid ng')
+guess_model_keys = ('lin g', 'cue g', 'spatial g')
+
+wh_default_model_names = ('arviz_fit_null_hierarchical_model.pkl',
+                          'arviz_fit_spatial_error_hierarchical_model.pkl',
+                          'arviz_fit_cue_error_hierarchical_model.pkl',
+                          'arviz_fit_hybrid_error_hierarchical_model.pkl')
+wh_default_model_keys = ('lin', 'spatial', 'cue', 'hybrid')
+
+cue_default_model_names = ('arviz_fit_null_precue_model.pkl',
+                           'arviz_fit_spatial_error_precue_model.pkl',
+                           'arviz_fit_hybrid_error_precue_model.pkl')
+cue_default_model_keys = ('lin', 'spatial', 'hybrid')
 
 model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
                          'sess_{session_num}/{time_period}/{time_bin}/'
@@ -28,10 +32,20 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
 
 def load_many_sessions(session_nums, num_cols, time_period, time_bin,
                        **kwargs):
+    if time_period == 'CUE2_ON_diode':
+        k = dict(no_guess_model_names=cue_default_model_names,
+                 no_guess_model_keys=cue_default_model_keys)
+        k.update(kwargs)
+    elif time_period == 'WHEEL_ON_diode':
+        k = dict(no_guess_model_names=wh_default_model_names,
+                 no_guess_model_keys=wh_default_model_keys)
+        k.update(kwargs)        
+    else:
+        k = kwargs
     session_dict = {}
     for sn in session_nums:
         session_dict[sn] = load_model_fits_templ(num_cols, sn, time_period,
-                                                 time_bin)
+                                                 time_bin, **k)
     return session_dict
 
 def load_model_fits_templ(num_cols, session_num, time_period, time_bin,
