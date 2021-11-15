@@ -10,13 +10,40 @@ import sklearn.model_selection as skms
 import sklearn.svm as skc
 import scipy.stats as sts
 import itertools as it
-# import ripser as r
+import statsmodels.stats.weightstats as smw
 
 import general.data_io as dio
 import general.neural_analysis as na
 import general.utility as u
 import general.decoders as gd
 import swap_errors.auxiliary as swa
+
+def log_likelihood_comparison(model_dict, use_weights=None, thresh=None):
+    mw = smw.DescrStatsW
+    n_models = len(model_dict)
+    m_diff = np.zeros((n_models, n_models))
+    sem_diff = np.zeros_like(m_diff)
+    names = np.zeros((n_models, n_models, 2), dtype=object)
+    keys = list(model_dict.keys())
+    prod = it.combinations(range(n_models), 2)
+    for (i1, i2) in prod:
+        k1, k2 = keys[i1], keys[i2]
+        l1 = np.mean(model_dict[k1].log_likelihood.y, axis=(0, 1))
+        l2 = np.mean(model_dict[k2].log_likelihood.y, axis=(0, 1))
+
+        if use_weights is not None:
+            if thresh is not None:
+                weights = use_weights > thresh
+            else:
+                weights = use_weights*(use_weights.shape[0]/np.sum(use_weights))
+        else:
+            weights = None
+        delt = l1 - l2
+        diff_model = mw(delt, weights=weights, ddof=0)
+        m_diff[i1, i2] = diff_model.mean
+        sem_diff[i1, i2] = diff_model.std_mean
+        names[i1, i2] = (k1, k2)
+    return m_diff, sem_diff, names
 
 def _get_key_mu(posterior, cols, keys, mean=True, mask=None):
     for i, k in enumerate(keys):
