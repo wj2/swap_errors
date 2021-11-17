@@ -14,21 +14,31 @@ transformed data {
 }
 
 parameters {
+  matrix[N,K] mu_c_pr; // cued prior
+  matrix[N,K] mu_d_pr; // distractor prior
   matrix[N,K] mu_u; // upper color mean
   matrix[N,K] mu_l; // lower color mean
   matrix[N,K] mu_d_u; // upper distractor
   matrix[N,K] mu_d_l; // lower distractor
   vector<lower=0>[N] vars;
+  vector<lower=0>[N] pr_vars; // prior variances
 }
 
 model {
   real trg[T];
   // prior
   for (k in 1:K){
-    mu_u[:,k] ~ std_normal();
-    mu_l[:,k] ~ std_normal();
-    mu_d_u[:,k] ~ std_normal();
-    mu_d_l[:,k] ~ std_normal();
+    mu_c_pr[:,k] ~ std_normal();
+    mu_d_pr[:,k] ~ std_normal();
+  }
+
+  pr_vars ~ inv_gamma(2,1);
+
+  for (k in 1:K){
+    mu_u[:,k] ~ normal(mu_c_pr[:,k], pr_vars);
+    mu_l[:,k] ~ normal(mu_c_pr[:,k], pr_vars);
+    mu_d_u[:,k] ~ normal(mu_d_pr[:,k], pr_vars);
+    mu_d_l[:,k] ~ normal(mu_d_pr[:,k], pr_vars);
   }
   vars ~ inv_gamma(2,1);
   

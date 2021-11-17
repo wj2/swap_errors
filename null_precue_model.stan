@@ -8,7 +8,7 @@ data {
   vector[K] C_l[T]; // lower color, 2-hot simplex vector
 }
   
-transformed data {
+transformed data {  
   real<upper=0> neg_log_K;
   neg_log_K = -log(K);
 }
@@ -16,8 +16,7 @@ transformed data {
 parameters {
   matrix[N,K] mu_u; // upper color mean
   matrix[N,K] mu_l; // lower color mean
-  matrix[N,K] mu_d_u; // upper distractor
-  matrix[N,K] mu_d_l; // lower distractor
+  vector<lower=0>[N] vars;
 }
 
 model {
@@ -26,12 +25,25 @@ model {
   for (k in 1:K){
     mu_u[:,k] ~ std_normal();
     mu_l[:,k] ~ std_normal();
-    mu_d_u[:,k] ~ std_normal();
-    mu_d_l[:,k] ~ std_normal();
   }
+  vars ~ inv_gamma(2,1);
+  
   // likelihood
   for (n in 1:T) {
-    trg[n] = cue[n]*(normal_lpdf(y[n] | mu_u*C_u[n] + mu_d_l*C_l[n] ,1)) + (1-cue[n])*(normal_lpdf(y[n] | mu_l*C_l[n] + mu_d_u*C_u[n], 1));
+    trg[n] = normal_lpdf(y[n] | mu_u*C_u[n] + mu_l*C_l[n], sqrt(vars));
   }
   target += sum(trg);
+}
+
+generated quantities{
+  real log_lik[T];
+  vector[N] err_hat[T];
+  for (n in 1:T) {
+    // loglihood
+    log_lik[n] = normal_lpdf(y[n] | mu_u*C_u[n] + mu_l*C_l[n], sqrt(vars));
+
+    // generative model
+    err_hat[n] = to_vector(normal_rng(mu_u*C_u[n] + mu_l*C_l[n], sqrt(vars)));
+
+  }
 }
