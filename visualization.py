@@ -7,6 +7,7 @@ import sklearn.decomposition as skd
 import sklearn.manifold as skm
 import arviz as az
 import itertools as it
+import seaborn as sns
 
 import general.plotting as gpl
 import general.utility as u
@@ -14,33 +15,73 @@ import swap_errors.analysis as swan
 import swap_errors.dip as swd
 
 def plot_model_probs(*args, plot_keys=('swap_prob', 'guess_prob'), ax=None,
-                     sep=.1, comb_func=np.median, colors=None, sub_x=-1,
+                     sep=.5, comb_func=np.median, colors=None, sub_x=-1,
                      labels=('swaps', 'guesses'), total_label='correct',
-                     arg_names=('Elmo', 'Waldorf')):
+                     arg_names=('Elmo', 'Waldorf'), ms=3, monkey_colors=None):
     if colors is None:
         colors = (None,)*len(args)
     if ax is None:
         f, ax = plt.subplots(1, 1)
     cents = np.arange(0, len(plot_keys))
     n_clusters = len(args)
+    swarm_full = {'x':[], 'y':[], 'monkey':[]}
+    violin_full = {'x':[], 'y':[], 'monkey':[]}
     for i, m in enumerate(args):
         offset = (i - n_clusters/2)*sep
-        
+        swarm_data = {'x':[], 'y':[]}
+        violin_data = {'x':[], 'y':[]}
         for j, pk in enumerate(plot_keys):
-            pk_sessions = comb_func(m[pk], axis=0)
+            pk_sessions = comb_func(m[pk], axis=(0, 1))
+            pk_full = m[pk].to_numpy().flatten()
             if j == 0:
                 totals = np.zeros_like(pk_sessions)
+                totals_full = np.zeros_like(pk_full)
             totals = totals + pk_sessions
-            x_offsets = np.random.randn(len(pk_sessions))*sep
-            l = ax.plot(x_offsets + offset + cents[j],
-                        pk_sessions, 'o', color=colors[i])
-        x_offsets = np.random.randn(len(pk_sessions))*sep
-        ax.plot(x_offsets + offset + sub_x,
-                1 - totals, 'o', color=colors[i],
-                label=arg_names[i])
+            totals_full = totals_full + pk_full
+            xs_full = np.ones(len(pk_full))*(offset + cents[j])
+            violin_data['x'] = np.concatenate((violin_data['x'],
+                                               xs_full))
+            violin_data['y'] = np.concatenate((violin_data['y'],
+                                               pk_full))
+            xs = np.ones(len(pk_sessions))*(offset + cents[j])
+            swarm_data['x'] = np.concatenate((swarm_data['x'], xs))
+            swarm_data['y'] = np.concatenate((swarm_data['y'],
+                                              pk_sessions))
+            
+        xs_full = np.ones(len(totals_full))*(offset + sub_x)
+        violin_data['x'] = np.concatenate((violin_data['x'],
+                                           xs_full))
+        violin_data['y'] = np.concatenate((violin_data['y'],
+                                           1 - totals_full))
+        
+        xs = np.ones(len(pk_sessions), dtype=float)*(offset + sub_x)
+        swarm_data['x'] = np.concatenate((swarm_data['x'], xs))
+        swarm_data['y'] = np.concatenate((swarm_data['y'],
+                                          1 - totals))
+        swarm_full['x'] = np.concatenate((swarm_full['x'],
+                                          swarm_data['x']))
+        swarm_full['y'] = np.concatenate((swarm_full['y'],
+                                          swarm_data['y']))
+        monkey_list = [arg_names[i]]*len(swarm_data['x'])
+        swarm_full['monkey'] = np.concatenate((swarm_full['monkey'],
+                                               monkey_list))
+        
+        violin_full['x'] = np.concatenate((violin_full['x'],
+                                          violin_data['x']))
+        violin_full['y'] = np.concatenate((violin_full['y'],
+                                          violin_data['y']))
+        monkey_list = [arg_names[i]]*len(violin_data['x'])
+        violin_full['monkey'] = np.concatenate((violin_full['monkey'],
+                                                monkey_list))
+
+    # sns.violinplot(data=violin_full, x='x', y='y', hue='monkey',
+    #                palette=monkey_colors, ax=ax)
+    l = sns.swarmplot(data=swarm_full, x='x', y='y', hue='monkey',
+                      palette=monkey_colors,
+                      ax=ax, size=ms)
     ax.legend(frameon=False)
     ax.set_ylim([0, 1])
-    ax.set_xticks([sub_x] + list(cents))
+    ax.set_xticks([.5, 2.5, 4.5])
     ax.set_xticklabels((total_label,) + labels)
     ax.set_ylabel('probability')
     gpl.clean_plot(ax, 0)
@@ -68,6 +109,38 @@ def visualize_simplex(pts, ax=None, ax_labels=default_ax_labels, thr=.5,
     ax.set_ylabel(ax_labels[1])
     ax.set_zlabel(ax_labels[2])
     ax.view_init(45, 45)
+    return ax
+
+def visualize_simplex_2d(pts, ax=None, ax_labels=None, thr=.5,
+                         pt_grey_col=(.7, .7, .7),
+                         line_grey_col=(.6, .6, .6),
+                         colors=None, bottom_x=.8,
+                         bottom_y=-1.1, top_x=.35, top_y=1,
+                         legend=False):
+    if colors is None:
+        colors = (None,)*pts.shape[1]
+    if ax_labels is None:
+        ax_labels = ('',)*pts.shape[1]
+    pts_x = pts[:, 1] - pts[:, 0]
+    pts_y = pts[:, 2] - (pts[:, 0] + pts[:, 1])
+    ax.plot(pts_x, pts_y, 'o', color=pt_grey_col)
+    for i in range(pts.shape[1]):
+        mask = pts[:, i] > thr
+        ax.plot(pts_x[mask], pts_y[mask], 'o', color=colors[i],
+                label=ax_labels[i])
+    ax.plot([-1, 0], [-1, 1], color=line_grey_col)
+    ax.plot([0, 1], [1, -1], color=line_grey_col)
+    ax.plot([-1, 1], [-1, -1], color=line_grey_col)
+    if legend:
+        ax.legend(frameon=False)
+    gpl.clean_plot(ax, 1)
+    gpl.clean_plot_bottom(ax, 0)
+    ax.text(bottom_x, bottom_y, ax_labels[1], verticalalignment='top',
+            horizontalalignment='center')
+    ax.text(-bottom_x, bottom_y, ax_labels[0], verticalalignment='top',
+            horizontalalignment='center')
+    ax.text(top_x, top_y, ax_labels[2], verticalalignment='top',
+            horizontalalignment='center', rotation=-60)
     return ax
 
 def plot_posterior_predictive_dims_dict(models, data, dims=5, fwid=3,
@@ -474,32 +547,58 @@ def plot_k_distributions(models, labels, k_thresh=.7, fwid=3, sharex=True,
         ax.set_xlabel(labels[ind1])
         ax.set_ylabel(labels[ind2])
     return f, axs
-        
+
+def make_color_circle(ax=None, px=1000, r_cent=350, r_wid=100):
+    if ax is None:
+        f, ax = plt.subplots(1, 1)
+
+    surface = np.zeros((px, px))
+    x, y = np.meshgrid(np.arange(px), np.arange(px))
+    full = np.stack((x, y), axis=2)
+    cent = full - px/2
+    norm = cent/np.sqrt(np.sum(cent**2, axis=2, keepdims=True))
+    vec = np.expand_dims([0, 1], axis=(0, 1))
+    dist = np.sqrt(np.sum((norm - vec)**2, axis=2))
+    sim = np.arcsin(dist/2) 
+    sim[x < px/2] = -sim[x < px/2]
+    sim = sim - np.nanmin(sim)
+    sim = sim/np.nanmax(sim)
+
+    r = np.sqrt(np.sum(cent**2, axis=2))
+    mask = np.logical_or(r < r_cent - r_wid/2, r > r_cent + r_wid/2)
+    sim[mask] = np.nan
+    ax.imshow(sim, cmap='hsv')
+    gpl.clean_plot(ax, 1)
+    gpl.clean_plot_bottom(ax, 0)
+
 def plot_error_swap_distribs(data, err_field='err', dist_field='LABthetaDist',
-                             resp_field='LABthetaResp', axs=None, fwid=3,
-                             label='', model_data=None, color=None,
-                             model_derr=None):
+                             resp_field='LABthetaResp', **kwargs):
+    errs = np.concatenate(data[err_field])
+    dist_errs = np.concatenate(data[dist_field] - data[resp_field])
+    dist_errs = u.normalize_periodic_range(dist_errs)
+    return plot_error_swap_distribs_err(errs, dist_errs, **kwargs)
+
+def plot_error_swap_distribs_err(errs, dist_errs, axs=None, fwid=3,
+                                 label='', model_data=None, color=None,
+                                 model_derr=None):
     if axs is None:
         fsize = (2*fwid, fwid)
         f, axs = plt.subplots(1, 2, figsize=fsize, sharey=True,
                               sharex=True)
-    errs = np.concatenate(data[err_field])
-    dist_errs = np.concatenate(data[dist_field] - data[resp_field])
-    dist_errs = u.normalize_periodic_range(dist_errs)
-    l = axs[0].hist(errs, histtype='step', density=True, color=color)
+    l = axs[0].hist(errs,  density=True, color=color)
     if model_data is not None:
         axs[0].hist(model_data.flatten(), histtype='step', density=True,
-                    color=color, linestyle='dashed')
-    axs[1].hist(dist_errs, histtype='step', label=label, density=True,
+                    color='k', linestyle='dashed')
+    axs[1].hist(dist_errs, label=label, density=True,
                 color=color)
     if model_derr is not None:
         m_derr = u.normalize_periodic_range(model_derr - model_data)
         axs[1].hist(m_derr.flatten(), histtype='step', density=True,
-                    color=color, linestyle='dashed')
+                    color='k', linestyle='dashed')
     axs[1].legend(frameon=False)
     axs[0].set_xlabel('error (rads)')
     axs[0].set_ylabel('density')
-    axs[1].set_xlabel('distractor error (rads)')
+    axs[1].set_xlabel('distractor distance (rads)')
     gpl.clean_plot(axs[0], 0)
     gpl.clean_plot(axs[1], 1)
     return axs
