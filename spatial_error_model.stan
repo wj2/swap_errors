@@ -72,7 +72,7 @@ generated quantities{
                         + (cue[n]*(normal_lpdf(y[n] | mu_u*C_u[n] + mu_d_l*C_l[n], sqrt(vars))) 
                         + (1-cue[n])*(normal_lpdf(y[n] | mu_l*C_l[n] + mu_d_u*C_u[n], sqrt(vars))));
     log_lik[n] = log_sum_exp(lp);
-
+ 
     // generative model
 
     trl_type = categorical_rng(p[n]);

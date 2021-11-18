@@ -24,26 +24,27 @@ parameters {
   // vector[N] logit_vars; // variances
   vector<lower=0>[N] vars;
   vector<lower=0>[N] pr_vars; // prior variances
-  real logits[2]; // log-odds of being a spatial or cue error trial
+  // real logits[2]; // log-odds of being a spatial or cue error trial
+  simplex[3] p_err;
 }
 
 transformed parameters {
   real denom;
-  vector[3] all_logits; 
+  // vector[3] all_logits; 
   vector[3] log_p_err;
-  vector<lower=0,upper=1>[3] p_err;
+  // vector<lower=0,upper=1>[3] p_err;
 
-  // log sum exp
-  all_logits[1] = logits[1]; // spatial
-  all_logits[2] = logits[2]; // cued
-  all_logits[3] = 0;         // none
-  denom = log_sum_exp(all_logits);
+  // // log sum exp
+  // all_logits[1] = logits[1]; // spatial
+  // all_logits[2] = logits[2]; // cued
+  // all_logits[3] = 0;         // none
+  // denom = log_sum_exp(all_logits);
 
   // log-odds -> log-probabilities
-  log_p_err = all_logits - denom;
+  log_p_err = log(p_err);
 
-  // log-probabilities -> probabilities
-  p_err = exp(log_p_err);
+  // // log-probabilities -> probabilities
+  // p_err = exp(log_p_err);
 
 }
 
@@ -68,7 +69,8 @@ model {
   }
   
   vars ~ inv_gamma(2,1);
-  logits ~ normal(0,1);
+  // logits ~ normal(0,1);
+  p_err ~ dirichlet(rep_vector(1.5,3));
 
   // likelihood
   for (n in 1:T) {

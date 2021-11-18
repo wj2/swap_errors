@@ -86,30 +86,29 @@ these_dsets.append({'these_sess':list(range(23)),
 # 					'color_weights':'interpolated' # 'softmax'
 # 					})
 
-these_dsets.append({'these_sess':list(range(23)),
-					'regions':['all','frontal','posterior','decision','sensory'],
-					'tzf':'CUE2_ON_diode',
-					'tbeg':-0.5,
-					'twindow':0.5,
-					'tstep':0.5,
-					'num_bins':6,
-					'do_pca':'before', #'after'
-					'pca_thrs':0.95,
-					'min_trials':40,
-					'shuffle':False,
-					'impute_nan':True,
-					'shuffle_probs':True,
-					'impute_params':{'weights':'uniform','n_neighbors':5},
-					'color_weights':'interpolated' # 'softmax'
-					})
+# these_dsets.append({'these_sess':list(range(23)),
+# 					'regions':['all','frontal','posterior','decision','sensory'],
+# 					'tzf':'CUE2_ON_diode',
+# 					'tbeg':-0.5,
+# 					'twindow':0.5,
+# 					'tstep':0.5,
+# 					'num_bins':6,
+# 					'do_pca':'before', #'after'
+# 					'pca_thrs':0.95,
+# 					'min_trials':40,
+# 					'shuffle':False,
+# 					'impute_nan':True,
+# 					'shuffle_probs':True,
+# 					'impute_params':{'weights':'uniform','n_neighbors':5},
+# 					'color_weights':'interpolated' # 'softmax'
+# 					})
 
 these_models = []
 # these_models.append(['null_hierarchical','spatial_error_hierarchical','cue_error_hierarchical',
 # 				'hybrid_error_hierarchical', 'super_hybrid_error_hierarchical'])
 # these_models.append(['null_precue','spatial_error_precue','hybrid_error_precue'])
-these_models.append(['spatial_error_hierarchical','cue_error_hierarchical',
-				'hybrid_error_hierarchical', 'super_hybrid_error_hierarchical'])
-these_models.append(['spatial_error_precue','hybrid_error_precue'])
+these_models.append(['super_hybrid_error_hierarchical'])
+# these_models.append(['spatial_error_precue','hybrid_error_precue'])
 
 ### Assemble stan data dicts
 ##############################
@@ -125,14 +124,6 @@ if these_dsets != old_prms:
 	data = gio.Dataset.from_readfunc(swa.load_buschman_data, SAVE_DIR, max_files=np.inf,seconds=True, 
 	                                  load_bhv_model=CODE_DIR+'/assignment_errors/bhv_model.pkl',
 	                                  spks_template=swa.busch_spks_templ_mua)
-
-	# maybe this should be made more flexible ...
-	um = data['is_one_sample_displayed'] == 0
-	um = um.rs_and(data['Block']>1)
-	um = um.rs_and(data['corr_prob']<2) # avoid nan trials
-	data_single = data.mask(um)
-
-	n = data_single.get_ntrls()
 
 	for i_dst, dset_prm in enumerate(these_dsets):
 		## funky way of iterating over all the parameters in the dictionary
@@ -166,6 +157,16 @@ if these_dsets != old_prms:
 				spline_func = helpers.convexify
 			elif color_weights == 'softmax':
 				spline_func = helpers.softmax_cols
+
+
+			# maybe this should be made more flexible ...
+			um = data['is_one_sample_displayed'] == 0
+			um = um.rs_and(data['Block']>1)
+			um = um.rs_and(data['corr_prob']<2) # avoid nan trials
+			# if 
+			data_single = data.mask(um)
+
+			n = data_single.get_ntrls()
 
 			pop, xs = data_single.get_populations(twindow, tbeg, tend, tstep,
 			                                      skl_axes=True, repl_nan=False,
