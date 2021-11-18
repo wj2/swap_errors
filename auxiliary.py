@@ -18,12 +18,12 @@ guess_model_keys = ('lin g', 'cue g', 'spatial g')
 wh_default_model_names = ('arviz_fit_null_hierarchical_model.pkl',
                           'arviz_fit_spatial_error_hierarchical_model.pkl',
                           'arviz_fit_cue_error_hierarchical_model.pkl',
-                          'arviz_fit_hybrid_error_hierarchical_model.pkl')
+                          'arviz_fit_super_hybrid_error_hierarchical_model.pkl')
 wh_default_model_keys = ('lin', 'spatial', 'cue', 'hybrid')
 
 cue_default_model_names = ('arviz_fit_null_precue_model.pkl',
                            'arviz_fit_spatial_error_precue_model.pkl',
-                           'arviz_fit_hybrid_error_precue_model.pkl')
+                           'arviz_fit_super_hybrid_error_precue_model.pkl')
 cue_default_model_keys = ('lin', 'spatial', 'hybrid')
 
 model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
@@ -54,10 +54,10 @@ def load_model_fits_templ(num_cols, session_num, time_period, time_bin,
                              time_period=time_period, time_bin=time_bin)
     return load_model_fits(folder, **kwargs)
 
-def load_model_fits(folder, guess_model_names=guess_model_names,
-                    no_guess_model_names=no_guess_model_names,
-                    guess_model_keys=guess_model_keys,
-                    no_guess_model_keys=no_guess_model_keys,
+def load_model_fits(folder, guess_model_names=cue_default_model_names,
+                    no_guess_model_names=wh_default_model_names,
+                    guess_model_keys=cue_default_model_keys,
+                    no_guess_model_keys=wh_default_model_keys,
                     data_name='stan_data.pkl', load_guess=False,
                     load_no_guess=True):
     load_names = ()

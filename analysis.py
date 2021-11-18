@@ -18,6 +18,24 @@ import general.utility as u
 import general.decoders as gd
 import swap_errors.auxiliary as swa
 
+def session_ll_analysis(session_dict, use_weights=False, **kwargs):
+    out_ms = []
+    out_sems = []
+    k_list = []
+    for k, (m, data) in session_dict.items():
+        if use_weights:
+            weights = data['p'][:, 1]
+        else:
+            weights = None
+        out = log_likelihood_comparison(m, use_weights=weights, **kwargs)
+        m_diff, sem_diff, names = out
+        out_ms.append(m_diff)
+        out_sems.append(sem_diff)
+        k_list.append(k)
+    ms_all = np.stack(out_ms, axis=0)
+    sem_all = np.stack(out_sems, axis=0)
+    return ms_all, sem_all, k_list, names
+
 def log_likelihood_comparison(model_dict, use_weights=None, thresh=None):
     mw = smw.DescrStatsW
     n_models = len(model_dict)
@@ -28,9 +46,8 @@ def log_likelihood_comparison(model_dict, use_weights=None, thresh=None):
     prod = it.combinations(range(n_models), 2)
     for (i1, i2) in prod:
         k1, k2 = keys[i1], keys[i2]
-        l1 = np.mean(model_dict[k1].log_likelihood.y, axis=(0, 1))
-        l2 = np.mean(model_dict[k2].log_likelihood.y, axis=(0, 1))
-
+        l1 = np.mean(model_dict[k1].log_likelihood.y.to_numpy(), axis=(0, 1))
+        l2 = np.mean(model_dict[k2].log_likelihood.y.to_numpy(), axis=(0, 1))
         if use_weights is not None:
             if thresh is not None:
                 weights = use_weights > thresh
@@ -47,7 +64,7 @@ def log_likelihood_comparison(model_dict, use_weights=None, thresh=None):
 
 def _get_key_mu(posterior, cols, keys, mean=True, mask=None):
     for i, k in enumerate(keys):
-        arr = np.concatenate(posterior[k], axis=0)
+        arr = np.concatenate(posterior[k].to_numpy(), axis=0)
         if mask is not None:
             cols_use = cols[i, mask].T
         else:
@@ -69,10 +86,14 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                                                  ('mu_d_l', 'mu_u')),
                                      resp_key='y', cue_key='cue',
                                      p_thresh=.5, p_key='p', p_ind=1,
-                                     eps=1e-3):
+                                     eps=1e-3, use_cues=True):
     cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
-    pp = np.concatenate(fit_az.posterior_predictive[eh_key], axis=0)
-    cues = data[cue_key]
+    pp = np.concatenate(fit_az.posterior_predictive[eh_key].to_numpy(),
+                        axis=0)
+    if use_cues:
+        cues = data[cue_key]
+    else:
+        cues = np.zeros(len(data[cue_key]))
     u_cues = np.unique(cues)
     resp = data[resp_key]
     if p_thresh is not None:

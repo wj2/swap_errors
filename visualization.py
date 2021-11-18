@@ -11,6 +11,7 @@ import itertools as it
 import general.plotting as gpl
 import general.utility as u
 import swap_errors.analysis as swan
+import swap_errors.dip as swd
 
 def plot_model_probs(*args, plot_keys=('swap_prob', 'guess_prob'), ax=None,
                      sep=.1, comb_func=np.median, colors=None, sub_x=-1,
@@ -277,11 +278,12 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
     return ax
 
 def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
-                                       fwid=3, p_ind=1, **kwargs):
+                                       fwid=3, p_ind=1, bin_bounds=None,
+                                       ret_data=True, **kwargs):
     if axs is None:
         n_plots = len(list(session_dict.values())[0][0])
-        fsize = (fwid*n_plots, fwid*2)
-        f, axs = plt.subplots(2, n_plots, figsize=fsize,
+        fsize = (fwid*n_plots, fwid)
+        f, axs = plt.subplots(1, n_plots, figsize=fsize,
                               sharex=False, sharey=False)
     true_d = {}
     pred_d = {}
@@ -300,19 +302,30 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
             ps_k = ps_d.get(k, [])
             ps_k.append(ps[:, p_ind])
             ps_d[k] = ps_k
+    if bin_bounds is not None:
+        bins = np.linspace(*bin_bounds, n_bins)
+    else:
+        bins = n_bins
+    out_data = {}
     for i, (k, td) in enumerate(true_d.items()):
         td_full = np.concatenate(td, axis=0)
         pd_full = np.concatenate(pred_d[k], axis=0)
         ps_full = np.concatenate(ps_d[k], axis=0)
-        _, bins, _ = axs[0, i].hist(td_full, bins=n_bins, histtype='step',
-                                 density=True)
-        axs[0, i].hist(pd_full, bins=bins, histtype='step',
-                    density=True)
-        axs[1, i].plot(ps_full, td_full, 'o')
-        gpl.add_vlines([0, 1], axs[0, i])
-        axs[0, i].set_ylabel(k)
-        axs[1, i].set_ylabel(k)
-    return axs
+        # print(swd.dip(td_full))
+        _, bins, _ = axs[i].hist(td_full, bins=bins, histtype='step',
+                                    density=True, label='observed')
+        axs[i].hist(pd_full, bins=bins, histtype='step',
+                       density=True, label='predicted')
+        gpl.add_vlines([0, 1], axs[i])
+        axs[i].set_ylabel(k)
+        if ret_data:
+            out_data[k] = td_full
+    axs[i].legend()
+    if ret_data:
+        out = axs, out_data
+    else:
+        out = axs
+    return out
             
 def plot_swap_distr_collection(model_dict, data, axs=None,
                                fwid=3, **kwargs):
