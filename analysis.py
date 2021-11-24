@@ -8,6 +8,7 @@ import sklearn.manifold as skm
 import sklearn.neighbors as skn
 import sklearn.model_selection as skms
 import sklearn.svm as skc
+import sklearn.linear_model as sklm
 import scipy.stats as sts
 import itertools as it
 import statsmodels.stats.weightstats as smw
@@ -17,6 +18,16 @@ import general.neural_analysis as na
 import general.utility as u
 import general.decoders as gd
 import swap_errors.auxiliary as swa
+
+def spline_decoding(data, activity='y', col_keys=('C_u',), cv=20,
+                    cv_type=skms.LeaveOneOut,
+                    model=sklm.Ridge):
+    targ = np.concatenate(list(data[ck] for ck in col_keys), axis=1)
+    pred = data[activity]
+    if cv_type is not None:
+        cv = cv_type()
+    out = skms.cross_val_score(model(), pred, targ, cv=cv)
+    return out
 
 def session_ll_analysis(session_dict, use_weights=False, **kwargs):
     out_ms = []
@@ -629,12 +640,18 @@ def retro_mask(data):
     return data_retro
 
 def fit_animal_bhv_models(data, *args, animal_key='animal', retro_masking=True,
-                          **kwargs):
+                          pro_masking=False, **kwargs):
+    complete = data['StopCondition'] > -2
     if retro_masking:
-        bhv_retro = (data['is_one_sample_displayed'] == 0).rs_and(
+        bhv_mask = complete.rs_and(
+            data['is_one_sample_displayed'] == 0).rs_and(
             data['Block'] > 1)
-        bhv_retro = bhv_retro.rs_and(data['StopCondition'] > -2)
-        data = data.mask(bhv_retro)
+    if pro_masking:
+        bhv_mask = complete.rs_and(
+            data['is_one_sample_displayed'] == 0).rs_and(
+            data['Block'] == 1)
+    data = data.mask(bhv_mask)
+
     animals = np.unique(np.array(data[animal_key]))
     map_dict = {}
     full_dict = {}
@@ -706,3 +723,11 @@ def fit_bhv_model(data, model_path=bmp, targ_field='LABthetaTarget',
         diag = None
     fit_av = az.from_pystan(posterior=fit, **arviz)
     return fit, diag, fit_av, stan_data, mapping_dict
+
+def merge_models(*args):
+    out_dict = {}
+    for _, m in args:
+        for k, v in m.items():
+            v_pre = out_dict.get(k, [])
+            out_dict[k] = v_pre + v
+    return out_dict

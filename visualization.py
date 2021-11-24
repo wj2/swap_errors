@@ -12,7 +12,6 @@ import seaborn as sns
 import general.plotting as gpl
 import general.utility as u
 import swap_errors.analysis as swan
-import swap_errors.dip as swd
 
 def plot_model_probs(*args, plot_keys=('swap_prob', 'guess_prob'), ax=None,
                      sep=.5, comb_func=np.median, colors=None, sub_x=-1,
@@ -156,7 +155,25 @@ def plot_posterior_predictive_dims_dict(models, data, dims=5, fwid=3,
                                        ks=ks, **kwargs)
         axs[i, 0].set_ylabel(k)
     axs[i, -1].legend(frameon=False)
-
+    
+def plot_mu_hists(models, mu_key, mu2=None, axs=None, fwid=3):
+    pshape = list(models.values())[0].posterior[mu_key].shape[2:]
+    if axs is None:
+        figsize = (fwid*pshape[1], fwid*pshape[0])
+        f, axs = plt.subplots(*pshape, figsize=figsize)
+    for k, m in models.items():
+        mus = m.posterior[mu_key]
+        for (i, j) in u.make_array_ind_iterator(pshape):
+            mu_plot = mus[..., i, j].to_numpy().flatten()
+            if mu2 is not None:
+                mu2_plot = m.posterior[mu2][..., i, j].to_numpy().flatten()
+                mu_plot = mu_plot - mu2_plot
+            axs[i, j].hist(mu_plot, label=k,
+                           histtype='step')
+            gpl.add_vlines(0, axs[i, j])
+    axs[i, j].legend(frameon=False)
+    return axs
+    
 def plot_posterior_predictive_dims(m, d, dims=5, axs=None, ks=None):
     if axs is None:
         f, axs = plt.subplots(5, 1)
@@ -166,10 +183,11 @@ def plot_posterior_predictive_dims(m, d, dims=5, axs=None, ks=None):
         ks_inds = ks[1]
         d_ks = d[ks_inds]
     for i in range(dims):
-        axs[i].hist(total_post[:, i], histtype='step', density=True,
-                    label='predictive')
-        axs[i].hist(d[:, i], histtype='step', density=True,
+        _, bins, _ = axs[i].hist(d[:, i], density=True,
                     label='observed')
+        axs[i].hist(total_post[:, i], histtype='step', density=True,
+                    label='predictive', linestyle='dashed', color='k',
+                    bins=bins)
         if ks is not None:
             gpl.add_vlines(d_ks[:, i], axs[i])
         
