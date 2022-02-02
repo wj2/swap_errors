@@ -86,7 +86,9 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                                                  ('mu_d_l', 'mu_u')),
                                      resp_key='y', cue_key='cue',
                                      p_thresh=.5, p_key='p', p_ind=1,
-                                     eps=1e-3, use_cues=True):
+                                     eps=1e-3, use_cues=True,
+                                     correction_field='p_spa',
+                                     do_correction=False):
     cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
     pp = np.concatenate(fit_az.posterior_predictive[eh_key].to_numpy(),
                         axis=0)
@@ -96,8 +98,13 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
         cues = np.zeros(len(data[cue_key]))
     u_cues = np.unique(cues)
     resp = data[resp_key]
+    if do_correction and correction_field in fit_az.posterior.keys():
+        print('mult')
+        p_mult = np.mean(fit_az.posterior[correction_field].to_numpy())
+    else:
+        p_mult = 1
     if p_thresh is not None:
-        mask = data[p_key][:, p_ind] > p_thresh
+        mask = data[p_key][:, p_ind]*p_mult > p_thresh
     else:
         mask = np.ones(len(data[p_key]), dtype=bool)
     true_arr = []

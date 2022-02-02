@@ -23,7 +23,7 @@ wh_default_model_keys = ('lin', 'spatial', 'cue', 'hybrid')
 
 cue_default_model_names = ('arviz_fit_null_precue_model.pkl',
                            'arviz_fit_spatial_error_precue_model.pkl',
-                           'arviz_fit_super_hybrid_error_precue_model.pkl')
+                           'arviz_fit_hybrid_error_precue_model.pkl')
 cue_default_model_keys = ('lin', 'spatial', 'hybrid')
 
 model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'

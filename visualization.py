@@ -352,12 +352,16 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
 
 def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                                        fwid=3, p_ind=1, bin_bounds=None,
-                                       ret_data=True, **kwargs):
+                                       ret_data=True, colors=None, **kwargs):
+    if colors is None:
+        colors = {}
     if axs is None:
         n_plots = len(list(session_dict.values())[0][0])
         fsize = (fwid*n_plots, fwid)
         f, axs = plt.subplots(1, n_plots, figsize=fsize,
                               sharex=False, sharey=False)
+        if n_plots == 1:
+            axs = [axs]
     true_d = {}
     pred_d = {}
     ps_d = {}
@@ -385,15 +389,17 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
         pd_full = np.concatenate(pred_d[k], axis=0)
         ps_full = np.concatenate(ps_d[k], axis=0)
         # print(swd.dip(td_full))
-        _, bins, _ = axs[i].hist(td_full, bins=bins, histtype='step',
+        color = colors.get(k)
+        _, bins, _ = axs[i].hist(td_full, bins=bins, color=color,
                                     density=True, label='observed')
-        axs[i].hist(pd_full, bins=bins, histtype='step',
-                       density=True, label='predicted')
+        axs[i].hist(pd_full, bins=bins, histtype='step', color='k',
+                    linestyle='dashed',
+                    density=True, label='predicted')
         gpl.add_vlines([0, 1], axs[i])
         axs[i].set_ylabel(k)
         if ret_data:
             out_data[k] = td_full
-    axs[i].legend()
+    axs[i].legend(frameon=False)
     if ret_data:
         out = axs, out_data
     else:
