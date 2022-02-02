@@ -284,7 +284,7 @@ def visualize_model_collection_views(mdict, dim_red_model=skd.PCA,
                                    c_u=c_u, ax=ax, mu_g_keys=mu_g_keys,
                                    legend=legend,
                                    **kwarg_combs[i])
-    return axs
+    return f, axs
     
     
 
@@ -474,7 +474,7 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
                           mu_g_keys=('mu_g',), trs=None,
                           styles=('solid', 'dashed'), ax=None,
                           label_cu='', label_cl='', same_color=True,
-                          legend=True, 
+                          legend=True, truncate_dim=None,
                           n_cols=64, dim_red_model=skd.PCA, **kwargs):
     if ax is None:
         f = plt.figure()
@@ -491,8 +491,12 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
             l.append(trs_mu)
         m_collection = np.concatenate(l, axis=1)
         ptrs = dim_red_model(n_components=3, **kwargs)
-        ptrs.fit(m_collection.T)
-        trs = lambda x: ptrs.transform(x.T).T
+        if truncate_dim is None:
+            ptrs.fit(m_collection.T)
+            trs = lambda x: ptrs.transform(x.T).T
+        else:
+            ptrs.fit(m_collection[:truncate_dim].T)
+            trs = lambda x: ptrs.transform(x[:truncate_dim].T).T            
     elif trs is None:
         trs = lambda x: x
     for i, mu_k in enumerate(mu_u_keys):

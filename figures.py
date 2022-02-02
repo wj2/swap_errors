@@ -22,15 +22,25 @@ colors = np.array([(127,205,187),
 class SwapErrorFigure(pu.Figure):
 
     def _make_color_dict(self, ks):
+        return self._make_param_dict(ks)
+
+    def _make_param_dict(self, ks, add='_color', func=None):
+        if func is None:
+            func = self.params.getcolor
         color_dict = {}
         for k in ks:
-            color_dict[k] = self.params.getcolor(k + '_color')
+            color_dict[k] = func(k + add)
         return color_dict
-            
+
     @property
     def monkeys(self):
         return (self.params.get('monkey1'),
                 self.params.get('monkey2'))
+
+    @property
+    def monkey_names(self):
+        return self._make_param_dict(self.monkeys, add='_name',
+                                     func=self.params.get)
 
     @property
     def monkey_colors(self):
@@ -106,7 +116,7 @@ class BehaviorFigure(SwapErrorFigure):
             swv.plot_error_swap_distribs_err(err, dist_err, axs=axs[i],
                                              model_data=model_err,
                                              model_derr=dist_err,
-                                             label=mi,
+                                             label=self.monkey_names[mi],
                                              color=m_colors[mi])
             for ax_ij in axs[i]:
                 ax_ij.set_xticks([-np.pi, 0, np.pi])
@@ -124,11 +134,15 @@ class BehaviorFigure(SwapErrorFigure):
         m_dict = self._get_bhv_model()
         models = []
         cols = []
+        names = []
+        monkey_colors = {}
         for m in self.monkeys:
             models.append(m_dict[m][0].posterior)
+            names.append(self.monkey_names[m])
+            monkey_colors[self.monkey_names[m]] = self.monkey_colors[m]
         swv.plot_model_probs(*models, colors=cols, ax=ax,
-                             arg_names=self.monkeys,
-                             monkey_colors=self.monkey_colors)
+                             arg_names=names,
+                             monkey_colors=monkey_colors)
 
     def panel_trial_simplex(self):
         key = 'panel_trial_simplex'
