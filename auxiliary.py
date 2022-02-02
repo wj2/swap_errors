@@ -20,6 +20,12 @@ wh_default_model_names = ('arviz_fit_null_hierarchical_model.pkl',
                           'arviz_fit_cue_error_hierarchical_model.pkl',
                           'arviz_fit_super_hybrid_error_hierarchical_model.pkl')
 wh_default_model_keys = ('lin', 'spatial', 'cue', 'hybrid')
+wh_default_model_names = ('arviz_fit_spatial_error_hierarchical_model.pkl',
+                          'arviz_fit_cue_error_hierarchical_model.pkl',
+                          'arviz_fit_super_hybrid_error_hierarchical_model.pkl')
+wh_default_model_keys = ('spatial', 'cue', 'hybrid')
+
+
 
 cue_default_model_names = ('arviz_fit_null_precue_model.pkl',
                            'arviz_fit_spatial_error_precue_model.pkl',
