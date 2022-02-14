@@ -39,7 +39,7 @@ transformed parameters {
   // all_logits[2] = logits[2]; // cued
   // all_logits[3] = 0;         // none
   // denom = log_sum_exp(all_logits);
-
+ 
   // log-odds -> log-probabilities
   log_p_err = log(p_err);
 
@@ -133,21 +133,33 @@ generated quantities{
     swp_type = categorical_rng(p_err);
 
     if (trl_type==1)
+    {
       err_hat[n] = to_vector(
         normal_rng(cue[n]*(mu_u*C_u[n] + mu_d_l*C_l[n]) + (1-cue[n])*(mu_l*C_l[n] + mu_d_u*C_u[n]), sqrt(vars)));
+    }
     else if (trl_type==2)
+    {
       if (swp_type==1)
+      {
         err_hat[n] = to_vector(
           normal_rng(cue[n]*(mu_u*C_l[n] + mu_d_l*C_u[n]) + (1-cue[n])*(mu_l*C_u[n] + mu_d_u*C_l[n]),sqrt(vars)));
+      }
       else if (swp_type==2)
+      {
         err_hat[n] = to_vector(
           normal_rng((1-cue[n])*(mu_u*C_u[n] + mu_d_l*C_l[n]) + cue[n]*(mu_l*C_l[n] + mu_d_u*C_u[n]),sqrt(vars)));
+      }
       else if (swp_type==3)
+      {
         err_hat[n] = to_vector(
           normal_rng(cue[n]*(mu_u*C_u[n] + mu_d_l*C_l[n]) + (1-cue[n])*(mu_l*C_l[n] + mu_d_u*C_u[n]), sqrt(vars)));
+      }
+    }
     else if (trl_type==3)
+    {
       err_hat[n] = to_vector(
         normal_rng(cue[n]*(mu_u*C_u[n] + mu_d_l*C_l[n]) + (1-cue[n])*(mu_l*C_l[n] + mu_d_u*C_u[n]), sqrt(vars)));
+    }
 
   }
 }

@@ -54,22 +54,22 @@ regions = {'frontal':['pfc','fef'],
 
 these_dsets = []
 
-these_dsets.append({'these_sess':list(range(23)),
-					'regions':['all','frontal','posterior','decision','sensory'],
-					'tzf': 'WHEEL_ON_diode',
-					'tbeg':-0.5,
-					'twindow':0.5,
-					'tstep':0.5,
-					'num_bins':6,
-					'do_pca':'before', #'after'
-					'pca_thrs':0.95,
-					'min_trials':40,
-					'shuffle':False,
-					'impute_nan':True,
-					'shuffle_probs':True,
-					'impute_params':{'weights':'uniform','n_neighbors':5},
-					'color_weights':'interpolated' # 'softmax'
-					})
+# these_dsets.append({'these_sess':list(range(13)),
+# 					'regions':['all'],
+# 					'tzf': 'WHEEL_ON_diode',
+# 					'tbeg':-0.5,
+# 					'twindow':0.5,
+# 					'tstep':0.5,
+# 					'num_bins':6,
+# 					'do_pca':'before', #'after'
+# 					'pca_thrs':0.95,
+# 					'min_trials':40,
+# 					'shuffle':False,
+# 					'impute_nan':True,
+# 					'shuffle_probs':False,
+# 					'impute_params':{'weights':'uniform','n_neighbors':5},
+# 					'color_weights':'interpolated' # 'softmax'
+# 					})
 
 # these_dsets.append({'these_sess':[3,5],
 # 					'tzf':'CUE2_ON_diode',
@@ -87,7 +87,7 @@ these_dsets.append({'these_sess':list(range(23)),
 # 					})
 
 # these_dsets.append({'these_sess':list(range(23)),
-# 					'regions':['all','frontal','posterior','decision','sensory'],
+# 					'regions':['all'],
 # 					'tzf':'CUE2_ON_diode',
 # 					'tbeg':-0.5,
 # 					'twindow':0.5,
@@ -98,17 +98,35 @@ these_dsets.append({'these_sess':list(range(23)),
 # 					'min_trials':40,
 # 					'shuffle':False,
 # 					'impute_nan':True,
-# 					'shuffle_probs':True,
+# 					'shuffle_probs':False,
 # 					'impute_params':{'weights':'uniform','n_neighbors':5},
 # 					'color_weights':'interpolated' # 'softmax'
 # 					})
+
+these_dsets.append({'these_sess':list(range(23)),
+					'regions':['all'],
+					'tzf':'WHEEL_ON_diode',
+					'tbeg':-0.5,
+					'twindow':0.5,
+					'tstep':0.5,
+					'num_bins':6,
+					'do_pca':'before', #'after'
+					'pca_thrs':0.95,
+					'min_trials':40,
+					'shuffle':False,
+					'impute_nan':True,
+					'shuffle_probs':False,
+					'pro':[True,False],
+					'impute_params':{'weights':'uniform','n_neighbors':5},
+					'color_weights':'interpolated' # 'softmax'
+					})
 
 these_models = []
 # these_models.append(['null_hierarchical','spatial_error_hierarchical','cue_error_hierarchical',
 # 				'hybrid_error_hierarchical', 'super_hybrid_error_hierarchical'])
 # these_models.append(['null_precue','spatial_error_precue','hybrid_error_precue'])
-these_models.append(['super_hybrid_error_hierarchical'])
-# these_models.append(['spatial_error_precue','hybrid_error_precue'])
+these_models.append(['super_hybrid_error_hierarchical','spatial_error_hierarchical','cue_error_hierarchical'])
+# these_models.append(['hybrid_error_precue'])
 
 ### Assemble stan data dicts
 ##############################
@@ -122,7 +140,7 @@ if these_dsets != old_prms:
 
 	# loading the data -- takes the longest
 	data = gio.Dataset.from_readfunc(swa.load_buschman_data, SAVE_DIR, max_files=np.inf,seconds=True, 
-	                                  load_bhv_model=CODE_DIR+'/assignment_errors/bhv_model.pkl',
+	                                  load_bhv_model=CODE_DIR+'/assignment_errors/bhv_model-pr.pkl',
 	                                  spks_template=swa.busch_spks_templ_mua)
 
 	for i_dst, dset_prm in enumerate(these_dsets):
@@ -159,19 +177,18 @@ if these_dsets != old_prms:
 				spline_func = helpers.softmax_cols
 
 
-			# maybe this should be made more flexible ...
+			# pro and retro trials together
 			um = data['is_one_sample_displayed'] == 0
-			um = um.rs_and(data['Block']>1)
 			um = um.rs_and(data['corr_prob']<2) # avoid nan trials
-			# if 
 			data_single = data.mask(um)
 
 			n = data_single.get_ntrls()
-
 			pop, xs = data_single.get_populations(twindow, tbeg, tend, tstep,
 			                                      skl_axes=True, repl_nan=False,
-			                                      time_zero_field=this_dset['tzf'])   
+			                                      time_zero_field=this_dset['tzf'])
 
+			# # maybe this should be made more flexible ...
+   
 			xs = xs[:int((tend-tbeg)/tstep)+1]
 
 			for i, which_sess in enumerate(these_sess):
@@ -181,6 +198,7 @@ if these_dsets != old_prms:
 				in_area = np.isin(data_single['neur_regions'][which_sess].values[0], regions[this_dset['regions']])
 				x = x[in_area, :]
 
+				# deal with missing timepoints
 				if impute_nan:
 					impute = (helpers.box_conv(x==0, 50)==50).max(0)
 					trash = impute.mean(1) > 0.5
@@ -200,20 +218,30 @@ if these_dsets != old_prms:
 				if do_pca == 'after':
 					x = util.pca_reduce(x, thrs=pca_thrs)
 
+				# select pro or retro
+				if this_dset['pro']:
+					these_trials = (data_single['Block'])[which_sess].array.to_numpy()==1
+					trl_msk = data_single['Block']==1
+				else:
+					these_trials = (data_single['Block'])[which_sess].array.to_numpy()>1
+					trl_msk = data_single['Block']>1
+				x = x[these_trials, :]
+				sess_data = data_single.mask(trl_msk)
+
 				# yup = np.repeat(data_single['upper_color'][which_sess].array.to_numpy(), np.sum(xs>0))
 				# ylow = np.repeat(data_single['lower_color'][which_sess].array.to_numpy(), np.sum(xs>0))
 				# cue = np.repeat(data_single['IsUpperSample'][which_sess].array.to_numpy(), np.sum(xs>0))
 
-				yup = data_single['upper_color'][which_sess].array.to_numpy()
-				ylow = data_single['lower_color'][which_sess].array.to_numpy()
-				cue = data_single['IsUpperSample'][which_sess].array.to_numpy()
+				yup = sess_data['upper_color'][which_sess].array.to_numpy()
+				ylow = sess_data['lower_color'][which_sess].array.to_numpy()
+				cue = sess_data['IsUpperSample'][which_sess].array.to_numpy()
 
 				bins = np.linspace(0,2*np.pi,num_bins+1)[:num_bins]
 
 				c_u = spline_func(yup, bins).T
 				c_l = spline_func(ylow, bins).T
 
-				probs = np.stack([data_single[tt][which_sess].array.to_numpy() \
+				probs = np.stack([sess_data[tt][which_sess].array.to_numpy() \
 					for  tt in ['corr_prob','swap_prob','guess_prob']]).T
 
 				if this_dset['shuffle_probs']:

@@ -58,7 +58,7 @@ BASE_DIR = 'C:/Users/mmall/Documents/uni/columbia/assignment_errors/'
 
 data = gio.Dataset.from_readfunc(swa.load_buschman_data, BASE_DIR, max_files=np.inf,
                                   seconds=True,
-                                  load_bhv_model='C:/Users/mmall/Documents/github/assignment_errors/bhv_model.pkl',
+                                  load_bhv_model='C:/Users/mmall/Documents/github/assignment_errors/bhv_model-pr.pkl',
                                   spks_template=swa.busch_spks_templ_mua)
 
 #%%
@@ -255,7 +255,7 @@ cv_base = na.fold_skl(ppop1[0], ppop2[0], n_folds, model=svm.LinearSVC, params={
                       impute_missing=repl_nan)
 
 ppop = np.concatenate([ppop1, ppop2],axis=-2).squeeze()
-ppop_err = np.concatenate([ppop1_err, ppop2_err],axis=-2).s queeze()
+ppop_err = np.concatenate([ppop1_err, ppop2_err],axis=-2).squeeze()
 labels = np.concatenate([np.zeros(ppop1.shape[-2]), np.ones(ppop2.shape[-2])])
 labels_err = np.concatenate([np.zeros(ppop1_err.shape[-2]), np.ones(ppop2_err.shape[-2])])
 
@@ -282,16 +282,16 @@ for p in range(len(ppop)):
 
 
 #%%
-tbeg = -.5
-tend = 0
-twindow = .5
-tstep = .5
+tbeg = -1.5
+tend = 0.2
+twindow = .1
+tstep = .1
 n_folds = 10
 
 
 um = data['is_one_sample_displayed'] == 0
 # um = um.rs_and(data['StopCondition'] == 1)
-um = um.rs_and(data['Block']>1)
+# um = um.rs_and(data['Block']>1)
 data_single = data.mask(um)
 
 shuffle = False
@@ -317,9 +317,9 @@ xs = xs[:int((tend-tbeg)/tstep)+1]
 
 #%%
 
-trn_set = data_single['corr_prob']>0.7
+trn_set = data_single['corr_prob']>0.6
 # tst_set = data_single['StopCondition'] == 1
-tst_set = data_single['swap_prob']>0.3
+tst_set = data_single['swap_prob']>0.4
 # tst_set = data_single['guess_prob']>0.3
 # tst_set = data_single['StopCondition'] == -1
 # tst_set = data_single['corr_prob']>0.5
@@ -330,6 +330,7 @@ these_times = (xs>-0.5)&(xs<=0.0)
 
 cv_perf_all = []
 err_perf = []
+valid_sess = []
 for i in tqdm(range(num_pop)):
     # these_neur = np.isin(data_single['neur_regions'][i].values[2], 'v4pit')
     # if np.sum(these_neur)==0:
@@ -350,6 +351,7 @@ for i in tqdm(range(num_pop)):
     if np.sum(for_tst)==0:
         print('oops!')
         continue
+    valid_sess.append(i)
     
     # n_trn = int(0.9*np.sum(for_trn))
     # binned_trn = binned[for_trn][:,:n_trn,:]
@@ -380,8 +382,8 @@ for i in tqdm(range(num_pop)):
 trn_err = np.array(cv_perf_all)
 tst_err = np.array(err_perf)
 
-elmo = np.arange(num_pop)<=12
-wald = np.arange(num_pop)>12
+elmo = np.array(valid_sess)<=12
+wald = np.array(valid_sess)>12
 
 #%%
 elm_clr = '#EC7063'
@@ -393,8 +395,12 @@ plt.errorbar(trn_err[elmo,:].mean(1), tst_err[elmo,:].mean(1),
 plt.errorbar(trn_err[wald,:].mean(1), tst_err[wald,:].mean(1), 
              xerr=trn_err[wald,:].std(1), yerr=tst_err[wald,:].std(1),
              ls='none', ecolor=wld_clr, marker='.',c=wld_clr, markersize=10)
+plt.legend(['Monkey E','Monkey W'])
 # plt.scatter(trn_err.mean(1), tst_err.mean(1), c=np.arange(num_pop)>12)
 dicplt.square_axis()
+plt.plot([0.5,0.5],plt.ylim(), color=(0.5,0.5,0.5), alpha=0.5)
+plt.plot(plt.xlim(),[0.5,0.5], color=(0.5,0.5,0.5), alpha=0.5)
 plt.plot(plt.xlim(),plt.xlim(),'k--')
+
 
 

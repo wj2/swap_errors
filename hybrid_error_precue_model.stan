@@ -92,14 +92,24 @@ generated quantities{
     swp_type = bernoulli_rng(p_spa);
 
     if (trl_type==1)
+    {
       err_hat[n] = to_vector(normal_rng( mu_u*C_u[n] + mu_l*C_l[n], sqrt(vars)));
+    }
     else if (trl_type==2)
+    {
       if (swp_type==1)
+      {
         err_hat[n] = to_vector(normal_rng( mu_u*C_l[n] + mu_l*C_u[n], sqrt(vars)));
+      }
       else
+      {
         err_hat[n] = to_vector(normal_rng( mu_u*C_u[n] + mu_l*C_l[n], sqrt(vars)));
+      }
+    }
     else if (trl_type==3)
+    {
       err_hat[n] = to_vector(normal_rng( mu_u*C_u[n] + mu_l*C_l[n], sqrt(vars)));
+    }
 
   }
 }

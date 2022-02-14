@@ -78,6 +78,10 @@ def folder_hierarchy(dset_info):
         '{regions}/')
     if dset_info['shuffle_probs']:
         FOLDS += 'shuffled/'
+    if dset_info['pro']:
+        FOLDS += 'prospective/'
+    else:
+        FOLDS += 'retrospective/'
     
     return FOLDS.format(**dset_info)
 

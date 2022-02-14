@@ -55,7 +55,7 @@ special_font = mfm.FontProperties(fname='C:/Windows/Fonts/seguiemj.ttf')
 #%%
 
 dset_prm = {'session':list(range(13,23)),
- 					'regions':['all','frontal','posterior','decision','sensory'],
+ 					'regions':['all'],
  					'tzf': 'WHEEL_ON_diode',
  					'tbeg':-0.5,
  					'twindow':0.5,
@@ -67,6 +67,7 @@ dset_prm = {'session':list(range(13,23)),
  					'shuffle':False,
  					'impute_nan':True,
                     'shuffle_probs':False,
+                    'pro':True,
  					'impute_params':{'weights':'uniform','n_neighbors':5},
  					'color_weights':'interpolated' # 'softmax'
  					}
@@ -78,7 +79,8 @@ fixed_prms = {k:v for k,v in dset_prm.items() if type(v) is not list and k!='ses
 these_sess = dset_prm['session']
 var_k, var_v = zip(*variable_prms.items())
 
-simplx_basis = np.array([[1,-1,0],[-0.5,-0.5,1]])
+# simplx_basis = np.array([[1,-1,0],[-0.5,-0.5,1]])
+simplx_basis = np.array([[1,0,-1],[-0.5,1,-0.5]])
 simplx_basis /= la.norm(simplx_basis,axis=1,keepdims=True)
 
 all_probs = []
@@ -176,7 +178,7 @@ for k, this_prm in enumerate(itt.product(*var_v)):
 
 #%%
 
-dset_prm = {'session':list(range(13,23)),
+dset_prm = {'session':list(range(13)),
  					'regions':['all','frontal','posterior','decision','sensory'],
  					'tzf':'CUE2_ON_diode',
  					'tbeg':-0.5,
@@ -273,7 +275,11 @@ for k, this_prm in enumerate(itt.product(*var_v)):
         zz = kd_pdf(np.linspace(0,1,100))
         
         axs[r,c].plot(np.linspace(0,1,100), kd_pdf(np.linspace(0,1,100)), color=cols[idx])
-        
+    axs[r,c].set_xlabel(r'$p_{\rm{sptl}}$')
+    axs[r,c].set_ylabel('Posterior density')
+    axs[r,c].set_ylim([0, np.max(axs[r,c].get_ylim())])
+    axs[r,c].set_xlim([0,1])  
+    
     # dicplt.square_axis(axs[r,c])
 
 
