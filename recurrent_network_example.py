@@ -39,11 +39,12 @@ import anime as ani
 #%%
 
 class Task(object):
-    def __init__(self, num_cols, T_inp, T_resp, T_tot, go_cue=False):
+    def __init__(self, num_cols, T_inp1, T_inp2, T_resp, T_tot, go_cue=False):
         
         self.num_col = num_cols
         
-        self.T_inp = T_inp
+        self.T_inp1 = T_inp1
+        self.T_inp2 = T_inp2
         self.T_resp = T_resp
         self.T_tot = T_tot
         
@@ -70,7 +71,8 @@ class Task(object):
     def generate_sequences(self, upcol, downcol, cue, jitter=3, inp_noise=0.0, dyn_noise=0.0,
                            new_T=None):
         
-        T_inp = self.T_inp
+        T_inp1 = self.T_inp1
+        T_inp2 = self.T_inp2
         T_resp = self.T_resp
         if new_T is None:
             T = self.T_tot
@@ -88,19 +90,21 @@ class Task(object):
         inps = np.zeros((n_seq,T,6+1*self.go_cue))
         
         if jitter>0:
-            t_stim = np.random.choice(range(T_inp - jitter, T_inp + jitter), ndat)
+            t_stim1 = np.random.choice(range(T_inp1 - jitter, T_inp1 + jitter), ndat)
+            t_stim2 = np.random.choice(range(T_inp2 - jitter, T_inp2 + jitter), ndat)
             t_targ = np.random.choice(range(T_resp - jitter, T_resp + jitter), ndat)
         else:
-            t_stim = np.ones(n_seq, dtype=int)*(T_inp)
+            t_stim1 = np.ones(n_seq, dtype=int)*(T_inp1)
+            t_stim2 = np.ones(n_seq, dtype=int)*(T_inp2)
             t_targ = np.ones(n_seq, dtype=int)*(T_resp)
         
-        inps[:ndat//2,0,:4] = col_inp[:n_seq//2,:] # retro
-        inps[np.arange(n_seq//2),t_stim[:n_seq//2], 4] = cue[:n_seq//2]
+        inps[np.arange(n_seq//2),t_stim1[:n_seq//2],:4] = col_inp[:n_seq//2,:] # retro
+        inps[np.arange(n_seq//2),t_stim2[:n_seq//2], 4] = cue[:n_seq//2]
         
-        inps[ndat//2:,0,4] = cue[n_seq//2:] # pro
-        inps[np.arange(n_seq//2, n_seq),t_stim[n_seq//2:], :4] = col_inp[n_seq//2:,:]
+        inps[np.arange(n_seq//2, n_seq),t_stim1[n_seq//2:],4] = cue[n_seq//2:] # pro
+        inps[np.arange(n_seq//2, n_seq),t_stim2[n_seq//2:], :4] = col_inp[n_seq//2:,:]
         
-        inps[:,:,5] = np.random.randn(n_seq,T)*train_z_noise
+        inps[:,:,5] = np.random.randn(n_seq,T)*dyn_noise
         
         if self.go_cue:
             inps[np.arange(n_seq),t_targ,6] = 1
@@ -127,9 +131,10 @@ N = 100 # network size
 go_cue = True
 # go_cue = False
 
-T_inp = 7
-T_resp = 15
-T = 20
+T_inp1 = 5
+T_inp2 = 15
+T_resp = 25
+T = 35
 
 jitter = 3 # range of input jitter (second input arrives at time t +/- jitter)
 
@@ -142,7 +147,7 @@ train_z_noise = 0.1
 
 basis = la.qr( np.random.randn(N,N))[0]
 
-task = Task(N_cols, T_inp, T_resp, T, go_cue=go_cue)
+task = Task(N_cols, T_inp1, T_inp2, T_resp, T, go_cue=go_cue)
 
 inps, outs, upcol, downcol, cue = task.generate_data(ndat, jitter, train_noise, train_z_noise)
 
@@ -277,8 +282,8 @@ down_unue_circ = np.array([z_retro[1][:,(downcol==c)&(cue>0),:].detach().numpy()
 cue_circs = np.concatenate([up_cue_circ, down_cue_circ], axis=0)
 up_circs = np.concatenate([up_cue_circ, up_uncue_circ], axis=0)
 
-plot_circs = cue_circs
-# plot_circs = up_circs
+# plot_circs = cue_circs
+plot_circs = up_circs
 
 U, S = util.pca(plot_circs[:,:task.T_inp,:].reshape((-1,100)).T)
 # U = dec.weight.detach().numpy()[[0,1,4],:].T
@@ -286,7 +291,7 @@ U, S = util.pca(plot_circs[:,:task.T_inp,:].reshape((-1,100)).T)
 proj_z = plot_circs@U[:,:3]
 
 ani.ScatterAnime3D(proj_z[...,0],proj_z[...,1],proj_z[...,2], c=np.tile(cbins,2), cmap='hsv',
-                   rotation_period=100, after_period=50).save(SAVE_DIR+'temp.mp4', fps=10)
+                   rotation_period=100, after_period=50, view_period=20).save(SAVE_DIR+'temp.mp4', fps=10)
 
 #%%
 fake_inputs = np.zeros((ndat,T,6))
