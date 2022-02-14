@@ -33,7 +33,8 @@ import assistants
 import experiments as exp
 import util
 import tasks
-import plotting as dicplt
+import plotting as tplt
+import anime as ani
 
 #%%
 
@@ -45,6 +46,8 @@ class Task(object):
         self.T_inp = T_inp
         self.T_resp = T_resp
         self.T_tot = T_tot
+        
+        self.go_cue = go_cue
         
     def generate_data(self, n_seq, jitter=3, inp_noise=0.0, dyn_noise=0.0):
         
@@ -67,7 +70,6 @@ class Task(object):
     def generate_sequences(self, upcol, downcol, cue, jitter=3, inp_noise=0.0, dyn_noise=0.0,
                            new_T=None):
         
-        
         T_inp = self.T_inp
         T_resp = self.T_resp
         if new_T is None:
@@ -78,13 +80,12 @@ class Task(object):
         
         col_inp = np.stack([np.cos(upcol), np.sin(upcol), np.cos(downcol), np.sin(downcol)]).T + np.random.randn(n_seq,4)*inp_noise
         
-        
         cuecol = np.where(cue>0, upcol, downcol)
         uncuecol = np.where(cue>0, downcol, upcol)
         
         cue += np.random.randn(n_seq)*inp_noise
-
-        inps = np.zeros((n_seq,T,6))
+        
+        inps = np.zeros((n_seq,T,6+1*self.go_cue))
         
         if jitter>0:
             t_stim = np.random.choice(range(T_inp - jitter, T_inp + jitter), ndat)
@@ -100,6 +101,9 @@ class Task(object):
         inps[np.arange(n_seq//2, n_seq),t_stim[n_seq//2:], :4] = col_inp[n_seq//2:,:]
         
         inps[:,:,5] = np.random.randn(n_seq,T)*train_z_noise
+        
+        if self.go_cue:
+            inps[np.arange(n_seq),t_targ,6] = 1
         
         # inps = np.zeros((ndat,T,1))
         # inps[np.arange(ndat),t_stim, 0] = cue
@@ -120,6 +124,9 @@ class Task(object):
 
 N = 100 # network size
 
+go_cue = True
+# go_cue = False
+
 T_inp = 7
 T_resp = 15
 T = 20
@@ -135,13 +142,15 @@ train_z_noise = 0.1
 
 basis = la.qr( np.random.randn(N,N))[0]
 
-task = Task(N_cols, T_inp, T_resp, T)
+task = Task(N_cols, T_inp, T_resp, T, go_cue=go_cue)
 
 inps, outs, upcol, downcol, cue = task.generate_data(ndat, jitter, train_noise, train_z_noise)
 
 cuecol = np.where(cue>0, upcol, downcol)
 uncuecol = np.where(cue>0, downcol, upcol)
 
+n_in = inps.shape[-1]
+n_out = outs.shape[-1]
 
 inputs = torch.tensor(inps)
 outputs = torch.tensor(outs)
@@ -160,15 +169,15 @@ swap_prob = 0.15
 z_prior = None
 # z_prior = students.GausId(N)
 
-dec = nn.Linear(N, outs.shape[0], bias=True)
+dec = nn.Linear(N, n_out, bias=True)
 # with torch.no_grad():
 #     dec.weight.copy_( torch.tensor(basis[:,:outs.shape[0]].T).float())
 #     dec.weight.requires_grad = False
 
-rnn = nn.RNN(inputs.shape[-1], N, 1, nonlinearity='relu')
+rnn = nn.RNN(n_in, N, 1, nonlinearity='relu')
 
 # net = students.GenericRNN(rnn, students.GausId(outs.shape[0]), fix_decoder=True, decoder=dec, z_dist=z_prior)
-net = students.GenericRNN(rnn, students.GausId(outs.shape[0]), decoder=dec, z_dist=students.GausId(N), beta=0)
+net = students.GenericRNN(rnn, students.GausId(n_out), decoder=dec, z_dist=students.GausId(N), beta=0)
 # net = students.GenericRNN(rnn, students.GausId(outs.shape[0]), fix_decoder=False)
 
 
@@ -177,7 +186,7 @@ net = students.GenericRNN(rnn, students.GausId(outs.shape[0]), decoder=dec, z_di
 #     net.rnn.inp2hid.weight.requires_grad = False
 #     net.rnn.inp2hid.bias.requires_grad = False
 with torch.no_grad():
-    inp_w = np.append(basis[:,len(outs):len(outs)+len(inps.T)-1], np.ones((N,1))/np.sqrt(N), axis=-1)
+    inp_w = np.append(basis[:,n_out:n_out+n_in-1], np.ones((N,1))/np.sqrt(N), axis=-1)
     net.rnn.weight_ih_l0.copy_(torch.tensor(inp_w).float())
     net.rnn.weight_ih_l0.requires_grad = False
     # net.rnn.bias_ih_l0.requires_grad = False
