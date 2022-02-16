@@ -1,9 +1,19 @@
-CODE_DIR = 'C:/Users/mmall/Documents/github/repler/src/'
 SAVE_DIR = 'C:/Users/mmall/Documents/uni/columbia/multiclassification/saves/'
  
 import os, sys, re
 import pickle
-sys.path.append(CODE_DIR)
+
+JEFF_CODE_DIR = '/Users/wjj/Dropbox/research/analysis/repler/src/'
+MATTEO_CODE_DIR = 'C:/Users/mmall/Documents/github/repler/src/'
+if os.path.isdir(JEFF_CODE_DIR):
+    CODE_DIR = JEFF_CODE_DIR
+elif os.path.isdir(MATTEO_CODE_DIR):
+    CODE_DIR = MATTEO_CODE_DIR
+else:
+    CODE_DIR = ''
+    
+if CODE_DIR not in sys.path:
+    sys.path.append(CODE_DIR)
 
 import torch
 import torch.nn as nn
@@ -54,23 +64,24 @@ class Task(object):
         
         upcol, downcol, cue = self.generate_colors(n_seq)
         
-        inps, outs = self.generate_sequences(upcol, downcol, cue, jitter, inp_noise, dyn_noise)
+        inps, outs = self.generate_sequences(upcol, downcol, cue, jitter,
+                                             inp_noise, dyn_noise)
         
         return inps, outs, upcol, downcol, cue
         
     
     def generate_colors(self, n_seq):
         
-        upcol = np.random.choice(np.linspace(0,2*np.pi,N_cols), n_seq)
-        downcol = np.random.choice(np.linspace(0,2*np.pi,N_cols), n_seq)
+        upcol = np.random.choice(np.linspace(0,2*np.pi, self.num_col), n_seq)
+        downcol = np.random.choice(np.linspace(0,2*np.pi, self.num_col), n_seq)
             
         cue = np.random.choice([-1.,1.], n_seq) 
         
         return upcol, downcol, cue
         
-    def generate_sequences(self, upcol, downcol, cue, jitter=3, inp_noise=0.0, dyn_noise=0.0,
-                           new_T=None):
-        
+    def generate_sequences(self, upcol, downcol, cue, jitter=3, inp_noise=0.0,
+                           dyn_noise=0.0, new_T=None):
+        ndat = upcol.shape[0]
         T_inp1 = self.T_inp1
         T_inp2 = self.T_inp2
         T_resp = self.T_resp
@@ -80,7 +91,9 @@ class Task(object):
             T = new_T
         n_seq = len(upcol)
         
-        col_inp = np.stack([np.cos(upcol), np.sin(upcol), np.cos(downcol), np.sin(downcol)]).T + np.random.randn(n_seq,4)*inp_noise
+        col_inp = np.stack([np.cos(upcol), np.sin(upcol), np.cos(downcol),
+                            np.sin(downcol)]).T
+        col_inp = col_inp + np.random.randn(n_seq,4)*inp_noise
         
         cuecol = np.where(cue>0, upcol, downcol)
         uncuecol = np.where(cue>0, downcol, upcol)
@@ -124,6 +137,97 @@ class Task(object):
 
 #%%
 
+def make_training_data(t_inp1, t_inp2, t_resp, total_t, jitter=3, ndat=2000,
+                       n_cols=64, train_noise=0, train_z_noise=.1,
+                       go_cue=True):
+    task = Task(n_cols, t_inp1, t_inp2, t_resp, total_t, go_cue=go_cue)
+
+    out  = task.generate_data(ndat, jitter, train_noise, train_z_noise)
+    inps, outs, upcol, downcol, cue = out
+    
+    cuecol = np.where(cue>0, upcol, downcol)
+    uncuecol = np.where(cue>0, downcol, upcol)
+
+    inputs = torch.tensor(inps)
+    outputs = torch.tensor(outs)
+    components = (upcol, downcol, cue, cuecol, uncuecol)
+    
+    return inputs, outputs, components
+
+def make_task_rnn(inputs, outputs, net_size, basis=None):
+    n_in = inputs.shape[-1]
+    n_out = outputs.shape[-1]
+    net = TaskRNN(n_in, net_size, n_out, basis=basis)
+    return net
+
+class TaskRNN:
+
+    def __init__(self, inp_dim, rnn_dim, out_dim, basis=None):
+        self.dec = nn.Linear(rnn_dim, out_dim, bias=True)
+        self.rnn = nn.RNN(inp_dim, rnn_dim, 1, nonlinearity='relu')
+        self.net = students.GenericRNN(self.rnn, students.GausId(out_dim),
+                                       decoder=self.dec,
+                                       z_dist=students.GausId(rnn_dim),
+                                       beta=0)
+
+        if basis is not None:
+            # with torch.no_grad():
+            #     dec.weight.copy_( torch.tensor(basis[:,:outs.shape[0]].T).float())
+            #     dec.weight.requires_grad = False
+            # with torch.no_grad():
+            #     net.rnn.inp2hid.weight.copy_(torch.tensor(basis[:,:5]).float())
+            #     net.rnn.inp2hid.weight.requires_grad = False
+            #     net.rnn.inp2hid.bias.requires_grad = False
+            with torch.no_grad():
+                inp_w = np.append(basis[:,n_out:n_out+n_in-1],
+                                  np.ones((N,1))/np.sqrt(N), axis=-1)
+                net.rnn.weight_ih_l0.copy_(torch.tensor(inp_w).float())
+                net.rnn.weight_ih_l0.requires_grad = False
+                # net.rnn.bias_ih_l0.requires_grad = False
+
+    def _pre_proc(self, inp, transpose=False):
+        out = inp.float()
+        if transpose:
+            out = out.transpose(0, 1)
+        return out
+        
+                
+    def fit(self, inputs, outputs, lr=1e-3, batch_size=200, shuffle=True,
+            n_epochs=1000):
+        optimizer = optim.Adam(self.net.parameters(), lr=lr)
+        dset = torch.utils.data.TensorDataset(
+            self._pre_proc(inputs),
+            self._pre_proc(outputs, transpose=True))
+
+        dl = torch.utils.data.DataLoader(dset, batch_size=batch_size,
+                                         shuffle=shuffle)
+
+        init_params = list(self.net.parameters())
+        train_loss = []
+        scats = []
+        for epoch in tqdm(range(n_epochs)):
+            loss = self.net.grad_step(dl, optimizer, init_state=False,
+                                      only_final=False)
+            print(loss)
+            train_loss.append(loss)
+            
+        return train_loss
+
+    def eval_net(self, inputs):
+        inputs = self._pre_proc(inputs, transpose=True)
+        outputs = self.net(inputs)
+        return outputs
+
+    def compute_diffs(self, outputs, *cols):
+        theta = np.arctan2(outputs[0][:,1].detach(),
+                           outputs[0][:,0].detach()).numpy()
+        diffs = []
+        for col in cols:
+            diff = np.arctan2(np.exp(col*1j - theta*1j).imag,
+                              np.exp(col*1j - theta*1j).real)
+            diffs.append(diff)
+        return theta, diffs
+
 if __name__ == '__main__':
  
     # TODO: linear reg to get color reps, track over time
@@ -146,21 +250,12 @@ if __name__ == '__main__':
     train_noise = 0.0
     train_z_noise = 0.1
 
+    inputs, outputs, components = make_training_data(
+        T_inp1, T_inp2, T_resp, T, jitter=jitter, ndat=ndat, n_cols=N_cols,
+        train_noise=train_noise, train_z_noise=train_z_noise, go_cue=go_cue)
     basis = la.qr( np.random.randn(N,N))[0]
+    inps, outs, upcol, downcol, cue, cuecol, uncuecol = components
     
-    task = Task(N_cols, T_inp1, T_inp2, T_resp, T, go_cue=go_cue)
-
-    inps, outs, upcol, downcol, cue = task.generate_data(ndat, jitter, train_noise, train_z_noise)
-    
-    cuecol = np.where(cue>0, upcol, downcol)
-    uncuecol = np.where(cue>0, downcol, upcol)
-
-    n_in = inps.shape[-1]
-    n_out = outs.shape[-1]
-    
-    inputs = torch.tensor(inps)
-    outputs = torch.tensor(outs)
-
     #%%
 
     # try constraining the recurrent weights to be rotational (?) riemannian SGD
