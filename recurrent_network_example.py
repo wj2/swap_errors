@@ -60,14 +60,15 @@ class Task(object):
         
         self.go_cue = go_cue
         
-    def generate_data(self, n_seq, jitter=3, inp_noise=0.0, dyn_noise=0.0):
+    def generate_data(self, n_seq, jitter=3, inp_noise=0.0, dyn_noise=0.0,
+                      **kwargs):
         
         upcol, downcol, cue = self.generate_colors(n_seq)
         
-        inps, outs = self.generate_sequences(upcol, downcol, cue, jitter,
-                                             inp_noise, dyn_noise)
+        inps, outs, train_mask = self.generate_sequences(
+            upcol, downcol, cue, jitter, inp_noise, dyn_noise, **kwargs)
         
-        return inps, outs, upcol, downcol, cue
+        return inps, outs, upcol, downcol, cue, train_mask
         
     
     def generate_colors(self, n_seq):
@@ -80,7 +81,7 @@ class Task(object):
         return upcol, downcol, cue
         
     def generate_sequences(self, upcol, downcol, cue, jitter=3, inp_noise=0.0,
-                           dyn_noise=0.0, new_T=None):
+                           dyn_noise=0.0, new_T=None, net_size=None):
         ndat = upcol.shape[0]
         T_inp1 = self.T_inp1
         T_inp2 = self.T_inp2
@@ -90,6 +91,15 @@ class Task(object):
         else:
             T = new_T
         n_seq = len(upcol)
+
+        if net_size is None and dyn_noise > 0:
+            raise IOError('cannot do dynamics noise without providing the net '
+                          'size')
+        elif dyn_noise > 0:
+            net_inp = net_size
+        else:
+            net_inp = 0
+            
         
         col_inp = np.stack([np.cos(upcol), np.sin(upcol), np.cos(downcol),
                             np.sin(downcol)]).T
@@ -99,8 +109,8 @@ class Task(object):
         uncuecol = np.where(cue>0, downcol, upcol)
         
         cue += np.random.randn(n_seq)*inp_noise
-        
-        inps = np.zeros((n_seq,T,6+1*self.go_cue))
+
+        inps = np.zeros((n_seq,T, col_inp.shape[1] + net_inp + 1*self.go_cue))
         
         if jitter>0:
             t_stim1 = np.random.choice(range(T_inp1 - jitter, T_inp1 + jitter), ndat)
@@ -117,15 +127,19 @@ class Task(object):
         inps[np.arange(n_seq//2, n_seq),t_stim1[n_seq//2:],4] = cue[n_seq//2:] # pro
         inps[np.arange(n_seq//2, n_seq),t_stim2[n_seq//2:], :4] = col_inp[n_seq//2:,:]
         
-        inps[:,:,5] = np.random.randn(n_seq,T)*dyn_noise
+        inps[:,:,4:4+net_inp] = np.random.randn(n_seq, T, net_inp)*dyn_noise
+        train_mask = np.zeros(inps.shape[2], dtype=bool)
+        train_mask[4:4+net_inp] = True
         
         if self.go_cue:
-            inps[np.arange(n_seq),t_targ,6] = 1
+            inps[np.arange(n_seq), t_targ, -1] = 1
         
         # inps = np.zeros((ndat,T,1))
         # inps[np.arange(ndat),t_stim, 0] = cue
         
-        outs = np.concatenate([np.stack([np.cos(cuecol), np.sin(cuecol), np.cos(uncuecol), np.sin(uncuecol)]), cue[None,:]], axis=0)
+        outs = np.concatenate([np.stack([np.cos(cuecol), np.sin(cuecol),
+                                         np.cos(uncuecol), np.sin(uncuecol)]),
+                               cue[None,:]], axis=0)
         # outs = np.stack([np.cos(cuecol), np.sin(cuecol), np.cos(uncuecol), np.sin(uncuecol)])
         # outs = np.stack([np.cos(cuecol), np.sin(cuecol)])
 
@@ -133,17 +147,18 @@ class Task(object):
         outputs[t_targ,np.arange(n_seq),:] = outs.T
         outputs = np.cumsum(outputs, axis=0)
 
-        return inps, outputs
+        return inps, outputs, train_mask
 
 #%%
 
 def make_training_data(t_inp1, t_inp2, t_resp, total_t, jitter=3, ndat=2000,
                        n_cols=64, train_noise=0, train_z_noise=.1,
-                       go_cue=True):
+                       go_cue=True, net_size=None):
     task = Task(n_cols, t_inp1, t_inp2, t_resp, total_t, go_cue=go_cue)
 
-    out  = task.generate_data(ndat, jitter, train_noise, train_z_noise)
-    inps, outs, upcol, downcol, cue = out
+    out  = task.generate_data(ndat, jitter, train_noise, train_z_noise,
+                              net_size=net_size)
+    inps, outs, upcol, downcol, cue, train_inp_mask = out
     
     cuecol = np.where(cue>0, upcol, downcol)
     uncuecol = np.where(cue>0, downcol, upcol)
@@ -152,24 +167,26 @@ def make_training_data(t_inp1, t_inp2, t_resp, total_t, jitter=3, ndat=2000,
     outputs = torch.tensor(outs)
     components = (upcol, downcol, cue, cuecol, uncuecol)
     
-    return inputs, outputs, components
+    return inputs, outputs, train_inp_mask, components
 
-def make_task_rnn(inputs, outputs, net_size, basis=None):
+def make_task_rnn(inputs, outputs, net_size, basis=None, train_mask=None):
     n_in = inputs.shape[-1]
     n_out = outputs.shape[-1]
-    net = TaskRNN(n_in, net_size, n_out, basis=basis)
+    net = TaskRNN(n_in, net_size, n_out, basis=basis, train_mask=train_mask)
     return net
 
 class TaskRNN:
 
-    def __init__(self, inp_dim, rnn_dim, out_dim, basis=None):
+    def __init__(self, inp_dim, rnn_dim, out_dim, basis=None, train_mask=None):
+        if train_mask is None:
+            train_mask = np.ones(inp_dim, dtype=bool)
         self.dec = nn.Linear(rnn_dim, out_dim, bias=True)
         self.rnn = nn.RNN(inp_dim, rnn_dim, 1, nonlinearity='relu')
         self.net = students.GenericRNN(self.rnn, students.GausId(out_dim),
                                        decoder=self.dec,
                                        z_dist=students.GausId(rnn_dim),
                                        beta=0)
-
+        
         if basis is not None:
             # with torch.no_grad():
             #     dec.weight.copy_( torch.tensor(basis[:,:outs.shape[0]].T).float())
@@ -184,7 +201,14 @@ class TaskRNN:
                 net.rnn.weight_ih_l0.copy_(torch.tensor(inp_w).float())
                 net.rnn.weight_ih_l0.requires_grad = False
                 # net.rnn.bias_ih_l0.requires_grad = False
-
+        with torch.no_grad():
+            weight_mask = torch.tensor(np.ones_like(self.net.rnn.weight_ih_l0))
+            weight_mask[:, train_mask] = 0
+            ident_weights = torch.tensor(np.identity(rnn_dim), dtype=torch.float)
+            self.net.rnn.weight_ih_l0[:, train_mask] = ident_weights
+            self.net.rnn.weight_ih_l0.register_hook(
+                lambda grad: grad.mul_(weight_mask))
+ 
     def _pre_proc(self, inp, transpose=False):
         out = inp.float()
         if transpose:
@@ -193,7 +217,7 @@ class TaskRNN:
         
                 
     def fit(self, inputs, outputs, lr=1e-3, batch_size=200, shuffle=True,
-            n_epochs=1000):
+            n_epochs=2500):
         optimizer = optim.Adam(self.net.parameters(), lr=lr)
         dset = torch.utils.data.TensorDataset(
             self._pre_proc(inputs),
