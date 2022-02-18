@@ -50,6 +50,7 @@ import plotting as tplt
 import anime as ani
 
 class Task(object):
+    
     def __init__(self, num_cols, T_inp1, T_inp2, T_resp, T_tot, go_cue=False):
         
         self.num_col = num_cols
@@ -73,8 +74,8 @@ class Task(object):
     
     def generate_colors(self, n_seq):
         
-        upcol = np.random.choice(np.linspace(0,2*np.pi,N_cols), n_seq)
-        downcol = np.random.choice(np.linspace(0,2*np.pi,N_cols), n_seq)
+        upcol = np.random.choice(np.linspace(0,2*np.pi, self.num_col), n_seq)
+        downcol = np.random.choice(np.linspace(0,2*np.pi, self.num_col), n_seq)
             
         cue = np.random.choice([-1.,1.], n_seq) 
         
@@ -82,7 +83,7 @@ class Task(object):
         
     def generate_sequences(self, upcol, downcol, cue, jitter=3, inp_noise=0.0,
                            dyn_noise=0.0, new_T=None, retro_only=False,
-                           pro_only=False):
+                           pro_only=False, net_size=None):
         
         T_inp1 = self.T_inp1
         T_inp2 = self.T_inp2
