@@ -36,6 +36,7 @@ import sklearn.model_selection as skms
 import sklearn.linear_model as sklm
 import scipy.stats as sts
 import scipy.linalg as la
+import scipy.optimize as sopt
 
 # import umap
 from cycler import cycler
@@ -48,6 +49,9 @@ import util
 import tasks
 import plotting as tplt
 import anime as ani
+
+# jeff code
+import swap_errors.analysis as swan
 
 class Task(object):
     
@@ -104,7 +108,8 @@ class Task(object):
             net_inp = 0
             
         
-        col_inp = np.stack([np.cos(upcol), np.sin(upcol), np.cos(downcol), np.sin(downcol)]).T + np.random.randn(n_seq,4)*inp_noise
+        col_inp = np.stack([np.cos(upcol), np.sin(upcol), np.cos(downcol),
+                            np.sin(downcol)]).T + np.random.randn(n_seq,4)*inp_noise
         
         cuecol = np.where(cue>0, upcol, downcol)
         uncuecol = np.where(cue>0, downcol, upcol)
@@ -155,14 +160,51 @@ class Task(object):
         outputs = np.cumsum(outputs, axis=0)
 
         return inps, outputs, train_mask
- 
+
+def fit_ring(neurs, col1, col2, n_bins=32, acc=None, model=sklm.Ridge,
+             acc_thr=.8, **kwargs):
+    m = model(**kwargs)
+    col1_spl = swan.spline_color(col1, n_bins).T
+    col2_spl = swan.spline_color(col2, n_bins).T
+    x = np.concatenate((col1_spl, col2_spl), axis=1)
+    if acc is not None:
+        acc_mask = np.abs(acc) < acc_thr
+        x = x[acc_mask]
+        neurs = neurs[acc_mask]
+    m.fit(x, neurs)
+    score = m.score(x, neurs)
+    return m.coef_, score
+
+def decode_trls(neurs, ring_coeffs, **kwargs):
+    out_cols = np.zeros((len(neurs), 2))
+    for i, neur_trl in enumerate(neurs):
+        c1, c2, _ = decode_colors(neur_trl, ring_coeffs, **kwargs)
+        out_cols[i] = c1, c2
+    return out_cols
+
+def decode_colors(neur_trl, ring_coeffs, **kwargs):
+    nbins = int(ring_coeffs.shape[1]/2)
+    
+    def func(cols):
+        col_vecs = list(swan.spline_color(np.array([col]), nbins)
+                       for col in cols)
+        col_vec = np.concatenate(col_vecs, axis=0)
+        out = np.dot(ring_coeffs, col_vec)
+        loss = np.sum((out - neur_trl)**2)
+        return loss
+    
+    res = sopt.minimize(func, (np.pi, np.pi), bounds=((0, 2*np.pi),)*2,
+                         **kwargs)
+    return res.x[0], res.x[1], res
+    
 def make_training_data(t_inp1, t_inp2, t_resp, total_t, jitter=3, ndat=2000,
                        n_cols=64, train_noise=0, train_z_noise=.1,
-                       go_cue=True, net_size=None):
+                       go_cue=True, net_size=None, make_val_set=False,
+                       val_frac=.2, **kwargs):
     task = Task(n_cols, t_inp1, t_inp2, t_resp, total_t, go_cue=go_cue)
 
     out  = task.generate_data(ndat, jitter, train_noise, train_z_noise,
-                              net_size=net_size)
+                              net_size=net_size, **kwargs)
     inps, outs, upcol, downcol, cue, train_inp_mask = out
     
     cuecol = np.where(cue>0, upcol, downcol)
@@ -171,8 +213,20 @@ def make_training_data(t_inp1, t_inp2, t_resp, total_t, jitter=3, ndat=2000,
     inputs = torch.tensor(inps)
     outputs = torch.tensor(outs)
     components = (upcol, downcol, cue, cuecol, uncuecol)
-    
-    return inputs, outputs, train_inp_mask, components
+    td_out = (inputs, outputs, train_inp_mask, components)
+    if make_val_set:
+        out  = task.generate_data(int(ndat*val_frac), jitter, train_noise,
+                                  train_z_noise, net_size=net_size, **kwargs)
+        inps, outs, upcol, downcol, cue, _ = out
+        cuecol = np.where(cue>0, upcol, downcol)
+        uncuecol = np.where(cue>0, downcol, upcol)
+        val_inputs = torch.tensor(inps)
+        val_outputs = torch.tensor(outs)
+        val_components = (upcol, downcol, cue, cuecol, uncuecol)
+        val_set = (val_inputs, val_outputs, val_components)
+
+        td_out = td_out + (val_set,)
+    return td_out
 
 def make_task_rnn(inputs, outputs, net_size, basis=None, train_mask=None):
     n_in = inputs.shape[-1]
@@ -193,19 +247,11 @@ class TaskRNN:
                                        beta=0)
         
         if basis is not None:
-            # with torch.no_grad():
-            #     dec.weight.copy_( torch.tensor(basis[:,:outs.shape[0]].T).float())
-            #     dec.weight.requires_grad = False
-            # with torch.no_grad():
-            #     net.rnn.inp2hid.weight.copy_(torch.tensor(basis[:,:5]).float())
-            #     net.rnn.inp2hid.weight.requires_grad = False
-            #     net.rnn.inp2hid.bias.requires_grad = False
             with torch.no_grad():
                 inp_w = np.append(basis[:,n_out:n_out+n_in-1],
                                   np.ones((N,1))/np.sqrt(N), axis=-1)
                 net.rnn.weight_ih_l0.copy_(torch.tensor(inp_w).float())
                 net.rnn.weight_ih_l0.requires_grad = False
-                # net.rnn.bias_ih_l0.requires_grad = False
         with torch.no_grad():
             weight_mask = torch.tensor(np.ones_like(self.net.rnn.weight_ih_l0))
             weight_mask[:, train_mask] = 0
@@ -219,10 +265,9 @@ class TaskRNN:
         if transpose:
             out = out.transpose(0, 1)
         return out
-        
-                
-    def fit(self, inputs, outputs, lr=1e-3, batch_size=200, shuffle=True,
-            n_epochs=2500):
+                        
+    def fit(self, inputs, outputs, components, lr=1e-3, batch_size=200,
+            shuffle=True, n_epochs=2500, validation_set=None):
         optimizer = optim.Adam(self.net.parameters(), lr=lr)
         dset = torch.utils.data.TensorDataset(
             self._pre_proc(inputs),
@@ -233,14 +278,31 @@ class TaskRNN:
 
         init_params = list(self.net.parameters())
         train_loss = []
-        scats = []
+        train_corr, train_swap = [], []
+        val_corr, val_swap = [], []
         for epoch in tqdm(range(n_epochs)):
             loss = self.net.grad_step(dl, optimizer, init_state=False,
                                       only_final=False)
-            print(loss)
             train_loss.append(loss)
-            
-        return train_loss
+            tr_out = self.eval_net(inputs)
+            tr_cue_col, tr_uncue_col = components[-2:]
+            out = self.compute_diffs(tr_out, tr_cue_col, tr_uncue_col)
+            _, (tr_corr_diff, tr_swap_diff) = out
+            train_corr.append(tr_corr_diff)
+            train_swap.append(tr_swap_diff)
+            if validation_set is not None and np.mod(epoch, 10) == 0:
+                val_inp, val_out, val_comp = validation_set
+                val_cue_col, val_uncue_col = val_comp[-2:]
+                net_out = self.eval_net(val_inp)
+
+                out = self.compute_diffs(net_out, val_cue_col, val_uncue_col)
+                _, (val_corr_diff, val_swap_diff) = out
+                val_corr.append(val_corr_diff)
+                val_swap.append(val_swap_diff)
+        out = (train_loss, train_corr, train_swap)
+        if validation_set is not None:
+            out = out + (val_corr, val_swap)
+        return out
 
     def eval_net(self, inputs):
         inputs = self._pre_proc(inputs, transpose=True)
