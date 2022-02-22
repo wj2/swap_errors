@@ -115,40 +115,54 @@ class Task(object):
         uncuecol = np.where(cue>0, downcol, upcol)
         
         cue += np.random.randn(n_seq)*inp_noise
-        inps = np.zeros((n_seq,T, col_inp.shape[1] + net_inp + 1*self.go_cue))
+        inps = np.zeros((n_seq,T, col_inp.shape[1] + net_inp +
+                         1 + 1*self.go_cue))
         
-        if jitter>0:
-            t_stim1 = np.random.choice(range(T_inp1 - jitter, T_inp1 + jitter), ndat)
-            t_stim2 = np.random.choice(range(T_inp2 - jitter, T_inp2 + jitter), ndat)
-            t_targ = np.random.choice(range(T_resp - jitter, T_resp + jitter), ndat)
-        else:
-            t_stim1 = np.ones(n_seq, dtype=int)*(T_inp1)
-            t_stim2 = np.ones(n_seq, dtype=int)*(T_inp2)
-            t_targ = np.ones(n_seq, dtype=int)*(T_resp)
+        t_stim1 = np.random.choice(range(T_inp1 - jitter, T_inp1 + jitter + 1),
+                                   (ndat, 1))
+        t_stim2 = np.random.choice(range(T_inp2 - jitter, T_inp2 + jitter + 1),
+                                   (ndat, 1))
+        t_targ = np.random.choice(range(T_resp - jitter, T_resp + jitter + 1),
+                                  (ndat, 1))
+        
+        
+        t_stim1 = t_stim1 + np.arange(present_len).reshape((1, -1))
+        t_stim2 = t_stim2 + np.arange(present_len).reshape((1, -1))
+        t_targ = t_targ + np.arange(present_len).reshape((1, -1))
 
+        comb_cue_t = np.concatenate((t_stim2[:n_seq//2], t_stim1[n_seq//2:]))
+        comb_col_t = np.concatenate((t_stim1[:n_seq//2], t_stim2[n_seq//2:]))
+
+        t_stim1 = np.concatenate(t_stim1.T)
+        t_stim2 = np.concatenate(t_stim2.T)
+        comb_cue_t = np.concatenate(comb_cue_t.T)
+        comb_col_t = np.concatenate(comb_col_t.T)
+        t_targ = np.concatenate(t_targ.T)
+        
         retro_cue = t_stim2
         retro_col = t_stim1
         pro_cue = t_stim1
         pro_col = t_stim2
         
+        seq_inds = np.tile(np.arange(n_seq), present_len)
+        col_inp = np.tile(col_inp, (present_len, 1))
+        cue_rep = np.tile(cue, present_len)
         if retro_only:
-            inps[np.arange(n_seq),retro_col, :4] = col_inp # retro
-            inps[np.arange(n_seq),retro_cue, 4] = cue
+            inps[seq_inds, retro_col, :4] = col_inp # retro
+            inps[seq_inds, retro_cue, 4] = cue_rep
         elif pro_only:
-            inps[np.arange(n_seq),pro_cue, 4] = cue # pro
-            inps[np.arange(n_seq),pro_col, :4] = col_inp
+            inps[seq_inds, pro_cue, 4] = cue_rep # pro
+            inps[seq_inds, pro_col, :4] = col_inp
         else:
-            cue_t = np.concatenate((retro_cue[:n_seq//2], pro_cue[n_seq//2:]))
-            col_t = np.concatenate((retro_col[:n_seq//2], pro_col[n_seq//2:]))
-            inps[np.arange(n_seq), cue_t, 4] = cue
-            inps[np.arange(n_seq), col_t, :4] = col_inp
-        
-        inps[:,:,4:4+net_inp] = np.random.randn(n_seq, T, net_inp)*dyn_noise
+            inps[seq_inds, comb_cue_t, 4] = cue_rep
+            inps[seq_inds, comb_col_t, :4] = col_inp
+            
+        inps[:,:,5:5+net_inp] = np.random.randn(n_seq, T, net_inp)*dyn_noise
         train_mask = np.zeros(inps.shape[2], dtype=bool)
         train_mask[4:4+net_inp] = True
         
         if self.go_cue:
-            inps[np.arange(n_seq), t_targ, -1] = 1
+            inps[seq_inds, t_targ, -1] = 1
         
         # inps = np.zeros((ndat,T,1))
         # inps[np.arange(ndat),t_stim, 0] = cue
@@ -160,7 +174,7 @@ class Task(object):
         # outs = np.stack([np.cos(cuecol), np.sin(cuecol)])
 
         outputs = np.zeros((T, n_seq, outs.shape[0]))
-        outputs[t_targ,np.arange(n_seq),:] = outs.T
+        outputs[t_targ, seq_inds, :] = np.tile(outs.T, (present_len, 1))
         outputs = np.cumsum(outputs, axis=0)
 
         return inps, outputs, train_mask
