@@ -87,7 +87,7 @@ class Task(object):
         
     def generate_sequences(self, upcol, downcol, cue, jitter=3, inp_noise=0.0,
                            dyn_noise=0.0, new_T=None, retro_only=False,
-                           pro_only=False, net_size=None):
+                           pro_only=False, net_size=None, present_len=1):
         
         T_inp1 = self.T_inp1
         T_inp2 = self.T_inp2
@@ -125,19 +125,23 @@ class Task(object):
             t_stim1 = np.ones(n_seq, dtype=int)*(T_inp1)
             t_stim2 = np.ones(n_seq, dtype=int)*(T_inp2)
             t_targ = np.ones(n_seq, dtype=int)*(T_resp)
+
+        retro_cue = t_stim2
+        retro_col = t_stim1
+        pro_cue = t_stim1
+        pro_col = t_stim2
         
         if retro_only:
-            inps[np.arange(n_seq),t_stim1,:4] = col_inp # retro
-            inps[np.arange(n_seq),t_stim2, 4] = cue
+            inps[np.arange(n_seq),retro_col, :4] = col_inp # retro
+            inps[np.arange(n_seq),retro_cue, 4] = cue
         elif pro_only:
-            inps[np.arange(n_seq),t_stim1,4] = cue # pro
-            inps[np.arange(n_seq),t_stim2, :4] = col_inp
+            inps[np.arange(n_seq),pro_cue, 4] = cue # pro
+            inps[np.arange(n_seq),pro_col, :4] = col_inp
         else:
-            inps[np.arange(n_seq//2),t_stim1[:n_seq//2],:4] = col_inp[:n_seq//2,:] # retro
-            inps[np.arange(n_seq//2),t_stim2[:n_seq//2], 4] = cue[:n_seq//2]
-            
-            inps[np.arange(n_seq//2, n_seq),t_stim1[n_seq//2:],4] = cue[n_seq//2:] # pro
-            inps[np.arange(n_seq//2, n_seq),t_stim2[n_seq//2:], :4] = col_inp[n_seq//2:,:]
+            cue_t = np.concatenate((retro_cue[:n_seq//2], pro_cue[n_seq//2:]))
+            col_t = np.concatenate((retro_col[:n_seq//2], pro_col[n_seq//2:]))
+            inps[np.arange(n_seq), cue_t, 4] = cue
+            inps[np.arange(n_seq), col_t, :4] = col_inp
         
         inps[:,:,4:4+net_inp] = np.random.randn(n_seq, T, net_inp)*dyn_noise
         train_mask = np.zeros(inps.shape[2], dtype=bool)
