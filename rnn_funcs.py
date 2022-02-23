@@ -52,6 +52,7 @@ import anime as ani
 
 # jeff code
 import swap_errors.analysis as swan
+import general.plotting as gpl
 
 class Task(object):
     
@@ -87,7 +88,8 @@ class Task(object):
         
     def generate_sequences(self, upcol, downcol, cue, jitter=3, inp_noise=0.0,
                            dyn_noise=0.0, new_T=None, retro_only=False,
-                           pro_only=False, net_size=None, present_len=1):
+                           pro_only=False, net_size=None, present_len=1,
+                           report_cue=True, report_uncue_color=True):
         
         T_inp1 = self.T_inp1
         T_inp2 = self.T_inp2
@@ -128,7 +130,6 @@ class Task(object):
         
         t_stim1 = t_stim1 + np.arange(present_len).reshape((1, -1))
         t_stim2 = t_stim2 + np.arange(present_len).reshape((1, -1))
-        t_targ = t_targ + np.arange(present_len).reshape((1, -1))
 
         comb_cue_t = np.concatenate((t_stim2[:n_seq//2], t_stim1[n_seq//2:]))
         comb_col_t = np.concatenate((t_stim1[:n_seq//2], t_stim2[n_seq//2:]))
@@ -137,7 +138,6 @@ class Task(object):
         t_stim2 = np.concatenate(t_stim2.T)
         comb_cue_t = np.concatenate(comb_cue_t.T)
         comb_col_t = np.concatenate(comb_col_t.T)
-        t_targ = np.concatenate(t_targ.T)
         
         retro_cue = t_stim2
         retro_col = t_stim1
@@ -160,25 +160,43 @@ class Task(object):
         inps[:,:,5:5+net_inp] = np.random.randn(n_seq, T, net_inp)*dyn_noise
         train_mask = np.zeros(inps.shape[2], dtype=bool)
         train_mask[4:4+net_inp] = True
+
+
+        report_list = (np.cos(cuecol), np.sin(cuecol))
+        if report_uncue_color:
+            report_list = report_list + (np.cos(uncuecol), np.sin(uncuecol))
+        if report_cue:
+            report_list = report_list + (cue,)
+        outs = np.stack(report_list)
+        
+        outputs = np.zeros((T, n_seq, outs.shape[0]))
         
         if self.go_cue:
-            inps[seq_inds, t_targ, -1] = 1
+            for i, targ_i in enumerate(np.squeeze(t_targ)):
+                inps[i, targ_i:, -1] = 1
+                outputs[targ_i:, i, :] = outs[:, i]
         
         # inps = np.zeros((ndat,T,1))
         # inps[np.arange(ndat),t_stim, 0] = cue
         
-        outs = np.concatenate([np.stack([np.cos(cuecol), np.sin(cuecol),
-                                         np.cos(uncuecol), np.sin(uncuecol)]),
-                               cue[None,:]], axis=0)
         # outs = np.stack([np.cos(cuecol), np.sin(cuecol), np.cos(uncuecol), np.sin(uncuecol)])
         # outs = np.stack([np.cos(cuecol), np.sin(cuecol)])
 
-        outputs = np.zeros((T, n_seq, outs.shape[0]))
-        outputs[t_targ, seq_inds, :] = np.tile(outs.T, (present_len, 1))
-        outputs = np.cumsum(outputs, axis=0)
-
         return inps, outputs, train_mask
 
+def plot_loss_summary(loss_a, tr_corr, tr_swap, val_corr, val_swap, fwid=5):
+    f, (ax_l, ax_ang, ax_val) = plt.subplots(1, 3, figsize=(fwid*3, fwid),)
+    ax_l.plot(loss_a)
+    xs_full = np.arange(len(tr_corr))
+    xs = np.arange(len(val_corr))
+    gpl.plot_trace_werr(xs_full, np.abs(np.array(tr_corr).T), ax=ax_ang)
+    gpl.plot_trace_werr(xs_full, np.abs(np.array(tr_swap).T), ax=ax_ang)
+    gpl.plot_trace_werr(xs, np.abs(np.array(val_corr).T), ax=ax_val)
+    gpl.plot_trace_werr(xs, np.abs(np.array(val_swap).T), ax=ax_val)
+    
+    gpl.add_hlines(np.pi/2, ax_ang)
+    gpl.add_hlines(np.pi/2, ax_val)
+    
 def fit_ring(neurs, col1, col2, n_bins=32, acc=None, model=sklm.Ridge,
              acc_thr=.8, **kwargs):
     m = model(**kwargs)
@@ -246,15 +264,18 @@ def make_training_data(t_inp1, t_inp2, t_resp, total_t, jitter=3, ndat=2000,
         td_out = td_out + (val_set,)
     return td_out
 
-def make_task_rnn(inputs, outputs, net_size, basis=None, train_mask=None):
+def make_task_rnn(inputs, outputs, net_size, basis=None, train_mask=None,
+                  **kwargs):
     n_in = inputs.shape[-1]
     n_out = outputs.shape[-1]
-    net = TaskRNN(n_in, net_size, n_out, basis=basis, train_mask=train_mask)
+    net = TaskRNN(n_in, net_size, n_out, basis=basis, train_mask=train_mask,
+                  **kwargs)
     return net
 
 class TaskRNN:
 
-    def __init__(self, inp_dim, rnn_dim, out_dim, basis=None, train_mask=None):
+    def __init__(self, inp_dim, rnn_dim, out_dim, basis=None, train_mask=None,
+                 activity_reg=0):
         if train_mask is None:
             train_mask = np.ones(inp_dim, dtype=bool)
         self.dec = nn.Linear(rnn_dim, out_dim, bias=True)
@@ -262,7 +283,7 @@ class TaskRNN:
         self.net = students.GenericRNN(self.rnn, students.GausId(out_dim),
                                        decoder=self.dec,
                                        z_dist=students.GausId(rnn_dim),
-                                       beta=0)
+                                       beta=activity_reg)
         
         if basis is not None:
             with torch.no_grad():
@@ -304,7 +325,7 @@ class TaskRNN:
             train_loss.append(loss)
             tr_out = self.eval_net(inputs)
             tr_cue_col, tr_uncue_col = components[-2:]
-            out = self.compute_diffs(tr_out, tr_cue_col, tr_uncue_col)
+            out = compute_diffs(tr_out, tr_cue_col, tr_uncue_col)
             _, (tr_corr_diff, tr_swap_diff) = out
             train_corr.append(tr_corr_diff)
             train_swap.append(tr_swap_diff)
@@ -313,7 +334,7 @@ class TaskRNN:
                 val_cue_col, val_uncue_col = val_comp[-2:]
                 net_out = self.eval_net(val_inp)
 
-                out = self.compute_diffs(net_out, val_cue_col, val_uncue_col)
+                out = compute_diffs(net_out, val_cue_col, val_uncue_col)
                 _, (val_corr_diff, val_swap_diff) = out
                 val_corr.append(val_corr_diff)
                 val_swap.append(val_swap_diff)
@@ -327,12 +348,42 @@ class TaskRNN:
         outputs = self.net(inputs)
         return outputs
 
-    def compute_diffs(self, outputs, *cols):
-        theta = np.arctan2(outputs[0][:,1].detach(),
-                           outputs[0][:,0].detach()).numpy()
-        diffs = []
-        for col in cols:
-            diff = np.arctan2(np.exp(col*1j - theta*1j).imag,
-                              np.exp(col*1j - theta*1j).real)
-            diffs.append(diff)
-        return theta, diffs
+    def plot_response_scatter(self, inputs, fwid=3):
+        out = self.eval_net(inputs)
+
+        _plot_response_scatter(out)
+    
+    def plot_response_hist(self, inputs, *targs, **kwargs):
+        out = self.eval_net(inputs)
+        _plot_response_hist(out, *targs, **kwargs)
+
+def _plot_response_scatter(outs, fwid=3):
+    f, (ax_cue, ax_uncue) = plt.subplots(1, 2, figsize=(2*fwid, fwid),
+                                         sharex=True, sharey=True)
+    outs = outs[0].detach().numpy()
+    ax_cue.plot(outs[:, 0], outs[:, 1], 'o')
+    ax_uncue.plot(outs[:, 2], outs[:, 3], 'o')
+        
+def _plot_response_hist(outs, *targs, fwid=3, n_bins=20, add_zero=True):
+    if add_zero:
+        targs = targs + (np.zeros_like(targs[0]),)
+    theta, diffs = compute_diffs(outs, *targs)
+
+    n_targs = len(targs)
+    f, axs = plt.subplots(1, n_targs, figsize=(n_targs*fwid, fwid),
+                          sharey=True)
+    bins = np.linspace(-np.pi, np.pi, n_bins)
+    for i, diff in enumerate(diffs):
+        axs[i].hist(diff, density=True, bins=bins)
+            
+def compute_diffs(outputs, *cols):
+    theta = np.arctan2(outputs[0][:,1].detach(),
+                       outputs[0][:,0].detach()).numpy()
+    diffs = []
+    for col in cols:
+        diff = np.arctan2(np.exp(col*1j - theta*1j).imag,
+                          np.exp(col*1j - theta*1j).real)
+        diffs.append(diff)
+    return theta, diffs
+
+        
