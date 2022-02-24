@@ -164,12 +164,14 @@ class Task(object):
         train_mask[col_size+1:col_size+1+net_inp] = True
 
 
-        report_list = (np.cos(cuecol), np.sin(cuecol))
+        report_list = color_func(cuecol)
         if report_uncue_color:
-            report_list = report_list + (np.cos(uncuecol), np.sin(uncuecol))
+            report_list = np.concatenate((report_list, color_func(uncuecol)),
+                                         axis=1)
         if report_cue:
-            report_list = report_list + (cue,)
-        outs = np.stack(report_list)
+            report_list = np.concatenate((report_list, np.expand_dims(cue, 1)),
+                                         axis=1)
+        outs = report_list.T
         
         outputs = np.zeros((T, n_seq, outs.shape[0]))
         
