@@ -89,7 +89,8 @@ class Task(object):
     def generate_sequences(self, upcol, downcol, cue, jitter=3, inp_noise=0.0,
                            dyn_noise=0.0, new_T=None, retro_only=False,
                            pro_only=False, net_size=None, present_len=1,
-                           report_cue=True, report_uncue_color=True):
+                           report_cue=True, report_uncue_color=True,
+                           color_func=decompose_colors):
         
         T_inp1 = self.T_inp1
         T_inp2 = self.T_inp2
@@ -108,10 +109,10 @@ class Task(object):
             net_inp = net_size
         else:
             net_inp = 0
-            
-        
-        col_inp = np.stack([np.cos(upcol), np.sin(upcol), np.cos(downcol),
-                            np.sin(downcol)]).T + np.random.randn(n_seq,4)*inp_noise
+
+        col_inp = color_func(upcol, downcol)
+        col_inp = col_inp + np.random.randn(*col_inp.shape)*inp_noise
+        col_size = col_inp.shape[1]
         
         cuecol = np.where(cue>0, upcol, downcol)
         uncuecol = np.where(cue>0, downcol, upcol)
@@ -148,18 +149,19 @@ class Task(object):
         col_inp = np.tile(col_inp, (present_len, 1))
         cue_rep = np.tile(cue, present_len)
         if retro_only:
-            inps[seq_inds, retro_col, :4] = col_inp # retro
-            inps[seq_inds, retro_cue, 4] = cue_rep
+            inps[seq_inds, retro_col, :col_size] = col_inp # retro
+            inps[seq_inds, retro_cue, col_size] = cue_rep
         elif pro_only:
-            inps[seq_inds, pro_cue, 4] = cue_rep # pro
-            inps[seq_inds, pro_col, :4] = col_inp
+            inps[seq_inds, pro_cue, col_size] = cue_rep # pro
+            inps[seq_inds, pro_col, :col_size] = col_inp
         else:
-            inps[seq_inds, comb_cue_t, 4] = cue_rep
-            inps[seq_inds, comb_col_t, :4] = col_inp
+            inps[seq_inds, comb_cue_t, col_size] = cue_rep
+            inps[seq_inds, comb_col_t, :col_size] = col_inp
             
-        inps[:,:,5:5+net_inp] = np.random.randn(n_seq, T, net_inp)*dyn_noise
+        inps[:,:,col_size+1:col_size+1+net_inp] = np.random.randn(
+            n_seq, T, net_inp)*dyn_noise
         train_mask = np.zeros(inps.shape[2], dtype=bool)
-        train_mask[4:4+net_inp] = True
+        train_mask[col_size+1:col_size+1+net_inp] = True
 
 
         report_list = (np.cos(cuecol), np.sin(cuecol))
@@ -176,12 +178,6 @@ class Task(object):
                 inps[i, targ_i:, -1] = 1
                 outputs[targ_i:, i, :] = outs[:, i]
         
-        # inps = np.zeros((ndat,T,1))
-        # inps[np.arange(ndat),t_stim, 0] = cue
-        
-        # outs = np.stack([np.cos(cuecol), np.sin(cuecol), np.cos(uncuecol), np.sin(uncuecol)])
-        # outs = np.stack([np.cos(cuecol), np.sin(cuecol)])
-
         return inps, outputs, train_mask
 
 def plot_loss_summary(loss_a, tr_corr, tr_swap, val_corr, val_swap, fwid=5):
@@ -232,37 +228,44 @@ def decode_colors(neur_trl, ring_coeffs, **kwargs):
     res = sopt.minimize(func, (np.pi, np.pi), bounds=((0, 2*np.pi),)*2,
                          **kwargs)
     return res.x[0], res.x[1], res
-    
-def make_training_data(t_inp1, t_inp2, t_resp, total_t, jitter=3, ndat=2000,
-                       n_cols=64, train_noise=0, train_z_noise=.1,
-                       go_cue=True, net_size=None, make_val_set=False,
-                       val_frac=.2, **kwargs):
+
+def make_trial_generator(t_inp1, t_inp2, t_resp, total_t, jitter=3, ndat=2000,
+                          n_cols=64, train_noise=0, train_z_noise=.1,
+                          go_cue=True, net_size=None, make_val_set=False,
+                          val_frac=.2, **kwargs):
     task = Task(n_cols, t_inp1, t_inp2, t_resp, total_t, go_cue=go_cue)
 
-    out  = task.generate_data(ndat, jitter, train_noise, train_z_noise,
-                              net_size=net_size, **kwargs)
-    inps, outs, upcol, downcol, cue, train_inp_mask = out
+    def gen_func(ndat=ndat, input_noise=train_noise, jitter=jitter,
+                 dynamics_noise=train_z_noise, ret_mask=False,
+                 retro_only=False, pro_only=False):
+        out  = task.generate_data(ndat, jitter, input_noise, dynamics_noise,
+                                  net_size=net_size, retro_only=retro_only,
+                                  pro_only=pro_only, **kwargs)
+        inps, outs, upcol, downcol, cue, train_inp_mask = out
     
-    cuecol = np.where(cue>0, upcol, downcol)
-    uncuecol = np.where(cue>0, downcol, upcol)
-
-    inputs = torch.tensor(inps)
-    outputs = torch.tensor(outs)
-    components = (upcol, downcol, cue, cuecol, uncuecol)
-    td_out = (inputs, outputs, train_inp_mask, components)
-    if make_val_set:
-        out  = task.generate_data(int(ndat*val_frac), jitter, train_noise,
-                                  train_z_noise, net_size=net_size, **kwargs)
-        inps, outs, upcol, downcol, cue, _ = out
         cuecol = np.where(cue>0, upcol, downcol)
         uncuecol = np.where(cue>0, downcol, upcol)
-        val_inputs = torch.tensor(inps)
-        val_outputs = torch.tensor(outs)
-        val_components = (upcol, downcol, cue, cuecol, uncuecol)
-        val_set = (val_inputs, val_outputs, val_components)
 
+        inputs = torch.tensor(inps)
+        outputs = torch.tensor(outs)
+        components = (upcol, downcol, cue, cuecol, uncuecol)
+        if ret_mask:
+            td_out = (inputs, outputs, train_inp_mask, components)
+        else:
+            td_out = (inputs, outputs, components)
+        return td_out
+
+    return gen_func
+
+def make_training_data(*args, ndat=2000, make_val_set=False, val_frac=.2,
+                       **kwargs):
+    gen_func = make_trial_generator(*args, ndat=ndat, **kwargs)
+    td_out = gen_func(ret_mask=True)
+    
+    if make_val_set:
+        val_set = gen_func(int(ndat*val_frac))
         td_out = td_out + (val_set,)
-    return td_out
+    return td_out, gen_func
 
 def make_task_rnn(inputs, outputs, net_size, basis=None, train_mask=None,
                   **kwargs):
@@ -357,16 +360,19 @@ class TaskRNN:
         out = self.eval_net(inputs)
         _plot_response_hist(out, *targs, **kwargs)
 
-def _plot_response_scatter(outs, fwid=3):
+def _plot_response_scatter(outs, fwid=3, cols=None):
     f, (ax_cue, ax_uncue) = plt.subplots(1, 2, figsize=(2*fwid, fwid),
                                          sharex=True, sharey=True)
     outs = outs[0].detach().numpy()
     ax_cue.plot(outs[:, 0], outs[:, 1], 'o')
     ax_uncue.plot(outs[:, 2], outs[:, 3], 'o')
         
-def _plot_response_hist(outs, *targs, fwid=3, n_bins=20, add_zero=True):
+def _plot_response_hist(outs, *targs, fwid=3, n_bins=20, add_zero=True,
+                        targ_names=('response - target',
+                                    'response - distractor')):
     if add_zero:
         targs = targs + (np.zeros_like(targs[0]),)
+        targ_names = targ_names + ('response',)
     theta, diffs = compute_diffs(outs, *targs)
 
     n_targs = len(targs)
@@ -375,6 +381,9 @@ def _plot_response_hist(outs, *targs, fwid=3, n_bins=20, add_zero=True):
     bins = np.linspace(-np.pi, np.pi, n_bins)
     for i, diff in enumerate(diffs):
         axs[i].hist(diff, density=True, bins=bins)
+        axs[i].set_title(targ_names[i])
+        axs[i].set_xlabel('angle')
+    axs[0].set_ylabel('density')
             
 def compute_diffs(outputs, *cols):
     theta = np.arctan2(outputs[0][:,1].detach(),
@@ -386,4 +395,72 @@ def compute_diffs(outputs, *cols):
         diffs.append(diff)
     return theta, diffs
 
-        
+def _cos_sin_col(col):
+    return np.cos(col), np.sin(col)
+
+def _rf_decomp(col, n_units=10, wid=2):
+    cents = np.linspace(0, 2*np.pi - (1/n_units)*2*np.pi, n_units)
+    cents = np.expand_dims(cents, 0)
+    col = np.expand_dims(col, 1)
+    r = np.exp(wid*np.cos(col - cents))/np.exp(wid)
+    return list(r[:, i] for i in range(n_units))
+
+def decompose_colors(*cols, decomp_func=_cos_sin_col, **kwargs):
+    all_cols = []
+    for col in cols:
+        all_cols.extend(decomp_func(col, **kwargs))
+    return np.stack(all_cols, axis=1)
+
+def rf_colors(*cols, n_units=10):
+    return decompose_colors(*cols, decomp_func=_rf_decomp,
+                            n_units=n_units)
+
+def decode_color(model, trl_gen, n_train_trls=2000, n_test_trls=100,
+                 decode_cue_uncue=True, jitter=0,
+                 decode_up_low=False, dec_model=sklm.Ridge, **trl_kwargs):
+    train_inputs, _, train_comps = trl_gen(n_train_trls, jitter=jitter,
+                                           **trl_kwargs)
+    test_inputs, _, test_comps = trl_gen(n_test_trls, jitter=jitter,
+                                         **trl_kwargs)
+    if decode_up_low:
+        train_cols = decompose_colors(*train_comps[:2])
+        test_cols = decompose_colors(*test_comps[:2])
+        flip_test_cols = decompose_colors(*test_comps[:2][::-1])
+    elif decode_cue_uncue:
+        train_cols = decompose_colors(*train_comps[-2:])
+        test_cols = decompose_colors(*test_comps[-2:])
+        flip_test_cols = decompose_colors(*test_comps[-2:][::-1])
+    else:
+        raise IOError('one of decode_cue_uncue or decode_up_low must be true')
+    m = dec_model()
+    train_rep = model.eval_net(train_inputs)[1].detach().numpy()
+    test_rep = model.eval_net(test_inputs)[1].detach().numpy()
+    n_ts = train_rep.shape[0]
+    dec_perf = np.zeros((n_ts, n_ts))
+    flip_perf = np.zeros((n_ts, n_ts))
+    for i in range(n_ts):
+        m.fit(train_rep[i], train_cols)
+        for j in range(n_ts):
+            score = m.score(test_rep[j], test_cols)
+            dec_perf[i, j] = score
+            flip_perf[i, j] = m.score(test_rep[j], flip_test_cols)
+    return dec_perf, flip_perf
+                
+def plot_decoding_map(*maps, fwid=5, thresh=True, ts=(5, 15, 25)):
+    n_plots = len(maps)
+    f, axs = plt.subplots(1, n_plots, figsize=(fwid*n_plots, fwid))
+    for i, map_i in enumerate(maps):
+        if thresh:
+            map_i[map_i < 0] = 0
+        ax_ts = np.arange(map_i.shape[0])
+        m = gpl.pcolormesh(ax_ts, ax_ts, map_i, ax=axs[i], vmin=0, vmax=1)
+        for t in ts:
+            gpl.add_hlines(t, axs[i])
+            gpl.add_vlines(t, axs[i])
+        axs[i].set_xlabel('testing time')
+        axs[i].set_xticks(ts)
+        axs[i].set_yticks(ts)
+
+    axs[0].set_ylabel('training time')
+    f.colorbar(m, ax=axs)
+    
