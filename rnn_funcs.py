@@ -37,6 +37,7 @@ import sklearn.linear_model as sklm
 import scipy.stats as sts
 import scipy.linalg as la
 import scipy.optimize as sopt
+import sklearn.decomposition as skd
 
 # import umap
 from cycler import cycler
@@ -277,10 +278,25 @@ def make_task_rnn(inputs, outputs, net_size, basis=None, train_mask=None,
                   **kwargs)
     return net
 
+def cos_sin_decode(resp):
+    theta = np.arctan2(resp[:,1], resp[:,0])
+    return theta
+
+def brute_decode(resp, func=_rf_decomp, n_brute=100):
+    theta_poss = np.linspace(0, 2*np.pi - (1/n_brute)*2*np.pi, n_brute)
+    reps = np.expand_dims(func(theta_poss), 0)
+    c_len = reps.shape[1]
+    resp_c = np.expand_dims(resp[:, :c_len], 2)
+    err = np.sum((reps - resp_c)**2, axis=1)
+    theta = theta_poss[np.argmin(err, axis=1)]
+    return theta
+
 class TaskRNN:
 
     def __init__(self, inp_dim, rnn_dim, out_dim, basis=None, train_mask=None,
-                 activity_reg=0):
+                 activity_reg=0, col_len=None, decode_func=cos_sin_decode):
+        self.col_len = col_len
+        self.decode_func = decode_func
         if train_mask is None:
             train_mask = np.ones(inp_dim, dtype=bool)
         self.dec = nn.Linear(rnn_dim, out_dim, bias=True)
@@ -328,18 +344,21 @@ class TaskRNN:
             loss = self.net.grad_step(dl, optimizer, init_state=False,
                                       only_final=False)
             train_loss.append(loss)
-            tr_out = self.eval_net(inputs)
-            tr_cue_col, tr_uncue_col = components[-2:]
-            out = compute_diffs(tr_out, tr_cue_col, tr_uncue_col)
-            _, (tr_corr_diff, tr_swap_diff) = out
-            train_corr.append(tr_corr_diff)
-            train_swap.append(tr_swap_diff)
             if validation_set is not None and np.mod(epoch, 10) == 0:
+                tr_col = self.eval_out(inputs)[0]
+                tr_cue_col, tr_uncue_col = components[-2:]
+                out = compute_diffs(tr_col, tr_cue_col, tr_uncue_col,
+                                    theta_func=self.decode_func)
+                _, (tr_corr_diff, tr_swap_diff) = out
+                train_corr.append(tr_corr_diff)
+                train_swap.append(tr_swap_diff)
+                
                 val_inp, val_out, val_comp = validation_set
                 val_cue_col, val_uncue_col = val_comp[-2:]
-                net_out = self.eval_net(val_inp)
+                te_col = self.eval_out(val_inp)[0]
 
-                out = compute_diffs(net_out, val_cue_col, val_uncue_col)
+                out = compute_diffs(te_col, val_cue_col, val_uncue_col,
+                                    theta_func=self.decode_func)
                 _, (val_corr_diff, val_swap_diff) = out
                 val_corr.append(val_corr_diff)
                 val_swap.append(val_swap_diff)
@@ -348,34 +367,59 @@ class TaskRNN:
             out = out + (val_corr, val_swap)
         return out
 
-    def eval_net(self, inputs):
+    def split_outputs(self, output):
+        if self.col_len is None:
+            col_len = int((output.shape[1] - 1)/2)
+        else:
+            col_len = self.col_len
+        c1 = output[:, :col_len]
+        c2 = output[:, col_len:col_len*2]
+        cue = output[:, -1]
+        return c1, c2, cue
+
+    def eval_out(self, inputs):
+        out = self.eval_net(inputs, split_out=True, convert_col=True)
+        return out[:-1]
+    
+    def eval_net(self, inputs, split_out=True, convert_col=False):
         inputs = self._pre_proc(inputs, transpose=True)
         outputs = self.net(inputs)
-        return outputs
+        out, rnn = outputs
+        col_t, col_d, cue = self.split_outputs(out)
+        col_t, col_d, cue, rnn = convert_tensors(col_t, col_d, cue, rnn)
+        if convert_col:
+            col_t = self.decode_func(col_t)
+            col_d = self.decode_func(col_d)
+        return col_t, col_d, cue, rnn
 
     def plot_response_scatter(self, inputs, fwid=3):
-        out = self.eval_net(inputs)
-
-        _plot_response_scatter(out)
+        out = self.eval_net(inputs, convert_col=False)
+        _plot_response_scatter(out[0])
     
     def plot_response_hist(self, inputs, *targs, **kwargs):
-        out = self.eval_net(inputs)
-        _plot_response_hist(out, *targs, **kwargs)
+        out = self.eval_out(inputs)
+        _plot_response_hist(out[0], *targs, **kwargs)
 
+def convert_tensors(*args):
+    out = []
+    for arg in args:
+        out.append(arg.detach().numpy())
+    return out
+        
 def _plot_response_scatter(outs, fwid=3, cols=None):
     f, (ax_cue, ax_uncue) = plt.subplots(1, 2, figsize=(2*fwid, fwid),
                                          sharex=True, sharey=True)
-    outs = outs[0].detach().numpy()
+    print(outs.shape)
     ax_cue.plot(outs[:, 0], outs[:, 1], 'o')
     ax_uncue.plot(outs[:, 2], outs[:, 3], 'o')
         
 def _plot_response_hist(outs, *targs, fwid=3, n_bins=20, add_zero=True,
                         targ_names=('response - target',
-                                    'response - distractor')):
+                                    'response - distractor'), **kwargs):
     if add_zero:
         targs = targs + (np.zeros_like(targs[0]),)
         targ_names = targ_names + ('response',)
-    theta, diffs = compute_diffs(outs, *targs)
+    theta, diffs = compute_diffs(outs, *targs, **kwargs)
 
     n_targs = len(targs)
     f, axs = plt.subplots(1, n_targs, figsize=(n_targs*fwid, fwid),
@@ -386,10 +430,66 @@ def _plot_response_hist(outs, *targs, fwid=3, n_bins=20, add_zero=True,
         axs[i].set_title(targ_names[i])
         axs[i].set_xlabel('angle')
     axs[0].set_ylabel('density')
-            
-def compute_diffs(outputs, *cols):
-    theta = np.arctan2(outputs[0][:,1].detach(),
-                       outputs[0][:,0].detach()).numpy()
+
+def compute_model_traj(*r_acts, dims=3, mean_fit=True, mean_trls=True,
+                       time_mask=None, decomp=skd.PCA, targs=None):
+    p = decomp()
+    if mean_fit:
+        r_acts = list(np.mean(r_act_i, axis=1, keepdims=True)
+                      for r_act_i in r_acts)
+    r_acts_comb = np.concatenate(r_acts, axis=1)
+    ts = np.arange(r_acts[0].shape[0])
+    if targs is not None:
+        targs = np.concatenate(list(np.ones(r_act_i.shape[:-1])*targs[i]
+                                    for i, r_act_i in enumerate(r_acts)),
+                               axis=1)
+        if time_mask is not None:
+            targs = targs[time_mask]
+            ts_red = ts[time_mask]
+        else:
+            ts_red = ts
+        targs_ts = np.tile(np.expand_dims(ts_red, 1),
+                           (1, targs.shape[1]))
+        targs_ts = np.concatenate(targs_ts)
+        targs = decompose_color(np.concatenate(targs))
+        targs = np.concatenate((targs, np.expand_dims(targs_ts, 1)), axis=1)
+    if time_mask is not None:
+        r_acts_comb = r_acts_comb[time_mask]
+    r_acts_flat = np.concatenate(r_acts_comb)
+    p.fit(r_acts_flat, targs)
+    traj_trs = list(np.zeros((len(ts), r_i.shape[1], dims))
+                    for r_i in r_acts)
+    for i in range(len(ts)):
+        for j, r_act in enumerate(r_acts):
+            try:
+                r_p = p.transform(r_acts[j][i])[:, :dims]
+            except AttributeError:
+                r_p = p.predict(r_acts[j][i])[:, :dims]
+            traj_trs[j][i] = r_p
+    return traj_trs
+
+def get_color(i, n):
+    spaces = np.linspace(0, 1 - 1/n, n)
+    cm = plt.get_cmap('hsv')
+    return cm(spaces[i])
+
+def plot_model_traj(*reduced_trajs, fwid=3, time_mask=None, ax=None, **kwargs):
+    dims = reduced_trajs[0].shape[2]
+    if ax is None:
+        f = plt.figure(figsize=(fwid, fwid))
+        if dims == 3:
+            ax = f.add_subplot(1, 1, 1, projection='3d')
+        else:
+            ax = f.add_subplot(1, 1, 1)
+    for i, rt in enumerate(reduced_trajs):
+        col = get_color(i, len(reduced_trajs))
+        for j in range(rt.shape[1]):
+            if time_mask is not None:
+                rt = rt[time_mask]
+            ax.plot(*rt[:, j].T, color=col, **kwargs)
+    return ax
+    
+def compute_diffs(theta, *cols, theta_func=cos_sin_decode):
     diffs = []
     for col in cols:
         diff = np.arctan2(np.exp(col*1j - theta*1j).imag,
