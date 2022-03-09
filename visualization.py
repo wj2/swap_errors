@@ -288,15 +288,44 @@ def visualize_model_collection_views(mdict, dim_red_model=skd.PCA,
     
     
 
-def visualize_model_collection(mdict, dim_red=True,
-                               ax=None, **kwargs):
+def _compute_common_dimred(mdict, use_keys=(), convert=True, truncate_dim=None,
+                           n_cols=64, dim_red_model=skd.PCA, **kwargs):
+    l = []
+    for fit_az in mdict.values():
+        for k in use_keys:
+            d_ak = fit_az.posterior[k]
+            if convert:
+                d_ak = d_ak.to_numpy()
+            m_ak = np.mean(d_ak, axis=(0, 1))
+            cols = np.linspace(0, 2*np.pi, n_cols + 1)[:-1]
+            m_cols = swan.spline_color(cols, m_ak.shape[-1])
+            trs_mu = np.dot(m_ak, m_cols)
+            l.append(trs_mu)
+    m_collection = np.concatenate(l, axis=1)
+    ptrs = dim_red_model(n_components=3)
+    if truncate_dim is None:
+        ptrs.fit(m_collection.T)
+        trs = lambda x: ptrs.transform(x.T).T
+    else:
+        ptrs.fit(m_collection[:truncate_dim].T)
+        trs = lambda x: ptrs.transform(x[:truncate_dim].T).T            
+    return trs
+
+def visualize_model_collection(mdict, dim_red=True, mu_u_keys=('mu_u', 'mu_d_u'),
+                               mu_l_keys=('mu_l', 'mu_d_l'), 
+                               ax=None, common_dim_red=False, **kwargs):
     trs = None
     if ax is None:
         f = plt.figure()
         ax = f.add_subplot(1, 1, 1, projection='3d')
+    if dim_red and common_dim_red:
+        trs = _compute_common_dimred(mdict, use_keys=mu_u_keys + mu_l_keys,
+                                     **kwargs)
     for k, v in mdict.items():
         out = visualize_fit_results(v, dim_red=dim_red, ax=ax,
-                                    label_cl=k, trs=trs, **kwargs)
+                                    mu_u_keys=mu_u_keys, mu_l_keys=mu_l_keys,
+                                    label_cl=k, trs=trs, 
+                                    **kwargs)
         if dim_red and trs is None:
             trs = out[1]
     return ax
@@ -456,7 +485,7 @@ class MultiSessionFit():
         for k in fit_list[0].posterior.keys():
             k_list = []
             for fl in fit_list:
-                add_arr = fl.posterior[k]
+                add_arr = fl.posterior[k].to_numpy()
                 if len(add_arr.shape) < 3:
                     add_arr = np.expand_dims(add_arr, 2)
                 k_list.append(add_arr)
@@ -481,7 +510,8 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
                           styles=('solid', 'dashed'), ax=None,
                           label_cu='', label_cl='', same_color=True,
                           legend=True, truncate_dim=None,
-                          n_cols=64, dim_red_model=skd.PCA, **kwargs):
+                          n_cols=64, dim_red_model=skd.PCA, convert=False,
+                          **kwargs):
     if ax is None:
         f = plt.figure()
         ax = f.add_subplot(1, 1, 1, projection='3d')
@@ -490,6 +520,8 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
         l = []
         for i, ak in enumerate(all_keys):
             d_ak = fit_az.posterior[ak]
+            if convert:
+                d_ak = d_ak.to_numpy()                
             m_ak = np.mean(d_ak, axis=(0, 1))
             cols = np.linspace(0, 2*np.pi, n_cols + 1)[:-1]
             m_cols = swan.spline_color(cols, m_ak.shape[-1])
@@ -506,17 +538,26 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
     elif trs is None:
         trs = lambda x: x
     for i, mu_k in enumerate(mu_u_keys):
-        mu_format = np.mean(fit_az.posterior[mu_k], axis=(0, 1))
+        mu_ak = fit_az.posterior[mu_k]
+        if convert:
+            mu_ak = mu_ak.to_numpy()
+        mu_format = np.mean(mu_ak, axis=(0, 1))
         _, c_u = _plot_mu(mu_format, trs, c_u, styles[i], ax,
                           label=label_cu)
     if same_color:
         c_l, c_g = c_u, c_u
     for i, mu_k in enumerate(mu_l_keys):
-        mu_format = np.mean(fit_az.posterior[mu_k], axis=(0, 1))
+        mu_ak = fit_az.posterior[mu_k]
+        if convert:
+            mu_ak = mu_ak.to_numpy()
+        mu_format = np.mean(mu_ak, axis=(0, 1))
         _, c_l = _plot_mu(mu_format, trs, c_l, styles[i], ax,
                           label=label_cl)
     for i, mu_k in enumerate(mu_g_keys):
-        mu_format = np.mean(fit_az.posterior[mu_k], axis=(0, 1))
+        mu_ak = fit_az.posterior[mu_k]
+        if convert:
+            mu_ak = mu_ak.to_numpy()
+        mu_format = np.mean(mu_ak, axis=(0, 1))
         mu_format = np.expand_dims(mu_format, 1)
         _, c_g = _plot_mu(mu_format, trs, c_g, styles[i], ax)
     if legend:
