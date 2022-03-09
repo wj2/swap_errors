@@ -399,7 +399,8 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
 
 def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                                        fwid=3, p_ind=1, bin_bounds=None,
-                                       ret_data=True, colors=None, **kwargs):
+                                       ret_data=True, colors=None,
+                                       **kwargs):
     if colors is None:
         colors = {}
     if axs is None:
