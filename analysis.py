@@ -99,7 +99,9 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                                      p_thresh=.5, p_key='p', p_ind=1,
                                      eps=1e-3, use_cues=True,
                                      correction_field='p_spa',
-                                     do_correction=False):
+                                     do_correction=False,
+                                     type_key='type',
+                                     trl_filt=None):
     cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
     pp = np.concatenate(fit_az.posterior_predictive[eh_key].to_numpy(),
                         axis=0)
@@ -118,6 +120,13 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
         mask = data[p_key][:, p_ind]*p_mult > p_thresh
     else:
         mask = np.ones(len(data[p_key]), dtype=bool)
+    if trl_filt is not None:
+        if trl_filt == 'pro':
+            mask = np.logical_and(mask, data[type_key] == 1)
+        elif trl_filt == 'retro':
+            mask = np.logical_and(mask, data[type_key] == 2)
+        else:
+            raise IOError('trl_filt key not recognized')
     true_arr = []
     pred_arr = []
     p_vals = []
@@ -675,6 +684,17 @@ mixture_arviz = {'observed_data':'err',
                  'dims':{'report_var':['run_ind'],
                          'swap_prob':['run_ind'],
                          'guess_prob':['run_ind']}}
+
+def compute_diff_dependence(data, targ_field='LABthetaTarget',
+                            dist_field='LABthetaDist',
+                            resp_field='LABthetaResp'):
+    targ = np.concatenate(data[targ_field])
+    dist = np.concatenate(data[dist_field])
+    resp = np.concatenate(data[resp_field])
+    td_diff = u.normalize_periodic_range(targ - dist)
+    resp_diff = u.normalize_periodic_range(targ - resp)
+    dist_diff = u.normalize_periodic_range(dist - resp)
+    return td_diff, resp_diff, dist_diff
 
 bmp = 'swap_errors/behavioral_model/corr_swap_guess.pkl'
 default_prior_dict = {'report_var_var_mean':1,

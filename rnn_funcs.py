@@ -38,6 +38,7 @@ import scipy.stats as sts
 import scipy.linalg as la
 import scipy.optimize as sopt
 import sklearn.decomposition as skd
+import sklearn.manifold as skm
 
 # import umap
 from cycler import cycler
@@ -54,6 +55,8 @@ import anime as ani
 # jeff code
 import swap_errors.analysis as swan
 import general.plotting as gpl
+import general.utility as u
+import fixed_point_analysis.analyzer as fpa
 
 class Task(object):
     
@@ -68,9 +71,11 @@ class Task(object):
         
         self.go_cue = go_cue
         
-    def generate_data(self, n_seq, *seq_args, **seq_kwargs):
+    def generate_data(self, n_seq, *seq_args, upcol_ind=None, downcol_ind=None,
+                      cue=None, **seq_kwargs):
         
-        upcol, downcol, cue = self.generate_colors(n_seq)
+        upcol, downcol, cue = self.generate_colors(n_seq, upcol_ind, downcol_ind,
+                                                   cue=cue)
         
         inps, outs, train_mask = self.generate_sequences(upcol, downcol, cue,
                                                          *seq_args, **seq_kwargs)
@@ -78,12 +83,24 @@ class Task(object):
         return inps, outs, upcol, downcol, cue, train_mask
         
     
-    def generate_colors(self, n_seq):
-        
-        upcol = np.random.choice(np.linspace(0,2*np.pi, self.num_col), n_seq)
+    def generate_colors(self, n_seq, upcol_ind=None, downcol_ind=None,
+                        cue=None):
+        if upcol_ind is None:
+            upcol = np.random.choice(np.linspace(0,2*np.pi, self.num_col), n_seq)
+        else:
+            col = np.linspace(0, 2*np.pi, self.num_col)[upcol_ind]
+            upcol = np.array((col,)*n_seq)
+        if downcol_ind is None:
+            downcol = np.random.choice(np.linspace(0,2*np.pi, self.num_col), n_seq)
+        else:
+            col = np.linspace(0, 2*np.pi, self.num_col)[downcol_ind]
+            downcol = np.array((col,)*n_seq)
         downcol = np.random.choice(np.linspace(0,2*np.pi, self.num_col), n_seq)
-            
-        cue = np.random.choice([-1.,1.], n_seq) 
+
+        if cue is None:
+            cue = np.random.choice([-1.,1.], n_seq)
+        else:
+            cue = np.array((cue,)*n_seq)
         
         return upcol, downcol, cue
         
@@ -106,10 +123,8 @@ class Task(object):
         if net_size is None and dyn_noise > 0:
             raise IOError('cannot do dynamics noise without providing the net '
                           'size')
-        elif dyn_noise > 0:
-            net_inp = net_size
         else:
-            net_inp = 0
+            net_inp = net_size
 
         col_inp = color_func(upcol, downcol)
         col_inp = col_inp + np.random.randn(*col_inp.shape)*inp_noise
@@ -240,10 +255,13 @@ def make_trial_generator(t_inp1, t_inp2, t_resp, total_t, jitter=3, ndat=2000,
 
     def gen_func(ndat=ndat, input_noise=train_noise, jitter=jitter,
                  dynamics_noise=train_z_noise, ret_mask=False,
-                 retro_only=False, pro_only=False):
+                 retro_only=False, pro_only=False, downcol_ind=None,
+                 upcol_ind=None, cue_set=None):
         out  = task.generate_data(ndat, jitter, input_noise, dynamics_noise,
                                   net_size=net_size, retro_only=retro_only,
-                                  pro_only=pro_only, **kwargs)
+                                  pro_only=pro_only, upcol_ind=upcol_ind,
+                                  downcol_ind=downcol_ind, cue=cue_set,
+                                  **kwargs)
         inps, outs, upcol, downcol, cue, train_inp_mask = out
     
         cuecol = np.where(cue>0, upcol, downcol)
@@ -297,6 +315,7 @@ class TaskRNN:
                  activity_reg=0, col_len=None, decode_func=cos_sin_decode):
         self.col_len = col_len
         self.decode_func = decode_func
+        
         if train_mask is None:
             train_mask = np.ones(inp_dim, dtype=bool)
         self.dec = nn.Linear(rnn_dim, out_dim, bias=True)
@@ -381,12 +400,14 @@ class TaskRNN:
         out = self.eval_net(inputs, split_out=True, convert_col=True)
         return out[:-1]
     
-    def eval_net(self, inputs, split_out=True, convert_col=False):
+    def eval_net(self, inputs, split_out=True, convert_col=False,
+                 conv_tensors=True):
         inputs = self._pre_proc(inputs, transpose=True)
         outputs = self.net(inputs)
         out, rnn = outputs
         col_t, col_d, cue = self.split_outputs(out)
-        col_t, col_d, cue, rnn = convert_tensors(col_t, col_d, cue, rnn)
+        if conv_tensors:
+            col_t, col_d, cue, rnn = convert_tensors(col_t, col_d, cue, rnn)
         if convert_col:
             col_t = self.decode_func(col_t)
             col_d = self.decode_func(col_d)
@@ -565,4 +586,61 @@ def plot_decoding_map(*maps, fwid=5, thresh=True, ts=(5, 15, 25)):
 
     axs[0].set_ylabel('training time')
     f.colorbar(m, ax=axs)
-    
+
+def find_color_fps(t_ind, adj_ts, model, trl_gen, noise=0, retro_only=True,
+                   ndat=1000, upcol_inds=range(0, 32, 4), downcol_inds=[0],
+                   max_fp_epochs=100000, fp_tol=1e-06, keep_speed=.1,
+                   keep_steps=5, **kwargs):
+    fp_dim = model.net.rnn.bias_hh_l0.shape[0]
+    hist_shape = (len(upcol_inds), len(downcol_inds), adj_ts,
+                  int(max_fp_epochs/keep_steps), fp_dim)
+    out_hist = np.zeros(hist_shape)
+    out_speed = np.zeros(hist_shape[:-1])
+    for i, uc in enumerate(upcol_inds):
+        for j, dc in enumerate(downcol_inds):
+            inputs, _, components = trl_gen(ndat, dynamics_noise=noise,
+                                            upcol_ind=uc, downcol_ind=dc,
+                                            jitter=0, retro_only=retro_only,
+                                            **kwargs)
+            r_acts = model.net(model._pre_proc(inputs, transpose=True))[1]
+            for k in range(adj_ts):
+                act_use = r_acts[t_ind + k, 0]
+                inp_use = inputs[0, t_ind + k]
+                fp_finder = fpa.FixedPoint(model.net.rnn, max_epochs=max_fp_epochs,
+                                           speed_tor=fp_tol)
+                out = fp_finder.find_fixed_point(act_use, inp_use,
+                                                 keep_speeds=True,
+                                                 keep_history=keep_steps)
+                out_speed[i, j, k] = out[-1][-hist_shape[-2]:]
+                if out[-1][-1] < keep_speed:
+                    out_hist[i, j, k] = out[-2][-hist_shape[-2]:]
+                else:
+                    out_hist[i, j, k] = np.nan
+    return out_hist, out_speed
+
+isomap_factory = lambda x: skm.Isomap(n_neighbors=100, n_components=x)
+
+def plot_fps(fp_arr, dim=3, decomp=isomap_factory, cmap='hsv', ax=None, fwid=5,
+             **kwargs):
+    p = decomp(dim)
+    arr_iter = u.make_array_ind_iterator(fp_arr.shape[:-1])
+    fp_arr_flat = np.stack(list(fp_arr[ind] for ind in arr_iter
+                                if not np.any(np.isnan(fp_arr[ind]))),
+                           axis=0)
+    p.fit(fp_arr_flat)
+    cm = plt.get_cmap(cmap)
+    cols = cm(np.linspace(0, 1, fp_arr.shape[0]))
+    if ax is None:
+        f = plt.figure(figsize=(fwid, fwid))
+        if dim == 3:
+            ax = f.add_subplot(1, 1, 1, projection='3d')
+        else:
+            ax = f.add_subplot(1, 1, 1)
+    for i, fp_col in enumerate(fp_arr):
+        for ind in u.make_array_ind_iterator(fp_col.shape[:-2]):
+            if not np.any(np.isnan(fp_col[ind])):
+                trs_fp = p.transform(fp_col[ind])
+                ax.plot(*trs_fp.T, 'o', color=cols[i])
+                ax.plot(*trs_fp.T,  color=cols[i])
+    return ax
+                           
