@@ -115,18 +115,18 @@ def visualize_simplex_2d(pts, ax=None, ax_labels=None, thr=.5,
                          line_grey_col=(.6, .6, .6),
                          colors=None, bottom_x=.8,
                          bottom_y=-1.1, top_x=.35, top_y=1,
-                         legend=False):
+                         legend=False, **kwargs):
     if colors is None:
         colors = (None,)*pts.shape[1]
     if ax_labels is None:
         ax_labels = ('',)*pts.shape[1]
     pts_x = pts[:, 1] - pts[:, 0]
     pts_y = pts[:, 2] - (pts[:, 0] + pts[:, 1])
-    ax.plot(pts_x, pts_y, 'o', color=pt_grey_col)
+    ax.plot(pts_x, pts_y, 'o', color=pt_grey_col, **kwargs)
     for i in range(pts.shape[1]):
         mask = pts[:, i] > thr
         ax.plot(pts_x[mask], pts_y[mask], 'o', color=colors[i],
-                label=ax_labels[i])
+                label=ax_labels[i], **kwargs)
     ax.plot([-1, 0], [-1, 1], color=line_grey_col)
     ax.plot([0, 1], [1, -1], color=line_grey_col)
     ax.plot([-1, 1], [-1, -1], color=line_grey_col)
@@ -261,6 +261,7 @@ def visualize_model_collection_views(mdict, dim_red_model=skd.PCA,
         dim_red_model = skm.Isomap
         vis_kwargs = {'dim_red_model':dim_red_model,
                       'n_neighbors':n_neighbors}
+        print(vis_kwargs)
     else:
         vis_kwargs = {'dim_red_model':skd.PCA}
     if kwarg_combs is None:

@@ -589,6 +589,22 @@ def quantify_swap_loo(mdict, data, method='weighted', threshold=.5, data_key='p'
     comp = az.compare(new_m)
     return comp
 
+def despline_color(cols, eps=.001, ret_err=False):
+    u_cols = np.unique(cols, axis=0)
+    num_bins = cols.shape[1]
+    
+    float_cols = np.linspace(0, 2*np.pi, len(u_cols) + 1)[:-1]
+    o_cols = spline_color(float_cols, cols.shape[1]).T
+    out = np.zeros(len(cols))
+    err = np.zeros_like(out)
+    for i, oc in enumerate(o_cols):
+        mask = np.sum((np.expand_dims(oc, 0) - cols)**2, axis=1) 
+        out[mask < eps] = float_cols[i]
+        err[mask < eps] = mask[mask < eps]
+    if ret_err:
+        out = (out, err)
+    return out
+
 def spline_color(cols, num_bins):
     '''
     cols should be given between 0 and 2 pi, bins also
