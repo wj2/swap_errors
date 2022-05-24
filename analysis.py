@@ -9,6 +9,7 @@ import sklearn.neighbors as skn
 import sklearn.model_selection as skms
 import sklearn.svm as skc
 import sklearn.linear_model as sklm
+import sklearn.preprocessing as skp
 import scipy.stats as sts
 import itertools as it
 import statsmodels.stats.weightstats as smw
@@ -73,7 +74,7 @@ def log_likelihood_comparison(model_dict, use_weights=None, thresh=None):
         names[i1, i2] = (k1, k2)
     return m_diff, sem_diff, names
 
-def _get_key_mu(posterior, cols, keys, mean=True, mask=None):
+def _get_key_mu(posterior, cols, keys, mean=True, mask=None, inter_key=None):
     for i, k in enumerate(keys):
         arr = np.concatenate(posterior[k].to_numpy(), axis=0)
         if mask is not None:
@@ -85,23 +86,72 @@ def _get_key_mu(posterior, cols, keys, mean=True, mask=None):
             mu_arr = dot_arr
         else:
             mu_arr = mu_arr + dot_arr
+    if inter_key is not None and inter_key in posterior.keys():
+        inter_pt = np.expand_dims(np.concatenate(posterior[inter_key].to_numpy(),
+                                                 axis=0), 2)
+        mu_arr = mu_arr + inter_pt 
     if mean:
         mu_arr = np.mean(mu_arr, axis=0)
     return mu_arr.T
 
+spatial_mu_config = ((('mu_d_u', 'mu_l'),
+                      ('mu_u', 'mu_d_l')),
+                     (('mu_l', 'mu_d_u'),
+                      ('mu_d_l', 'mu_u')))
+cue_mu_config = ((('mu_d_u', 'mu_l'),
+                  ('mu_u', 'mu_d_l')),
+                 (('mu_u', 'mu_d_l'),
+                  ('mu_d_u', 'mu_l')))
+def compute_vecs(fit_az, data, col_keys=('C_u', 'C_l'),
+                 mu_configs=spatial_mu_config, cue_key='cue',
+                 thin_col=1):
+    cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
+    all_cols = np.concatenate(cols, axis=0)
+    u_cols = np.unique(list(tuple(col) for col in all_cols), axis=0)[::thin_col]
+    
+    n_cols = len(u_cols)
+    n_configs = len(mu_configs[0])
+    n_units = fit_az.posterior['mu_u'].shape[2]
+
+    vecs = np.zeros((n_cols, n_cols, n_configs, n_units))
+    m1s = np.zeros_like(vecs)
+    m2s = np.zeros_like(vecs)
+    lens = np.zeros((n_cols, n_cols, n_configs))
+    for (i1, i2) in it.product(range(n_cols), repeat=2):
+        c1 = u_cols[i1]
+        c2 = u_cols[i2]
+        for j in range(n_configs):
+            mu_keys1_j = mu_configs[0][j]
+            mu_keys2_j = mu_configs[1][j]
+            m1 = _get_key_mu(fit_az.posterior, (c1, c2), mu_keys1_j)
+            m2 = _get_key_mu(fit_az.posterior, (c1, c2), mu_keys2_j)
+            vec_i = m2 - m1
+            l_i = np.sqrt(np.sum(vec_i**2))
+
+            m1s[i1, i2, j] = m1
+            m2s[i1, i2, j] = m2
+            vecs[i1, i2, j] = vec_i
+            lens[i1, i2, j] = l_i
+    return vecs, lens, m1s, m2s 
+    
 def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                                      col_keys=('C_u', 'C_l'), 
-                                     cent1_keys=(('mu_d_u', 'mu_l'),
-                                                 ('mu_u', 'mu_d_l')),
-                                     cent2_keys=(('mu_l', 'mu_d_u'),
-                                                 ('mu_d_l', 'mu_u')),
+                                     cent1_keys=((('mu_d_u', 'mu_l'),
+                                                  'intercept_down'),
+                                                 (('mu_u', 'mu_d_l'),
+                                                  'intercept_up')),
+                                     cent2_keys=((('mu_l', 'mu_d_u'),
+                                                  'intercept_down'),
+                                                 (('mu_d_l', 'mu_u'),
+                                                  'intercept_up')),
                                      resp_key='y', cue_key='cue',
                                      p_thresh=.5, p_key='p', p_ind=1,
                                      eps=1e-3, use_cues=True,
                                      correction_field='p_spa',
                                      do_correction=False,
                                      type_key='type',
-                                     trl_filt=None):
+                                     trl_filt=None,
+                                     col_thr=.1):
     cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
     pp = np.concatenate(fit_az.posterior_predictive[eh_key].to_numpy(),
                         axis=0)
@@ -121,22 +171,27 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
     else:
         mask = np.ones(len(data[p_key]), dtype=bool)
     if trl_filt is not None:
-        if trl_filt == 'pro':
+        if trl_filt == 'retro':
             mask = np.logical_and(mask, data[type_key] == 1)
-        elif trl_filt == 'retro':
+        elif trl_filt == 'pro':
             mask = np.logical_and(mask, data[type_key] == 2)
         else:
             raise IOError('trl_filt key not recognized')
     true_arr = []
     pred_arr = []
     p_vals = []
+    if col_thr is not None:
+        col_dist = np.sum((cols[0]*cols[1]), axis=1)
+        col_mask = col_dist < col_thr
+        mask = np.logical_and(mask, col_mask)
+
     for i, cue in enumerate(u_cues):
         cue_mask = np.logical_and(mask, cues == cue)
         p_vals.append(data[p_key][cue_mask])
-        mu1 = _get_key_mu(fit_az.posterior, cols, cent1_keys[i],
-                          mask=cue_mask)
-        mu2 = _get_key_mu(fit_az.posterior, cols, cent2_keys[i],
-                          mask=cue_mask)
+        mu1 = _get_key_mu(fit_az.posterior, cols, cent1_keys[cue][0],
+                          mask=cue_mask, inter_key=cent1_keys[cue][1])
+        mu2 = _get_key_mu(fit_az.posterior, cols, cent2_keys[cue][0],
+                          mask=cue_mask, inter_key=cent2_keys[cue][1])
         v_len = np.sqrt(np.sum((mu2 - mu1)**2, axis=1))
         v_len[v_len < eps] = 1
         resp_c = resp[cue_mask]
@@ -605,27 +660,33 @@ def despline_color(cols, eps=.001, ret_err=False):
         out = (out, err)
     return out
 
-def spline_color(cols, num_bins):
+def spline_color(cols, num_bins, degree=1, use_skl=True):
     '''
     cols should be given between 0 and 2 pi, bins also
     '''
+    if use_skl:
+        st = skp.SplineTransformer(num_bins + 2, degree=degree,
+                                   include_bias=False,
+                                   extrapolation='periodic')
+        cols_spl = st.fit_transform(np.expand_dims(cols, 1))
+        alpha = (cols_spl - np.mean(cols_spl, axis=0, keepdims=True)).T
+    else:
+        bins = np.linspace(0, 2*np.pi, num_bins+1)[:num_bins]
     
-    bins = np.linspace(0, 2*np.pi, num_bins+1)[:num_bins]
-    
-    dc = 2*np.pi/(len(bins))
+        dc = 2*np.pi/(len(bins))
 
-    # get the nearest bin
-    diffs = np.exp(1j*bins)[:,None]/np.exp(1j*cols)[None,:]
-    distances = np.arctan2(diffs.imag,diffs.real)
-    dist_near = np.abs(distances).min(0)
-    nearest = np.abs(distances).argmin(0)
-    # see if the color is to the "left" or "right" of that bin
-    sec_near = np.sign(distances[nearest,np.arange(len(cols))]+1e-8).astype(int)
-    # add epsilon to handle 0
-    # fill in the convex array
-    alpha = np.zeros((len(bins),len(cols)))
-    alpha[nearest, np.arange(len(cols))] = (dc-dist_near)/dc
-    alpha[np.mod(nearest-sec_near,len(bins)), np.arange(len(cols))] = 1 - (dc-dist_near)/dc
+        # get the nearest bin
+        diffs = np.exp(1j*bins)[:,None]/np.exp(1j*cols)[None,:]
+        distances = np.arctan2(diffs.imag,diffs.real)
+        dist_near = np.abs(distances).min(0)
+        nearest = np.abs(distances).argmin(0)
+        # see if the color is to the "left" or "right" of that bin
+        sec_near = np.sign(distances[nearest,np.arange(len(cols))]+1e-8).astype(int)
+        # add epsilon to handle 0
+        # fill in the convex array
+        alpha = np.zeros((len(bins),len(cols)))
+        alpha[nearest, np.arange(len(cols))] = (dc-dist_near)/dc
+        alpha[np.mod(nearest-sec_near,len(bins)), np.arange(len(cols))] = 1 - (dc-dist_near)/dc
     
     return alpha
 
