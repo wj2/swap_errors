@@ -115,18 +115,21 @@ def visualize_simplex_2d(pts, ax=None, ax_labels=None, thr=.5,
                          line_grey_col=(.6, .6, .6),
                          colors=None, bottom_x=.8,
                          bottom_y=-1.1, top_x=.35, top_y=1,
-                         legend=False):
+                         legend=False, **kwargs):
+    if ax is None:
+        f, ax = plt.subplots(1, 1)
+        # ax.set_aspect('equal')
     if colors is None:
         colors = (None,)*pts.shape[1]
     if ax_labels is None:
         ax_labels = ('',)*pts.shape[1]
     pts_x = pts[:, 1] - pts[:, 0]
     pts_y = pts[:, 2] - (pts[:, 0] + pts[:, 1])
-    ax.plot(pts_x, pts_y, 'o', color=pt_grey_col)
+    ax.plot(pts_x, pts_y, 'o', color=pt_grey_col, **kwargs)
     for i in range(pts.shape[1]):
         mask = pts[:, i] > thr
         ax.plot(pts_x[mask], pts_y[mask], 'o', color=colors[i],
-                label=ax_labels[i])
+                label=ax_labels[i], **kwargs)
     ax.plot([-1, 0], [-1, 1], color=line_grey_col)
     ax.plot([0, 1], [1, -1], color=line_grey_col)
     ax.plot([-1, 1], [-1, -1], color=line_grey_col)
@@ -241,11 +244,11 @@ def _plot_mu(mu_format, trs, color, style, ax, ms=5, hsv_color=True,
         plot_mu_pts = np.dot(trs(mu_format), col_rep)
         pt_colors = cmap(pts)
         col = None
-        ax.plot(*plot_mu_append[:3], color=bckgd_color, ls=style,
+        ax.plot(*plot_mu_append[:3], color='k', ls=style,
                 **kwargs)
         for i in range(plot_mu_pts.shape[1]):
-            ax.plot(*plot_mu_pts[:3, i:i+1], 'o', color=pt_colors[i], ls=style,
-                    markersize=ms)
+           ax.plot(*plot_mu_pts[:3, i:i+1], 'o', color=pt_colors[i], ls=style,
+                   markersize=ms)
     else:    
         l = ax.plot(*plot_mu_append[:3], color=color, ls=style, **kwargs)
         col = l[0].get_color()
@@ -312,7 +315,8 @@ def _compute_common_dimred(mdict, use_keys=(), convert=True, truncate_dim=None,
     return trs
 
 def visualize_model_collection(mdict, dim_red=True, mu_u_keys=('mu_u', 'mu_d_u'),
-                               mu_l_keys=('mu_l', 'mu_d_l'), 
+                               mu_l_keys=('mu_l', 'mu_d_l'),
+                               inter_up='intercept_up', inter_down='intercept_down',
                                ax=None, common_dim_red=False, **kwargs):
     trs = None
     if ax is None:
@@ -324,6 +328,7 @@ def visualize_model_collection(mdict, dim_red=True, mu_u_keys=('mu_u', 'mu_d_u')
     for k, v in mdict.items():
         out = visualize_fit_results(v, dim_red=dim_red, ax=ax,
                                     mu_u_keys=mu_u_keys, mu_l_keys=mu_l_keys,
+                                    inter_up=inter_up, inter_down=inter_down,
                                     label_cl=k, trs=trs, 
                                     **kwargs)
         if dim_red and trs is None:
@@ -397,10 +402,57 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
         ax.plot(*pts_dr.T, 'o')
     return ax
 
+def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
+               n_bins=25, bin_bounds=(-1, 2), file_templ='{}-histograms-pthr{}',
+               mistakes=('spatial', 'cue'), **kwargs):
+    figsize = (fwid*len(mistakes)*mult, fwid)
+    if color_dict is None:
+        spatial_color = np.array([36, 123, 160])/256
+        hybrid_color = np.array([37, 49, 94])/256
+
+        colors_dict = {'spatial':spatial_color, 'hybrid':hybrid_color}
+
+    figs = []
+    for (i, j) in u.make_array_ind_iterator((len(p_thrs), len(types))):
+        
+        f, axs = plt.subplots(1, len(mistakes), figsize=figsize,
+                              sharey=True, squeeze=False)
+        axs = axs[0]
+        trl_type = types[j]
+        p_thr = p_thrs[i]
+
+        for k, mistake in enumerate(mistakes):
+            _, w_dat = plot_session_swap_distr_collection(
+                *args, n_bins=n_bins, p_thresh=p_thr, colors=color_dict,
+                bin_bounds=bin_bounds, axs=axs[k:k+1], trl_filt=trl_type,
+                mistake=mistake)
+
+            gpl.clean_plot(axs[k], k)
+            if k == 0:
+                axs[k].set_ylabel(r'density | $p_{swp} > ' + '{}$'.format(p_thr))
+            else:
+                axs[k].set_ylabel('')
+            axs[k].set_xlabel('prototype distance (au)')
+            axs[k].set_xticks([0, 1])
+            m_comps = mistake.split('-')
+            if len(m_comps) > 1:
+                l1, l2 = m_comps
+            else:
+                l1 = 'correct'
+                l2 = mistake
+            axs[k].set_xticklabels([l1, l2], rotation=45)
+
+        f.savefig(file_templ.format(trl_type, p_thr) + '.svg', 
+                  bbox_inches='tight', transparent=True)
+        f.savefig(file_templ.format(trl_type, p_thr) + '.pdf',
+                  bbox_inches='tight', transparent=True)
+        figs.append(f)
+    return figs
+
 def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                                        fwid=3, p_ind=1, bin_bounds=None,
                                        ret_data=True, colors=None,
-                                       **kwargs):
+                                       mistake='spatial', **kwargs):
     if colors is None:
         colors = {}
     if axs is None:
@@ -413,10 +465,32 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
     true_d = {}
     pred_d = {}
     ps_d = {}
+    if mistake == 'spatial':
+        cent_keys = dict(cent1_keys=((('mu_d_u', 'mu_l'), 'intercept_down'),
+                                     (('mu_u', 'mu_d_l'), 'intercept_up')),
+                         cent2_keys=((('mu_l', 'mu_d_u'), 'intercept_down'),
+                                     (('mu_d_l', 'mu_u'), 'intercept_up')))
+    elif mistake == 'cue':
+        cent_keys = dict(cent1_keys=((('mu_d_u', 'mu_l'), 'intercept_down'),
+                                     (('mu_u', 'mu_d_l'), 'intercept_up')),
+                         cent2_keys = ((('mu_u', 'mu_d_l'), 'intercept_up'),
+                                       (('mu_d_u', 'mu_l'), 'intercept_down')))
+    elif mistake == 'spatial-cue':
+        cent_keys = dict(cent1_keys=((('mu_l', 'mu_d_u'), 'intercept_down'),
+                                     (('mu_d_l', 'mu_u'), 'intercept_up')),
+                         cent2_keys = ((('mu_u', 'mu_d_l'), 'intercept_up'),
+                                       (('mu_d_u', 'mu_l'), 'intercept_down')))
+    elif mistake == 'misbind':
+        cent_keys = dict(cent1_keys=(('mu_u', 'mu_l'),),
+                         cent2_keys=(('mu_l', 'mu_u'),))
+        cent_keys['use_cues'] = False
+    else:
+        raise IOError('unrecognized mistake type')
+    cent_keys.update(kwargs)
     for (sn, (mdict, data)) in session_dict.items():
         for (k, faz) in mdict.items():
             out = swan.get_normalized_centroid_distance(faz, data, p_ind=p_ind,
-                                                        **kwargs)
+                                                        **cent_keys)
             true, pred, ps = out
             true_k = true_d.get(k, [])
             true_k.append(true)
@@ -508,6 +582,8 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
                           mu_l_keys=('mu_l', 'mu_d_l'), dim_red=True,
                           c_u=(1, 0, 0), c_l=(0, 1, 0), c_g=(0, 0, 1),
                           mu_g_keys=('mu_g',), trs=None,
+                          inter_up='intercept_up',
+                          inter_down='intercept_down',
                           styles=('solid', 'dashed'), ax=None,
                           label_cu='', label_cl='', same_color=True,
                           legend=True, truncate_dim=None,
@@ -543,6 +619,12 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
         if convert:
             mu_ak = mu_ak.to_numpy()
         mu_format = np.mean(mu_ak, axis=(0, 1))
+        if '_d_' in mu_k:
+            inter_format = np.expand_dims(fit_az.posterior[inter_down], 3)
+        else:
+            inter_format = np.expand_dims(fit_az.posterior[inter_up], 3)
+        mu_format = mu_format + np.mean(inter_format, axis=(0, 1))
+            
         _, c_u = _plot_mu(mu_format, trs, c_u, styles[i], ax,
                           label=label_cu)
     if same_color:
@@ -552,6 +634,12 @@ def visualize_fit_results(fit_az, mu_u_keys=('mu_u', 'mu_d_u'),
         if convert:
             mu_ak = mu_ak.to_numpy()
         mu_format = np.mean(mu_ak, axis=(0, 1))
+        if '_d_' in mu_k:
+            inter_format = np.expand_dims(fit_az.posterior[inter_up], 3)
+        else:
+            inter_format = np.expand_dims(fit_az.posterior[inter_down], 3)
+        mu_format = mu_format + np.mean(inter_format, axis=(0, 1))
+
         _, c_l = _plot_mu(mu_format, trs, c_l, styles[i], ax,
                           label=label_cl)
     for i, mu_k in enumerate(mu_g_keys):
