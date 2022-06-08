@@ -13,6 +13,33 @@ import general.plotting as gpl
 import general.utility as u
 import swap_errors.analysis as swan
 
+def plot_trial_lls(m1, m2, axs=None, use_types=None, model_key='hybrid',
+                   l_key='y', fwid=3):
+    if axs is None:
+        f, axs = plt.subplots(1, 3,
+                              figsize=(fwid*3, fwid))
+    (ax_scatt, ax_hist, ax_mean) = axs
+    mean_diffs = []
+    for k, (m1_k, sd1_k) in m1.items():
+        m2_k, sd2_k = m2[k]
+        if use_types is not None:
+            mask1 = sd1_k['type'] == use_types[0]
+            mask2 = sd2_k['type'] == use_types[1]
+        else:
+            mask1 = np.ones_like(sd1_k['type'], dtype=bool)
+            mask2 = np.ones_like(sd2_k['type'], dtype=bool)
+        ll1_k = np.concatenate(m1_k[model_key].log_likelihood[l_key].to_numpy())
+        ll2_k = np.concatenate(m2_k[model_key].log_likelihood[l_key].to_numpy())
+        ll1_k = ll1_k[:, mask1]
+        ll2_k = ll2_k[:, mask2]
+        ax_scatt.plot(np.mean(ll1_k, axis=0), np.mean(ll2_k, axis=0), 'o')
+        all_diffs = np.reshape(ll1_k - ll2_k, (-1,))
+        ax_hist.hist(all_diffs, histtype='step',
+                     density=True)
+        mean_diffs.append(np.mean(all_diffs))
+    ax_mean.hist(mean_diffs)
+    gpl.add_vlines(np.mean(mean_diffs), ax_mean)
+
 def plot_model_probs(*args, plot_keys=('swap_prob', 'guess_prob'), ax=None,
                      sep=.5, comb_func=np.median, colors=None, sub_x=-1,
                      labels=('swaps', 'guesses'), total_label='correct',

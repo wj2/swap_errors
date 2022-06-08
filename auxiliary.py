@@ -5,6 +5,9 @@ import pandas as pd
 import os
 import re
 import pickle
+import arviz as az
+import collections as c
+import itertools as it
 
 import general.utility as u
 import general.neural_analysis as na
@@ -35,6 +38,19 @@ cue_default_model_keys = ('lin', 'spatial', 'hybrid')
 model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
                          'sess_{session_num}/{time_period}/{time_bin}/'
                          'pca_0.95_before/impute_True/interpolated_knots/')
+
+def session_df(file_template, keys, **format_options):
+    all_keys = tuple(format_options.keys()) + tuple(keys)
+    m_dict = {k:[] for k in all_keys}
+    format_options = c.OrderedDict(format_options)
+    for prod in it.product(*format_options.values()):
+        fp = file_template.format(*prod)
+        m = pickle.load(open(fp, 'rb'))
+        all_vals = prod + tuple(m[k] for k in keys)
+    
+        for i, k in enumerate(all_keys):
+            m_dict[k].append(all_vals[i])
+    return pd.DataFrame(m_dict)
 
 def load_many_sessions(session_nums, num_cols, time_period, time_bin,
                        **kwargs):
@@ -151,6 +167,18 @@ def split_spks_bhv(chan, ids, ts, beg_ts, end_ts, extra):
             mask_n = np.logical_and(chan_m == un[0], ids_m == un[1])
             spks_cont[i, j] = ts_m[mask_n]
     return spks_cont, unique_neurs
+
+def merge_dicts(sd_primary, **sess_dicts):
+    new_dict = {}
+    for k, (model_pr, data_pr) in sd_primary.items():
+        model_dict_k = {}
+        model_dict_k.update(model_pr)
+        for add_k, sess_dict in sess_dicts.items():
+            new_model_dict = sess_dict[k][0]
+            for mk, model in new_model_dict.items():
+                model_dict_k[mk + ' ' + add_k] = model
+        new_dict[k] = (model_dict_k, data_pr)
+    return new_dict
 
 def load_label_data(labelpath, unique_neurs, templ='([0-9a-zA-Z]+)\.txt'):
     fls = os.listdir(labelpath)

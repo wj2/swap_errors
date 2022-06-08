@@ -34,6 +34,43 @@ def spline_decoding(data, activity='y', col_keys=('C_u',), cv=20,
     out = skms.cross_val_score(model(), pred, targ, cv=cv)
     return out
 
+def decode_corr_swap_guess(data, thresh=.3, activity='y', type_key='p',
+                           n_cv=20, cv_type=skms.ShuffleSplit,
+                           test_prop=.1, model=skc.SVC):
+    p = data[type_key]
+    corr_mask = p[:, 0] > (1 - thresh)
+    swap_mask = p[:, 1] > thresh
+    guess_mask = p[:, 2] > thresh
+    neur = data[activity]
+    mask_list = (corr_mask, swap_mask, guess_mask)
+    labels = ('corr', 'swap', 'guess')
+    out_dict = {}
+    out_dict_shuff = {}
+    for (i, j) in it.combinations(range(len(mask_list)), 2):
+        c1, c2 = mask_list[i], mask_list[j]
+        n_c1 = neur[c1]
+        l_c1 = np.zeros(len(n_c1))
+        n_c2 = neur[c2]
+        l_c2 = np.ones(len(n_c2))
+
+        if len(n_c1) > len(n_c2):
+            sub_inds = np.random.choice(np.arange(len(n_c1)), len(n_c2),
+                                        replace=False)
+            n_c1 = n_c1[sub_inds]
+            l_c1 = l_c1[sub_inds]
+        n = np.concatenate((n_c1, n_c2), axis=0)
+        l = np.concatenate((l_c1, l_c2), axis=0)
+        pipe = na.make_model_pipeline(model=model)
+        cv = cv_type(n_cv, test_size=test_prop)
+        out = skms.cross_val_score(pipe, n, l, cv=cv)
+        out_dict[(labels[i], labels[j])] = out
+
+        inds = np.arange(len(l))
+        np.random.shuffle(inds)
+        out_shuff = skms.cross_val_score(pipe, n, l[inds], cv=cv)
+        out_dict_shuff[(labels[i], labels[j])] = out_shuff
+    return out_dict, out_dict_shuff
+
 def session_ll_analysis(session_dict, use_weights=False, **kwargs):
     out_ms = []
     out_sems = []
