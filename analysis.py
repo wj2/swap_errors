@@ -195,7 +195,7 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
     if use_cues:
         cues = data[cue_key]
     else:
-        cues = np.zeros(len(data[cue_key]))
+        cues = np.zeros(len(data[cue_key]), dtype=int)
     u_cues = np.unique(cues)
     resp = data[resp_key]
     if do_correction and correction_field in fit_az.posterior.keys():

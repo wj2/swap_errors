@@ -509,8 +509,8 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                          cent2_keys = ((('mu_u', 'mu_d_l'), 'intercept_up'),
                                        (('mu_d_u', 'mu_l'), 'intercept_down')))
     elif mistake == 'misbind':
-        cent_keys = dict(cent1_keys=(('mu_u', 'mu_l'),),
-                         cent2_keys=(('mu_l', 'mu_u'),))
+        cent_keys = dict(cent1_keys=((('mu_u', 'mu_l'), None),),
+                         cent2_keys=((('mu_l', 'mu_u'), None),))
         cent_keys['use_cues'] = False
     else:
         raise IOError('unrecognized mistake type')
