@@ -59,7 +59,7 @@ if __name__ == '__main__':
     dynamics_type = args.dynamics_type
 
     frm = swc.FourRingModel(n_units, r_inhib=beta, r_excit=alpha, bias=bias,
-                        wf_params=wf_params)
+                            wf_params=wf_params)
     bump_stats = frm.compute_bump_statistics_empirical()
     cue_stats = frm.compute_pc_empirical(cue_mag)
     gen_mag = 2*cue_stats[-1]*beta/n_units - bias + gen_mag_delt
