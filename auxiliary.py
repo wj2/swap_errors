@@ -42,11 +42,17 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
 def session_df(file_template, keys, **format_options):
     all_keys = tuple(format_options.keys()) + tuple(keys)
     m_dict = {k:[] for k in all_keys}
+    m_dict['dims'] = []
     format_options = c.OrderedDict(format_options)
     for prod in it.product(*format_options.values()):
         fp = file_template.format(*prod)
         m = pickle.load(open(fp, 'rb'))
         all_vals = prod + tuple(m[k] for k in keys)
+
+        head, _ = os.path.split(fp)
+        dp = os.path.join(head, 'stan_data.pkl')
+        data = pickle.load(open(dp, 'rb'))
+        m_dict['dims'].append(data['y'].shape[1])
     
         for i, k in enumerate(all_keys):
             m_dict[k].append(all_vals[i])
