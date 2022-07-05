@@ -3,13 +3,10 @@ import scipy.stats as sts
 import numpy as np
 import pickle
 import functools as ft
-import tensorflow as tf
 from datetime import datetime
 
 import general.utility as u
 import swap_errors.circus as swc
-
-tfk = tf.keras
 
 def create_parser():
     parser = argparse.ArgumentParser(description='fit several modularizers')
