@@ -6,57 +6,67 @@ import general.utility as u
 import general.plotting as gpl
 import ring_attractor.ring as ring
 
+default_wf_params = (-10, 7, 0)
+
 class FourRingModel:
 
-    def __init__(self, n_units, tau=10, transfer_func=ring.exponential_transfer,
-                 weight_func=ring.diff_exponential_weightfunc, r_ws=.5, i_ws=.05,
-                 wf_params=(1, 1, .3)):
+    def __init__(self, n_units, tau=10, transfer_func=ring.relu_transfer,
+                 weight_func=ring.cosine_weightfunc, r_inhib=1,
+                 tf_params=(1,),
+                 r_excit=1.5, i_ws=1, wf_params=default_wf_params,
+                 **kwargs):
         self.n_neurs = n_units
 
-        r_u = ring.RingAttractor(n_units, tau, transfer_func, (tau,),
+        r_u = ring.RingAttractor(n_units, tau, transfer_func, tf_params,
                                  weight_func=weight_func,
-                                 wf_params=wf_params)
-        r_l = ring.RingAttractor(n_units, tau, transfer_func, (tau,),
+                                 wf_params=wf_params,
+                                 divide_wm=True, **kwargs)
+        r_l = ring.RingAttractor(n_units, tau, transfer_func, tf_params,
                                  weight_func=weight_func,
-                                 wf_params=wf_params)
-        r_t = ring.RingAttractor(n_units, tau, transfer_func, (tau,),
+                                 wf_params=wf_params,
+                                 divide_wm=True, **kwargs)
+        r_t = ring.RingAttractor(n_units, tau, transfer_func, tf_params,
                                  weight_func=weight_func,
-                                 wf_params=wf_params)
-        r_d = ring.RingAttractor(n_units, tau, transfer_func, (tau,),
+                                 wf_params=wf_params,
+                                 divide_wm=True, **kwargs)
+        r_d = ring.RingAttractor(n_units, tau, transfer_func, tf_params,
                                  weight_func=weight_func,
-                                 wf_params=wf_params)
+                                 wf_params=wf_params,
+                                 divide_wm=True, **kwargs)
+        
         self.rings = dict(r_u=r_u, r_l=r_l, r_t=r_t, r_d=r_d)
         self.thetas = r_u.thetas
 
-        out = self.make_ring_connectivity(n_units, weight_scale=r_ws)
+        out = self.make_ring_connectivity(n_units, weight_scale=r_inhib)
         w_ul, w_lu, w_ut, w_ud = out[:4]
         w_lt, w_ld, w_td, w_dt = out[4:]
 
-        r2 = r_ws*1
+        r_inhib_corr = r_inhib/n_units
+        r_excit_corr = r_excit/n_units
 
         # p1 = np.random.choice(n_units, int(n_units/2), replace=False)
         p1 = np.arange(n_units)[::2]
         mask = np.isin(np.arange(n_units), p1).reshape((-1, 1))
-        c1_weights = np.identity(n_units)*r2*mask
-        c2_weights = np.identity(n_units)*r2*np.logical_not(mask)
+        c1_weights = np.identity(n_units)*r_excit_corr*mask
+        c2_weights = np.identity(n_units)*r_excit_corr*np.logical_not(mask)
         
         self.cue_mask = np.squeeze(mask)
         
-        w_ut = -np.ones((n_units, n_units))*r_ws + c1_weights
-        w_lt = -np.ones((n_units, n_units))*r_ws + c2_weights
-        w_tu = -np.ones((n_units, n_units))*r_ws 
-        w_tl = -np.ones((n_units, n_units))*r_ws 
+        w_ut = -np.ones((n_units, n_units))*r_inhib_corr + c1_weights
+        w_lt = -np.ones((n_units, n_units))*r_inhib_corr + c2_weights
+        w_tu = -np.ones((n_units, n_units))*r_inhib_corr 
+        w_tl = -np.ones((n_units, n_units))*r_inhib_corr 
 
-        w_ud = -np.ones((n_units, n_units))*r_ws + c2_weights
-        w_ld = -np.ones((n_units, n_units))*r_ws + c1_weights
-        w_du = -np.ones((n_units, n_units))*r_ws 
-        w_dl = -np.ones((n_units, n_units))*r_ws 
+        w_ud = -np.ones((n_units, n_units))*r_inhib_corr + c2_weights
+        w_ld = -np.ones((n_units, n_units))*r_inhib_corr + c1_weights
+        w_du = -np.ones((n_units, n_units))*r_inhib_corr 
+        w_dl = -np.ones((n_units, n_units))*r_inhib_corr 
         
         w_dt = np.zeros((n_units, n_units))
         w_td = np.zeros((n_units, n_units))
         w_ul = np.zeros((n_units, n_units))
         w_lu = np.zeros((n_units, n_units))
-        
+
         self.ring_weights = dict(r_u=((w_lu, r_l),
                                       (w_tu, r_t),
                                       (w_du, r_d)),
@@ -78,13 +88,29 @@ class FourRingModel:
                                   r_t=(w_it,),
                                   r_d=(w_id,))
         self.initialize_network()
+
+    def compute_bump_statistics(self):
+        return self.rings['r_u'].compute_bump_statistics()
+
+    def compute_bump_statistics_empirical(self, **kwargs):
+        return self.rings['r_u'].compute_bump_statistics_empirical(**kwargs)
+
+    def compute_pc(self, cue_mag):
+        return self.rings['r_u'].compute_pc(cue_mag)
+
+    def compute_pc_empirical(self, cue_mag):
+        return self.rings['r_u'].compute_pc_empirical(cue_mag)
+
+    def estimate_noise(self, **kwargs):
+        return self.rings['r_u'].estimate_noise(**kwargs)
         
     def make_ring_connectivity(self, n_units, weight_scale=1, conn_n=8):
-        out = (np.identity(n_units)*weight_scale,)*conn_n
+        out = (np.identity(n_units)*weight_scale/self.n_neurs,)*conn_n
         return out
 
     def make_input_connectivity(self, n_units, weight_scale=1):
-        return self.make_ring_connectivity(n_units, weight_scale=weight_scale,
+        return self.make_ring_connectivity(n_units,
+                                           weight_scale=n_units*weight_scale,
                                            conn_n=4)
 
     def initialize_network(self, init_scale=.01):
@@ -92,22 +118,25 @@ class FourRingModel:
         for r in self.rings.values():
             r.initialize_network(init_scale=init_scale)
         
-    def iterate_step(self, drive, dt, dynamics_type='noiseless'):
+    def iterate_step(self, drive, dt, dynamics_type='noiseless',
+                     dynamics_f=True):
         self._curr_time += dt
         for rk, r in self.rings.items():
             if dynamics_type == 'noiseless':
-                dynamics = r.dynamics_noiseless
+                dynamics = r.dynamics_noiseless_f
             else:
-                dynamics = r.dynamics_poisson
-            inp_r = 0
-            for (w, r_inp) in self.ring_weights.get(rk, []):
-                inp_r += np.dot(w, r_inp.state())
+                dynamics = r.dynamics_poisson_f
+            inp_r = 0            
+            for i, (w, r_inp) in enumerate(self.ring_weights.get(rk, [])):
+                wr_inp = np.dot(w, r_inp.get_output(dynamics_f=dynamics_f))
+                inp_r += wr_inp
             for w in self.input_weights.get(rk, []):
                 inp_r += np.dot(w, drive.get(rk, np.zeros(w.shape[1])))
             r.iterate_step(inp_r, dt, dynamics)
 
-    def state(self):
-        return {k:r.state() for k, r in self.rings.items()}
+    def state(self, dynamics_f=True):
+        return {k:r.get_output(dynamics_f=dynamics_f)
+                for k, r in self.rings.items()}
 
     def foci(self):
         return {k:r.focus() for k, r in self.rings.items()}
@@ -140,7 +169,7 @@ class FourRingModel:
 
 def make_drivers(frm, c_u=None, c_l=None, col_width=.2, stim_start=200,
                  stim_dur=200, stim_mag=15, cue_start=800, cue_dur=600,
-                 cue_mag=20, use_cue1=None):
+                 cue_mag=20, gen_mag=20, use_cue1=None):
     rng = np.random.default_rng()
     if c_u is None:
         c_u = rng.uniform(0, 2*np.pi)
@@ -157,17 +186,19 @@ def make_drivers(frm, c_u=None, c_l=None, col_width=.2, stim_start=200,
         cue_mask = frm.cue_mask
     else:
         cue_mask = np.logical_not(frm.cue_mask)
+    # cue_mask = np.mod(cue_mask + (rng.uniform(0, 1, len(cue_mask)) < .05), 2)
+
     cue = ring.step_drive_function_creator(frm.thetas, 0, 2*np.pi, 
-                                           cue_mag, cue_start,
-                                           cue_start + cue_dur,
-                                           pop_mask=cue_mask)
+                                           gen_mag, cue_start,
+                                           cue_start + cue_dur)
+
     cue_opp = ring.step_drive_function_creator(frm.thetas, 0, 2*np.pi, 
                                                cue_mag, cue_start,
                                                cue_start + cue_dur,
                                                pop_mask=np.logical_not(cue_mask))
-    # cue_opp = cue
 
-    drive_dict = {'r_u':d_u - cue_opp, 'r_l':d_l - cue_opp, 'r_t':cue, 'r_d':cue}
+    drive_dict = {'r_u':d_u - cue_opp, 'r_l':d_l - cue_opp,
+                  'r_t':cue, 'r_d':cue}
     return drive_dict
     
 def simulate_trials(frm, c_u_set=None, c_l_set=None, n_trls=200,
