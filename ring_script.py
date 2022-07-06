@@ -29,6 +29,7 @@ def create_parser():
     parser.add_argument('--n_trls', default=500, type=int)
     parser.add_argument('--dynamics_type', default='poisson', type=str)
     parser.add_argument('--config_path', default=None, type=str)
+    parser.add_argument('--store_all', default=False, action='store_true')
     return parser
 
 if __name__ == '__main__':
@@ -70,6 +71,8 @@ if __name__ == '__main__':
                                            use_cue1=True, cue_mag=cue_mag,
                                            gen_mag=gen_mag,
                                            stim_mag=stim_mag)
+    td_on_c1 = np.any(act_c1[:, 1, :, -5:] > 0, axis=(1, 2, 3))
+    
     out_cue2, act_c2 = swc.simulate_trials(frm, targ_theta_u, targ_theta_l,
                                            n_trls=n_trls,
                                            dynamics_type=dynamics_type,
@@ -77,9 +80,16 @@ if __name__ == '__main__':
                                            total_time=total_time,
                                            use_cue1=False, cue_mag=cue_mag,
                                            stim_mag=stim_mag)
+    td_on_c2 = np.any(act_c2[:, 1, :, -5:] > 0, axis=(1, 2, 3))
     
     out_file = args.output_file.format(args.date).replace(' ', '_')
     out_dict = vars(args)
-    out_dict['cue1'] = (out_cue1, act_c1)
-    out_dict['cue2'] = (out_cue2, act_c2)
+    if args.store_all:
+        c1_store = (out_cue1, act_c1, td_on_c1)
+        c2_store = (out_cue2, act_c2, td_on_c2)
+    else:
+        c1_store = (out_cue1, td_on_c1)
+        c2_store = (out_cue2, td_on_c2)
+    out_dict['cue1'] = c1_store
+    out_dict['cue2'] = c2_store
     pickle.dump(out_dict, open(out_file, 'wb'))    
