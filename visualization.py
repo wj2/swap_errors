@@ -555,7 +555,65 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
     else:
         out = axs
     return out
-            
+
+def _c1_scatter(arr, ax):
+    assert np.mean(arr[1]) > .99
+    ax.plot(arr[0][:, 0, 0], arr[0][:, 0, 1], 'o')
+
+def _c1_d_hist(arr, ax, n_bins=21):
+    assert np.mean(arr[1]) > .99
+    bins = np.linspace(-np.pi, np.pi, n_bins)
+    ax.hist(arr[0][:, 0, 1], bins=bins)
+
+def _c2_scatter(arr, ax):
+    assert np.mean(arr[1]) > .99
+    ax.plot(arr[0][:, 0, 1], arr[0][:, 0, 0], 'o')
+
+def _c2_d_hist(arr, ax, n_bins=21):
+    assert np.mean(arr[1]) > .99
+    bins = np.linspace(-np.pi, np.pi, n_bins)
+    ax.hist(arr[0][:, 0, 0], bins=bins)
+
+    
+def plot_circus_sweep_resps(sweep_dict, ax_params,
+                            pk_type='scatter',
+                            plot_keys=None,
+                            axs=None, fwid=1):
+    if pk_type == 'scatter' and plot_keys is None:
+        plot_keys=(('cue1', _c1_scatter),
+                   ('cue2', _c2_scatter))
+    elif pk_type == 'dist_hist' and plot_keys is None:
+        plot_keys=(('cue1', _c1_d_hist),
+                   ('cue2', _c2_d_hist))
+    elif plot_keys is None:
+        raise IOError('need to supply known pk_type or plot_keys')
+    conjunctions = []
+    n_vals = []
+    assert len(ax_params) == 2
+    for ap in ax_params:
+        u_vals = np.unique(sweep_dict[ap])
+        conjunctions.append(u_vals)
+        n_vals.append(len(u_vals))
+    if axs is None:
+        f, axs = plt.subplots(*n_vals, figsize=(fwid*n_vals[0], fwid*n_vals[1]),
+                              sharex=True, sharey=True)
+    for (i, j) in it.product(*list(range(nv) for nv in n_vals)):
+        mask = np.logical_and(sweep_dict[ax_params[0]] == conjunctions[0][i],
+                              sweep_dict[ax_params[1]] == conjunctions[1][j])
+        inds = np.where(mask)[0]
+        for ind in inds:
+            for pk, func in plot_keys:
+                func(sweep_dict[pk][ind], axs[i, j])
+        if j == 0:
+            axs[i, j].set_ylabel(np.round(conjunctions[0][i], 2))
+        if i == n_vals[0] - 1:
+            axs[i, j].set_xlabel(np.round(conjunctions[1][j], 2))
+    # if i == n_vals[0] - 1 and j == 0:
+    #     f.text
+    #     axs[i, j].set_xlabel(ax_params[1])
+    #     axs[i, j].set_ylabel(ax_params[0])
+    return axs
+
 def plot_swap_distr_collection(model_dict, data, axs=None,
                                fwid=3, **kwargs):
     if axs is None:

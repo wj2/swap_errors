@@ -103,6 +103,9 @@ class FourRingModel:
 
     def estimate_noise(self, **kwargs):
         return self.rings['r_u'].estimate_noise(**kwargs)
+
+    def estimate_pc_noise(self, cue_mag, **kwargs):
+        return self.rings['r_u'].estimate_pc_noise(cue_mag, **kwargs)
         
     def make_ring_connectivity(self, n_units, weight_scale=1, conn_n=8):
         out = (np.identity(n_units)*weight_scale/self.n_neurs,)*conn_n
@@ -190,7 +193,8 @@ def make_drivers(frm, c_u=None, c_l=None, col_width=.2, stim_start=200,
 
     cue = ring.step_drive_function_creator(frm.thetas, 0, 2*np.pi, 
                                            gen_mag, cue_start,
-                                           cue_start + cue_dur)
+                                           cue_start + cue_dur,
+                                           pop_mask=cue_mask)
 
     cue_opp = ring.step_drive_function_creator(frm.thetas, 0, 2*np.pi, 
                                                cue_mag, cue_start,

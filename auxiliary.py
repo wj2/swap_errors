@@ -39,6 +39,22 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
                          'sess_{session_num}/{time_period}/{time_bin}/'
                          'pca_0.95_before/impute_True/interpolated_knots/')
 
+sweep_pattern = 'r_[0-9]+_[0-9-._:]+\.pkl'
+def load_circus_sweep(folder, swept_keys, store_keys=('cue1', 'cue2'),
+                      template=sweep_pattern):
+    fls = os.listdir(folder)
+    keep_keys = swept_keys + store_keys
+    out = {key:[] for key in keep_keys}
+    out['conj'] = []
+    for fl in fls:        
+        m = re.match(template, fl)
+        if m is not None:
+            data = pickle.load(open(os.path.join(folder, fl), 'rb'))
+            for kk in keep_keys:
+                out[kk].append(data[kk])
+            out['conj'] = {sk:out[sk] for sk in swept_keys}
+    return out
+
 def session_df(file_template, keys, **format_options):
     all_keys = tuple(format_options.keys()) + tuple(keys)
     m_dict = {k:[] for k in all_keys}
