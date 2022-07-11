@@ -21,7 +21,6 @@ import general.neural_analysis as na
 import general.utility as u
 import general.decoders as gd
 import swap_errors.auxiliary as swa
-import vlgp
 
 
 def spline_decoding(data, activity='y', col_keys=('C_u',), cv=20,
@@ -816,20 +815,20 @@ def gpfa(data, tbeg=-.5, tend=1, winsize=.05,
         fits.append(gp)
     return fits, pops
 
-def latent_dynamics_analysis(data, tbeg=-.5, tend=2, winsize=.02,
-                             n_factors=8, max_iter=20, min_iter=10):
-    pops = data.get_populations(winsize, tbeg, tend, winsize,
-                               time_zero_field='CUE2_ON_diode')
-    pops, xs = out
-    fits = []
-    for i, pop in enumerate(pops):
-        pop_format = list({'y':pop_j.T, 'ID':j}
-                          for j, pop_j in enumerate(pop))
-        print(pop_format[0]['y'].shape)
-        fit = vlgp.fit(pop_format, n_factors=n_factors, max_iter=max_iter,
-                       min_iter=min_iter)
-        fits.append(fit)
-    return pops, fit, xs 
+# def latent_dynamics_analysis(data, tbeg=-.5, tend=2, winsize=.02,
+#                              n_factors=8, max_iter=20, min_iter=10):
+#     pops = data.get_populations(winsize, tbeg, tend, winsize,
+#                                time_zero_field='CUE2_ON_diode')
+#     pops, xs = out
+#     fits = []
+#     for i, pop in enumerate(pops):
+#         pop_format = list({'y':pop_j.T, 'ID':j}
+#                           for j, pop_j in enumerate(pop))
+#         print(pop_format[0]['y'].shape)
+#         fit = vlgp.fit(pop_format, n_factors=n_factors, max_iter=max_iter,
+#                        min_iter=min_iter)
+#         fits.append(fit)
+#     return pops, fit, xs 
 
 def compute_diff_dependence(data, targ_field='LABthetaTarget',
                             dist_field='LABthetaDist',
