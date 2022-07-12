@@ -12,7 +12,7 @@ class FourRingModel:
 
     def __init__(self, n_units, tau=10, transfer_func=ring.relu_transfer,
                  weight_func=ring.cosine_weightfunc, r_inhib=1,
-                 tf_params=(1,),
+                 tf_params=(1,), r_beta=None,
                  r_excit=1.5, i_ws=1, wf_params=default_wf_params,
                  **kwargs):
         self.n_neurs = n_units
@@ -43,24 +43,29 @@ class FourRingModel:
 
         r_inhib_corr = r_inhib/n_units
         r_excit_corr = r_excit/n_units
+        if r_beta is None:
+            r_beta = 0# -r_inhib_corr
 
         # p1 = np.random.choice(n_units, int(n_units/2), replace=False)
         p1 = np.arange(n_units)[::2]
         mask = np.isin(np.arange(n_units), p1).reshape((-1, 1))
         c1_weights = np.identity(n_units)*r_excit_corr*mask
         c2_weights = np.identity(n_units)*r_excit_corr*np.logical_not(mask)
+
+        c1_rev_weights = np.roll(c1_weights, 1, 0)
+        c2_rev_weights = np.roll(c2_weights, 1, 0)
         
         self.cue_mask = np.squeeze(mask)
         
         w_ut = -np.ones((n_units, n_units))*r_inhib_corr + c1_weights
         w_lt = -np.ones((n_units, n_units))*r_inhib_corr + c2_weights
-        w_tu = -np.ones((n_units, n_units))*r_inhib_corr 
-        w_tl = -np.ones((n_units, n_units))*r_inhib_corr 
+        w_tu = -np.ones((n_units, n_units))*r_inhib_corr - c2_rev_weights
+        w_tl = -np.ones((n_units, n_units))*r_inhib_corr - c1_rev_weights
 
         w_ud = -np.ones((n_units, n_units))*r_inhib_corr + c2_weights
         w_ld = -np.ones((n_units, n_units))*r_inhib_corr + c1_weights
-        w_du = -np.ones((n_units, n_units))*r_inhib_corr 
-        w_dl = -np.ones((n_units, n_units))*r_inhib_corr 
+        w_du = -np.ones((n_units, n_units))*r_inhib_corr - c1_rev_weights
+        w_dl = -np.ones((n_units, n_units))*r_inhib_corr - c2_rev_weights
         
         w_dt = np.zeros((n_units, n_units))
         w_td = np.zeros((n_units, n_units))
@@ -172,7 +177,7 @@ class FourRingModel:
 
 def make_drivers(frm, c_u=None, c_l=None, col_width=.2, stim_start=200,
                  stim_dur=200, stim_mag=15, cue_start=800, cue_dur=600,
-                 cue_mag=20, gen_mag=20, use_cue1=None):
+                 cue_mag=20, gen_mag=20, use_cue1=None, struct_cue=False):
     rng = np.random.default_rng()
     if c_u is None:
         c_u = rng.uniform(0, 2*np.pi)
@@ -191,10 +196,14 @@ def make_drivers(frm, c_u=None, c_l=None, col_width=.2, stim_start=200,
         cue_mask = np.logical_not(frm.cue_mask)
     # cue_mask = np.mod(cue_mask + (rng.uniform(0, 1, len(cue_mask)) < .05), 2)
 
+    if struct_cue:
+        cue_pop_mask = cue_mask
+    else:
+        cue_pop_mask = None
     cue = ring.step_drive_function_creator(frm.thetas, 0, 2*np.pi, 
                                            gen_mag, cue_start,
                                            cue_start + cue_dur,
-                                           pop_mask=cue_mask)
+                                           pop_mask=cue_pop_mask)
 
     cue_opp = ring.step_drive_function_creator(frm.thetas, 0, 2*np.pi, 
                                                cue_mag, cue_start,

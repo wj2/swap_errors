@@ -595,6 +595,25 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
         out = axs
     return out
 
+def plot_color_swap_bias(data, targ='swap_prob',
+                         colors=('upper_color', 'lower_color'),
+                         n_bins=10, axs=None, label='', fwid=3):
+    if axs is None:
+        f, axs = plt.subplots(1, len(colors),
+                              figsize=(fwid*len(colors), fwid),
+                              sharey=True)
+    for i, color in enumerate(colors):
+        cols = np.concatenate(data[color])
+        prob = np.concatenate(data[targ])
+        col_mus, (prob_mus,) = u.discretize_group(cols, prob, n=1000)
+
+        col_mus = np.array(col_mus)
+        prob_mus = np.array(prob_mus)
+        gpl.plot_trace_werr(np.mean(col_mus, axis=1),
+                            prob_mus.T, ax=axs[i],
+                            conf95=True, label=label)
+    return axs
+
 def _c1_scatter(arr, ax):
     assert np.mean(arr[1]) > .99
     ax.plot(arr[0][:, 0, 0], arr[0][:, 0, 1], 'o')
