@@ -432,7 +432,7 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
 
 def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                n_bins=25, bin_bounds=(-1, 2), file_templ='{}-histograms-pthr{}',
-               mistakes=('spatial', 'cue'), **kwargs):
+               mistakes=('spatial', 'cue'), ret_data=True, **kwargs):
     figsize = (fwid*len(mistakes)*mult, fwid)
     if color_dict is None:
         spatial_color = np.array([36, 123, 160])/256
@@ -441,6 +441,7 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
         colors_dict = {'spatial':spatial_color, 'hybrid':hybrid_color}
 
     figs = []
+    out_data = {}
     for (i, j) in u.make_array_ind_iterator((len(p_thrs), len(types))):
         
         f, axs = plt.subplots(1, len(mistakes), figsize=figsize,
@@ -455,6 +456,7 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                 bin_bounds=bin_bounds, axs=axs[k:k+1], trl_filt=trl_type,
                 mistake=mistake)
 
+            out_data[(mistake, trl_type, p_thr)] = w_dat
             gpl.clean_plot(axs[k], k)
             if k == 0:
                 axs[k].set_ylabel(r'density | $p_{swp} > ' + '{}$'.format(p_thr))
@@ -475,7 +477,45 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
         f.savefig(file_templ.format(trl_type, p_thr) + '.pdf',
                   bbox_inches='tight', transparent=True)
         figs.append(f)
-    return figs
+    if ret_data:
+        out = (figs, out_data)
+    else:
+        out = figs
+    return out
+
+def plot_proj_p_heat(td, p, ax=None, p_n_bins=5, td_n_bins=10,
+                     bounds=(-1, 2), normalize_cols=True):
+    if ax is None:
+        f, ax = plt.subplots(1, 1)
+    comb_data = np.stack((td, p), axis=1)
+    p_bins = np.linspace(0, np.max(p), p_n_bins + 1)
+    td_bins = np.linspace(*bounds, td_n_bins + 1)
+    out = np.histogramdd(comb_data, (td_bins, p_bins))
+    hm, _ = out
+    if normalize_cols:
+        hm = hm/np.sum(hm, axis=0, keepdims=True)
+    ax.pcolormesh(td_bins, p_bins, hm.T)
+
+def plot_proj_p_scatter(td, p, ax=None, bounds=(-1, 2), color=None,
+                        eps=1e-5, n_bins=5, cent_func=np.mean):
+    if ax is None:
+        f, ax = plt.subplots(1, 1)
+    ax.plot(td, p, 'o', ms=1.5)
+    gpl.add_vlines(0, ax)
+    gpl.add_vlines(1, ax)
+
+    members = np.digitize(p, np.linspace(0, np.max(p)+eps, n_bins + 1))
+    
+    for mem in np.unique(members):
+        mask = mem == members
+        t_pt = cent_func(td[mask])
+        p_pt = cent_func(p[mask])
+        l = ax.plot(t_pt, p_pt, 'o', color=color)
+        color = l[0].get_color()
+        
+    if bounds is not None:
+        ax.set_xlim(bounds)
+    return ax
 
 def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                                        fwid=3, p_ind=1, bin_bounds=None,
@@ -547,7 +587,7 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
         gpl.add_vlines([0, 1], axs[i])
         axs[i].set_ylabel(k)
         if ret_data:
-            out_data[k] = td_full
+            out_data[k] = (td_full, pd_full, ps_full)
     axs[i].legend(frameon=False)
     if ret_data:
         out = axs, out_data

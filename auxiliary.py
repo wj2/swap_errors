@@ -72,7 +72,7 @@ def session_df(file_template, keys, **format_options):
     
         for i, k in enumerate(all_keys):
             m_dict[k].append(all_vals[i])
-    return pd.DataFrame(m_dict)
+    return pd.DataFrame(m_dict)        
 
 def load_many_sessions(session_nums, num_cols, time_period, time_bin,
                        **kwargs):
