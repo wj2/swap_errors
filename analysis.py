@@ -679,7 +679,7 @@ def quantify_swap_loo(mdict, data, method='weighted', threshold=.5, data_key='p'
             adj_loo = m_copy.log_likelihood
         else:
             raise IOError('unrecognized method')
-        m_copy.log_likelihood = adj_loo
+        m_copy.log_ood = adj_loo
         new_m[k] = m_copy
     comp = az.compare(new_m)
     return comp

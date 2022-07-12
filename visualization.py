@@ -538,7 +538,6 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
         td_full = np.concatenate(td, axis=0)
         pd_full = np.concatenate(pred_d[k], axis=0)
         ps_full = np.concatenate(ps_d[k], axis=0)
-        # print(swd.dip(td_full))
         color = colors.get(k)
         _, bins, _ = axs[i].hist(td_full, bins=bins, color=color,
                                     density=True, label='observed')
@@ -595,8 +594,8 @@ def plot_circus_sweep_resps(sweep_dict, ax_params,
         conjunctions.append(u_vals)
         n_vals.append(len(u_vals))
     if axs is None:
-        f, axs = plt.subplots(*n_vals, figsize=(fwid*n_vals[0], fwid*n_vals[1]),
-                              sharex=True, sharey=True)
+        f, axs = plt.subplots(*n_vals, figsize=(fwid*n_vals[1], fwid*n_vals[0]),
+                              sharex=True, sharey=True, squeeze=False)
     for (i, j) in it.product(*list(range(nv) for nv in n_vals)):
         mask = np.logical_and(sweep_dict[ax_params[0]] == conjunctions[0][i],
                               sweep_dict[ax_params[1]] == conjunctions[1][j])
