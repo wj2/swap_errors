@@ -38,7 +38,7 @@ if __name__ == '__main__':
     args.date = datetime.now()
     if not args.local_test and args.file_templ_d1 is None:
         file_templ_d1 = swaux.cluster_naive_d1_path_templ
-        form_opts_d1 = swaux.cluster_naive_d2_format_options
+        form_opts_d1 = swaux.cluster_naive_d1_format_options
     elif args.local_test:
         file_templ_d1 = 'swap_errors/test_sessions/retro_{}/stan_data.pkl'
         form_opts_d1 = {'test_type':(13,)}
