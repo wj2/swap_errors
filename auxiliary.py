@@ -39,7 +39,7 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
                          'sess_{session_num}/{time_period}/{time_bin}/'
                          'pca_0.95_before/impute_True/interpolated_knots/')
 
-sweep_pattern = 'r_[0-9]+_[0-9-._:]+\.pkl'
+sweep_pattern = 'r_[a-zA-Z_0-9]*[0-9]+_[0-9-._:]+\.pkl'
 def load_circus_sweep(folder, swept_keys, store_keys=('cue1', 'cue2'),
                       template=sweep_pattern):
     fls = os.listdir(folder)
@@ -54,6 +54,31 @@ def load_circus_sweep(folder, swept_keys, store_keys=('cue1', 'cue2'),
                 out[kk].append(data[kk])
             out['conj'] = {sk:out[sk] for sk in swept_keys}
     return out
+
+cluster_naive_d1_path_templ = (
+    '/burg/theory/users/ma3811/assignment_errors/5_colors/'
+    'sess_{}/CUE2_ON_diode/-0.5-0.0-0.5_0.5/pca_0.95_before/'
+    'impute_True/spline1_knots/all/{}/stan_data.pkl')
+cluster_naive_d1_format_options = {
+    'sessions':range(0, 23),
+    'trl_type':('retro',)}
+
+cluster_naive_d2_path_templ = (
+    '/burg/theory/users/ma3811/assignment_errors/5_colors/'
+    'sess_{}/WHEEL_ON_diode/-0.5-0.0-0.5_0.5/pca_0.95_before/'
+    'impute_True/spline1_knots/all/{}/stan_data.pkl')
+cluster_naive_d2_format_options = {
+    'sessions':range(0, 23),
+    'trl_type':('retro', 'pro')}
+
+def load_files_ma_folders(file_template, **format_options):
+    format_options = c.OrderedDict(format_options)
+    all_read = {}
+    for prod in it.product(*format_options.values()):
+        fp = file_template.format(*prod)
+        m = pickle.load(open(fp, 'rb'))
+        all_read[prod] = m
+    return all_read
 
 def session_df(file_template, keys, **format_options):
     all_keys = tuple(format_options.keys()) + tuple(keys)

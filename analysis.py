@@ -513,7 +513,139 @@ def get_test_color_dists(data, tbeg, tend, twindow, tstep,
         out_dists.append(out_dist)
         out_vecs.append(out_vec)
     return out_dists, out_vecs
+
+def _argmax_decider(ps, ind):
+    mask = np.argmax(ps, axis=1) == ind
+    return mask
+
+def _plurality_decider(ps, ind):
+    mask = ps[:, ind] > 1/3
+    return mask
+
+def swap_plurality(ps):
+    return _plurality_decider(ps, 1)
+
+def corr_plurality(ps):
+    return _plurality_decider(ps, 0)
+
+def swap_argmax(ps):
+    return _argmax_decider(ps, 1)
     
+def corr_argmax(ps):
+    return _argmax_decider(ps, 0)
+
+def _col_diff_rad(c1, c2):
+    return np.abs(u.normalize_periodic_range(c1 - c2))
+
+def _col_diff_spline(c1, c2):
+    return np.sqrt(np.sum((c1 - c2)**2, axis=1))
+
+def convert_spline_to_rad(cu, cl):
+    cols = np.unique(np.concatenate((cu, cl), axis=0), axis=0)
+    assert len(cols) == 64
+    rads = np.linspace(0, 2*np.pi, 65)[:-1]
+    d = {tuple(x):rads[i] for i, x in enumerate(cols)}
+    cu_rad = np.zeros(len(cu))
+    cl_rad = np.zeros_like(cu_rad)
+    for i, cu_i in enumerate(cu):
+        cu_rad[i] = d[tuple(cu_i)]
+        cl_rad[i] = d[tuple(cl[i])]
+    return cu_rad, cl_rad
+
+def cue_mask_dict(data_dict, cue_val, cue_key='cue',
+                  mask_keys=('C_u', 'C_l', 'p', 'y', 'cue')):
+    new_dict = {}
+    new_dict.update(data_dict)
+    mask = new_dict[cue_key] == cue_val
+    for mk in mask_keys:
+        new_dict[mk] = data_dict[mk][mask]
+    return new_dict
+
+def naive_centroids(data_dict,
+                    cue_key='cue',
+                    cu_key='C_u',
+                    cl_key='C_l',
+                    use_cue=True,
+                    flip_cue = False,
+                    no_cue_targ='C_u',
+                    no_cue_dist='C_l',
+                    tp_key='p',
+                    activity_key='y',
+                    swap_decider=swap_argmax,
+                    corr_decider=corr_argmax, col_thr=np.pi/4,
+                    cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
+                    convert_splines=True):
+    if flip_cue:
+        no_cue_targ = 'C_l'
+        no_cue_dist = 'C_u'
+    if not use_cue:
+        c_t = np.zeros_like(data_dict[no_cue_targ])
+        c_d = np.zeros_like(data_dict[no_cue_dist])
+        c_t[:] = data_dict[no_cue_targ][:]
+        c_d[:] = data_dict[no_cue_dist][:]
+    else:
+        c_t = np.zeros_like(data_dict[cu_key])
+        c_d = np.zeros_like(data_dict[cl_key])
+        
+        c1_mask = data_dict[cue_key] == 1
+        c0_mask = data_dict[cue_key] == 0
+
+        c_t[c1_mask] = data_dict[cu_key][c1_mask]
+        c_t[c0_mask] = data_dict[cl_key][c0_mask]
+        
+        c_d[c1_mask] = data_dict[cl_key][c1_mask]
+        c_d[c0_mask] = data_dict[cu_key][c0_mask]
+    if len(c_t.shape) > 1 and convert_splines:
+        c_t, c_d = convert_spline_to_rad(c_t, c_d)
+        
+    corr_mask = corr_decider(data_dict[tp_key])
+    corr_inds = np.where(corr_mask)[0]
+    null_dists = np.zeros(sum(corr_mask))
+
+    swap_mask = swap_decider(data_dict[tp_key])
+    swap_inds = np.where(swap_mask)[0]
+    swap_dists = np.zeros((sum(corr_mask), sum(swap_mask)))
+    y = data_dict[activity_key]
+
+    cv_gen = cv()
+    for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
+        corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
+        tr_targ_cols = c_t[corr_tr]
+        tr_cols = c_d[corr_tr]
+        targ_col = c_t[corr_te]
+        dist_col = c_d[corr_te]
+        far_cols = col_diff(targ_col, dist_col) > col_thr
+
+        null_cent_inds = corr_tr[col_diff(tr_targ_cols, targ_col) < col_thr]
+        swap_cent_inds = corr_tr[col_diff(tr_targ_cols, dist_col) < col_thr]
+        
+        null_cent = np.mean(y[null_cent_inds], axis=0, keepdims=True)
+        swap_cent = np.mean(y[swap_cent_inds], axis=0, keepdims=True)
+        swap_vec = swap_cent - null_cent
+        sv_len = np.sqrt(np.sum(swap_vec**2))
+        sv_u = np.expand_dims(u.make_unit_vector(swap_vec), 0)
+
+        test_activity = y[corr_te]
+        swap_activity = y[swap_mask]
+        null_dists[i] = np.dot(sv_u, (test_activity - null_cent).T)/sv_len
+        if not far_cols:
+            null_dists[i] = np.nan
+        for j, si in enumerate(swap_inds):
+            targ_col, dist_col = c_t[si], c_d[si]
+            
+            null_cent_inds = corr_tr[col_diff(tr_targ_cols, targ_col) < col_thr]
+            swap_cent_inds = corr_tr[col_diff(tr_targ_cols, dist_col) < col_thr]
+            
+            null_cent = np.mean(y[null_cent_inds], axis=0)
+            swap_cent = np.mean(y[swap_cent_inds], axis=0)
+            swap_vec = swap_cent - null_cent
+            sv_len = np.sqrt(np.sum(swap_vec**2))
+            sv_u = np.expand_dims(u.make_unit_vector(swap_vec), 0)
+
+            swap_activity = y[si]
+            swap_dists[i, j] = np.dot(sv_u, (swap_activity - null_cent).T)/sv_len
+    return null_dists, swap_dists
+
 def compute_dists(pop_test, trl_targs, trl_dists, targ_pos, dist_pos,
                   col_means, norm_neurons=True, mean=None, std=None):
     if mean is not None and pop_test.shape[2] > 0:
@@ -771,6 +903,15 @@ def retro_mask(data):
     bhv_retro = bhv_retro.rs_and(data['StopCondition'] > -2)
     data_retro = data.mask(bhv_retro)
     return data_retro
+
+def pro_mask(data):
+    bhv_pro = (data['is_one_sample_displayed'] == 0).rs_and(
+        data['Block'] == 1)
+    bhv_pro = bhv_pro.rs_and(data['StopCondition'] > -2)
+    data_pro = data.mask(bhv_pro)
+    return data_pro
+
+
 
 def fit_animal_bhv_models(data, *args, animal_key='animal', retro_masking=True,
                           pro_masking=False, **kwargs):

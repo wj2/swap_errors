@@ -137,6 +137,17 @@ def visualize_simplex(pts, ax=None, ax_labels=default_ax_labels, thr=.5,
     ax.view_init(45, 45)
     return ax
 
+def plot_naive_centroid(nulls, swaps, ax=None):
+    if ax is None:
+        f, ax = plt.subplots(1, 1)
+    extreme = np.nanmax(np.abs((np.nanmin(nulls), np.nanmax(nulls))))
+    bins = np.linspace(-extreme, extreme, 41)
+    ax.hist(nulls, bins=bins, density=True)
+    ax.hist(np.mean(swaps, axis=0), density=True, bins=bins,
+            histtype='step')
+    gpl.add_vlines([0, 1], ax)
+    return ax
+
 def visualize_simplex_2d(pts, ax=None, ax_labels=None, thr=.5,
                          pt_grey_col=(.7, .7, .7),
                          line_grey_col=(.6, .6, .6),
