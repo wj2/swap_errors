@@ -5,6 +5,7 @@ import matplotlib.gridspec as gridspec
 from mpl_toolkits import mplot3d
 import sklearn.decomposition as skd
 import sklearn.manifold as skm
+import scipy.stats as sts
 import arviz as az
 import itertools as it
 import seaborn as sns
@@ -137,17 +138,85 @@ def visualize_simplex(pts, ax=None, ax_labels=default_ax_labels, thr=.5,
     ax.view_init(45, 45)
     return ax
 
-def plot_naive_centroid(nulls, swaps, ax=None):
+def plot_naive_centroid(nulls, swaps, ax=None, biggest_extreme=None,
+                        n_bins=41, c_color=(.1, .6, .1), s_color=(.6, .1, .1)):
     if ax is None:
         f, ax = plt.subplots(1, 1)
     extreme = np.nanmax(np.abs((np.nanmin(nulls), np.nanmax(nulls))))
-    bins = np.linspace(-extreme, extreme, 41)
+    if biggest_extreme is not None:
+        extreme = min(biggest_extreme, extreme)
+    bins = np.linspace(-extreme, extreme + 1, n_bins)
     ax.hist(nulls, bins=bins, density=True)
-    ax.hist(np.mean(swaps, axis=0), density=True, bins=bins,
+    if len(swaps.shape) > 1:
+        swaps = np.mean(swaps, axis=0)
+    ax.hist(swaps, density=True, bins=bins,
             histtype='step')
     gpl.add_vlines([0, 1], ax)
+    m_null = np.nanmedian(nulls)
+    m_swaps = np.nanmedian(swaps)
+    
+    gpl.add_vlines(m_null, ax, color=c_color, alpha=.5)
+    gpl.add_vlines(m_swaps, ax, color=s_color, alpha=.5)
+    utest = sts.mannwhitneyu(swaps, nulls, alternative='greater',
+                             nan_policy='omit')
+    y_low, y_up = ax.get_ylim()
+    if utest.pvalue < .01:
+        ax.plot([m_swaps], [y_up - y_up*.1], '*', ms=5, color=s_color)
     return ax
 
+def plot_naive_centroid_dict_indiv(*dicts, axs=None, fwid=3, **kwargs):
+    if axs is None:
+        plot_dims = (len(dicts[0]), len(dicts))
+        f, axs = plt.subplots(*plot_dims, figsize=(fwid*plot_dims[1],
+                                                   fwid*plot_dims[0]),
+                              squeeze=False)
+    for i, dict_i in enumerate(dicts):
+        for j, (k, (null, swaps)) in enumerate(dict_i.items()):
+            ax_ji = plot_naive_centroid(null, swaps, ax=axs[j, i], **kwargs)
+    return axs        
+
+def plot_naive_centroid_dict_comb(*dicts, **kwargs):
+    comb_dicts = []
+    for dict_i in dicts:
+        nulls_all = list(v[0] for v in dict_i.values())
+        nulls = np.concatenate(nulls_all, axis=0)
+        swaps_all = list(np.mean(v[1], axis=0) for v in dict_i.values())
+        swaps = np.concatenate(swaps_all, axis=0)
+        comb_dicts.append({'comb':(nulls, swaps)})
+    return plot_naive_centroid_dict_indiv(*comb_dicts, **kwargs)
+
+def plot_all_nc_dict(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
+                     session_dict=None, cond_types=('pro', 'retro'),
+                     d2_key='d2', axs=None, fwid=3, biggest_extreme=2):
+    if session_dict is None:
+        session_dict = dict(elmo_range=range(13),
+                            waldorf_range=range(13, 24),
+                            comb_range=range(24))
+
+    if axs is None:
+        n_cols = len(use_d1s) + len(cond_types)
+        n_rows = len(session_dict)
+        f, axs = plt.subplots(n_rows, n_cols,
+                              figsize=(fwid*n_cols, fwid*n_rows),
+                              sharex=True, sharey=True)
+    titles = list(use_d1s) + list(' '.join((d2_key, ct)) for ct in cond_types)
+    list(ax.set_title(titles[i]) for i, ax in enumerate(axs[0]))
+    for i, (r_key, use_range) in enumerate(session_dict.items()):
+        use_dis = []
+        for d1_c in use_d1s:
+            d1i_use = {k:v for k, v in centroid_dict[d1_c].items()
+                       if k[0] in use_range}
+            use_dis.append(d1i_use)
+        for use_cond in cond_types:
+            d2i_use = {k:v for k, v in centroid_dict[d2_key].items() 
+                       if k[1] == use_cond and k[0] in use_range}
+            use_dis.append(d2i_use)
+        axs_i = plot_naive_centroid_dict_comb(*use_dis,
+                                              biggest_extreme=biggest_extreme,
+                                              axs=axs[i:i+1])
+        axs[i, 0].set_ylabel(r_key)
+    return axs
+    
 def visualize_simplex_2d(pts, ax=None, ax_labels=None, thr=.5,
                          pt_grey_col=(.7, .7, .7),
                          line_grey_col=(.6, .6, .6),
@@ -625,29 +694,29 @@ def plot_color_swap_bias(data, targ='swap_prob',
                             conf95=True, label=label)
     return axs
 
-def _c1_scatter(arr, ax):
+def _c1_scatter(arr, ax, **kwargs):
     assert np.mean(arr[1]) > .99
-    ax.plot(arr[0][:, 0, 0], arr[0][:, 0, 1], 'o')
+    ax.plot(arr[0][:, 0, 0], arr[0][:, 0, 1], 'o', **kwargs)
 
-def _c1_d_hist(arr, ax, n_bins=21):
+def _c1_d_hist(arr, ax, n_bins=21, **kwargs):
     assert np.mean(arr[1]) > .99
     bins = np.linspace(-np.pi, np.pi, n_bins)
-    ax.hist(arr[0][:, 0, 1], bins=bins)
+    ax.hist(arr[0][:, 0, 1], bins=bins, **kwargs)
 
-def _c2_scatter(arr, ax):
+def _c2_scatter(arr, ax, **kwargs):
     assert np.mean(arr[1]) > .99
-    ax.plot(arr[0][:, 0, 1], arr[0][:, 0, 0], 'o')
+    ax.plot(arr[0][:, 0, 1], arr[0][:, 0, 0], 'o', **kwargs)
 
-def _c2_d_hist(arr, ax, n_bins=21):
+def _c2_d_hist(arr, ax, n_bins=21, **kwargs):
     assert np.mean(arr[1]) > .99
     bins = np.linspace(-np.pi, np.pi, n_bins)
-    ax.hist(arr[0][:, 0, 0], bins=bins)
+    ax.hist(arr[0][:, 0, 0], bins=bins, **kwargs)
 
     
 def plot_circus_sweep_resps(sweep_dict, ax_params,
                             pk_type='scatter',
                             plot_keys=None,
-                            axs=None, fwid=1):
+                            axs=None, fwid=1, **kwargs):
     if pk_type == 'scatter' and plot_keys is None:
         plot_keys=(('cue1', _c1_scatter),
                    ('cue2', _c2_scatter))
@@ -672,7 +741,7 @@ def plot_circus_sweep_resps(sweep_dict, ax_params,
         inds = np.where(mask)[0]
         for ind in inds:
             for pk, func in plot_keys:
-                func(sweep_dict[pk][ind], axs[i, j])
+                func(sweep_dict[pk][ind], axs[i, j], **kwargs)
         if j == 0:
             axs[i, j].set_ylabel(np.round(conjunctions[0][i], 2))
         if i == n_vals[0] - 1:
