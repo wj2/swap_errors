@@ -542,8 +542,9 @@ def _col_diff_spline(c1, c2):
 
 def convert_spline_to_rad(cu, cl):
     cols = np.unique(np.concatenate((cu, cl), axis=0), axis=0)
-    assert len(cols) == 64
-    rads = np.linspace(0, 2*np.pi, 65)[:-1]
+    if len(cols) != 64:
+        print('weird cols', len(cols))
+    rads = np.linspace(0, 2*np.pi, len(cols) + 1)[:-1]
     d = {tuple(x):rads[i] for i, x in enumerate(cols)}
     cu_rad = np.zeros(len(cu))
     cl_rad = np.zeros_like(cu_rad)
