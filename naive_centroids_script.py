@@ -21,10 +21,12 @@ def create_parser():
     parser.add_argument('--file_templ_d1', default=None, type=str)
     parser.add_argument('--file_templ_d2', default=None, type=str)
     parser.add_argument('--local_test', default=False, action='store_true')
+    parser.add_argument('--decider_arg', default=None, type=float)
     return parser
 
 decider_dict = {'argmax':(swan.corr_argmax, swan.swap_argmax),
-                'plurality':(swan.corr_plurality, swan.swap_plurality)}
+                'plurality':(swan.corr_plurality, swan.swap_plurality),
+                'diff':(swan.corr_diff, swan.swap_diff)}
 
 if __name__ == '__main__':
     parser = create_parser()
@@ -35,6 +37,9 @@ if __name__ == '__main__':
         args = u.merge_params_dict(args, config_dict)
 
     corr_decider, swap_decider = decider_dict[args.decider]
+    if args.decider_arg is not None:
+        corr_decider = lambda x: corr_decider(x, args.decider_arg)
+        swap_decider = lambda x: swap_decider(x, args.decider_arg)
     args.date = datetime.now()
     if not args.local_test and args.file_templ_d1 is None:
         file_templ_d1 = swaux.cluster_naive_d1_path_templ
@@ -79,7 +84,7 @@ if __name__ == '__main__':
                                    col_thr=args.avg_dist)
         out_d2[k] = out
 
-    out_dict = {'d1_cu':out_d1_cu, 'd1_cl':out_d1_cl,
+    out_dict = {'args':args, 'd1_cu':out_d1_cu, 'd1_cl':out_d1_cl,
                 'd2':out_d2}
     fname = args.output_file.format(args.date)
     fname = fname.replace(' ', '_')

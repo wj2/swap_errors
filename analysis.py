@@ -518,15 +518,25 @@ def _argmax_decider(ps, ind):
     mask = np.argmax(ps, axis=1) == ind
     return mask
 
-def _plurality_decider(ps, ind):
-    mask = ps[:, ind] > 1/3
+def _plurality_decider(ps, ind, prob=1/3):
+    mask = ps[:, ind] > prob
     return mask
 
-def swap_plurality(ps):
-    return _plurality_decider(ps, 1)
+def _diff_decider(ps, ind_pos, ind_sub, diff=0):
+    mask = ps[:, ind_pos] - ind_sub[:, ind_sub] > diff
+    return mask
 
-def corr_plurality(ps):
-    return _plurality_decider(ps, 0)
+def corr_diff(ps, diff=0):
+    return _diff_decider(ps, 0, 1, diff=diff)
+
+def swap_diff(ps, diff=0):
+    return _diff_decider(ps, 1, 0, diff=diff)
+
+def swap_plurality(ps, prob=1/3):
+    return _plurality_decider(ps, 1, prob=prob)
+
+def corr_plurality(ps, prob=1/3):
+    return _plurality_decider(ps, 0, prob=prob)
 
 def swap_argmax(ps):
     return _argmax_decider(ps, 1)
@@ -542,7 +552,8 @@ def _col_diff_spline(c1, c2):
 
 def convert_spline_to_rad(cu, cl):
     cols = np.unique(np.concatenate((cu, cl), axis=0), axis=0)
-    assert len(cols) == 64
+    if len(cols) != 64:
+        print('weird color num', len(cols))
     rads = np.linspace(0, 2*np.pi, 65)[:-1]
     d = {tuple(x):rads[i] for i, x in enumerate(cols)}
     cu_rad = np.zeros(len(cu))
@@ -572,7 +583,8 @@ def naive_centroids(data_dict,
                     tp_key='p',
                     activity_key='y',
                     swap_decider=swap_argmax,
-                    corr_decider=corr_argmax, col_thr=np.pi/4,
+                    corr_decider=corr_argmax,
+                    col_thr=np.pi/4,
                     cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
                     convert_splines=True):
     if flip_cue:
@@ -597,12 +609,16 @@ def naive_centroids(data_dict,
         c_d[c0_mask] = data_dict[cu_key][c0_mask]
     if len(c_t.shape) > 1 and convert_splines:
         c_t, c_d = convert_spline_to_rad(c_t, c_d)
-        
+
     corr_mask = corr_decider(data_dict[tp_key])
+    swap_mask = swap_decider(data_dict[tp_key])
+    common_mask = np.logical_and(corr_mask, swap_mask)
+    corr_mask[common_mask] = False
+    swap_mask[common_mask] = False
+    
     corr_inds = np.where(corr_mask)[0]
     null_dists = np.zeros(sum(corr_mask))
 
-    swap_mask = swap_decider(data_dict[tp_key])
     swap_inds = np.where(swap_mask)[0]
     swap_dists = np.zeros((sum(corr_mask), sum(swap_mask)))
     y = data_dict[activity_key]
