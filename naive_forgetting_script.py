@@ -12,15 +12,15 @@ import swap_errors.analysis as swan
 def create_parser():
     parser = argparse.ArgumentParser(description='fit several modularizers')
     parser.add_argument('-o', '--output_file',
-                        default='swap_errors/naive_centroids/cents_{}.pkl',
+                        default='swap_errors/naive_forgetting/forget_{}.pkl',
                         type=str,
                         help='folder to save the output in')
     parser.add_argument('--decider', default='argmax', type=str)
-    parser.add_argument('--avg_dist', default=np.pi/4, type=float)
     parser.add_argument('--config_path', default=None, type=str)
     parser.add_argument('--file_templ_d1', default=None, type=str)
     parser.add_argument('--file_templ_d2', default=None, type=str)
     parser.add_argument('--local_test', default=False, action='store_true')
+    parser.add_argument('--forget_kernel', default='rbf', type=str)
     parser.add_argument('--decider_arg', default=None, type=float)
     return parser
 
@@ -51,41 +51,22 @@ if __name__ == '__main__':
         file_templ_d1, form_opts_d1 = pickle.load(open(args.file_templ_d1, 'rb'))
 
     sessions_d1 = swaux.load_files_ma_folders(file_templ_d1, **form_opts_d1)
-    out_d1_cu = {}
-    out_d1_cl = {}
+    out_forget_cu = {}
+    out_forget_cl = {}
     for k, d_dict in sessions_d1.items():
-        out_cu = swan.naive_centroids(d_dict, use_cue=False,
-                                      swap_decider=swap_decider,
-                                      corr_decider=corr_decider,
-                                      col_thr=args.avg_dist)
-        out_d1_cu[k] = out_cu
-        out_cl = swan.naive_centroids(d_dict, use_cue=False,
-                                      flip_cue=True,
-                                      swap_decider=swap_decider,
-                                      corr_decider=corr_decider,
-                                      col_thr=args.avg_dist)
-        out_d1_cl[k] = out_cl
+        out_f_cu = swan.naive_forgetting(d_dict, flip_cue=False,
+                                         swap_decider=swap_decider,
+                                         corr_decider=corr_decider,
+                                         kernel=args.forget_kernel)
+        out_forget_cu[k] = out_f_cu
+        out_f_cl = swan.naive_forgetting(d_dict, flip_cue=True,
+                                         swap_decider=swap_decider,
+                                         corr_decider=corr_decider,
+                                         kernel=args.forget_kernel)
+        out_forget_cl[k] = out_f_cl
         
-    if not args.local_test and args.file_templ_d2 is None:
-        file_templ_d2 = swaux.cluster_naive_d2_path_templ
-        form_opts_d2 = swaux.cluster_naive_d2_format_options
-    elif args.local_test:
-        file_templ_d2 = 'swap_errors/test_sessions/retro_{}/stan_data.pkl'
-        form_opts_d2 = {'test_type':(4,)}
-    else:
-        file_templ_d2, form_opts_d2 = pickle.load(open(args.file_templ_d2, 'rb'))
-
-    sessions_d2 = swaux.load_files_ma_folders(file_templ_d2, **form_opts_d2)
-    out_d2 = {}
-    for k, d_dict in sessions_d2.items():
-        out = swan.naive_centroids(d_dict,
-                                   swap_decider=swap_decider,
-                                   corr_decider=corr_decider,
-                                   col_thr=args.avg_dist)
-        out_d2[k] = out
-
-    out_dict = {'args':args, 'd1_cu':out_d1_cu, 'd1_cl':out_d1_cl,
-                'd2':out_d2}
+    out_dict = {'args':args, 'forget_cu':out_forget_cu,
+                'forget_cl':out_forget_cl}
     fname = args.output_file.format(args.date)
     fname = fname.replace(' ', '_')
     pickle.dump(out_dict, open(fname, 'wb'))

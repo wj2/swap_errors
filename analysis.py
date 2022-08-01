@@ -708,9 +708,10 @@ def naive_forgetting(data_dict,
     cv_gen = cv()
     # DECODE BINARY COLOR ON ALL CORRECT, test on HIGH SWAP SPECIFIC CUE
     for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
+        corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
         model = skc.SVC(kernel=kernel)
-        model.fit(y[train_inds], color_cat[train_inds])
-        null_score[i] = model.score(y[test_inds], color_cat[test_inds])
+        model.fit(y[corr_tr], color_cat[corr_tr])
+        null_score[i] = model.score(y[corr_te], color_cat[corr_te])
         # print(model.predict(y[test_inds]), color_cat[test_inds])
         swap_score[i] = model.predict(y[swap_inds]) == color_cat[swap_inds]
         # print(model.predict(y[swap_inds]), color_cat[swap_inds])
@@ -757,7 +758,7 @@ def naive_centroids(data_dict,
     corr_inds, swap_inds = _get_corr_swap_inds(data_dict[tp_key],
                                                corr_decider,
                                                swap_decider)
-    null_dists = np.zeros(len(corr_mask))
+    null_dists = np.zeros(len(corr_inds))
     swap_dists = np.zeros((len(corr_inds), len(swap_inds)))
     y = data_dict[activity_key]
 
@@ -780,7 +781,7 @@ def naive_centroids(data_dict,
         sv_u = np.expand_dims(u.make_unit_vector(swap_vec), 0)
 
         test_activity = y[corr_te]
-        swap_activity = y[swap_mask]
+        swap_activity = y[swap_inds]
         null_dists[i] = np.dot(sv_u, (test_activity - null_cent).T)/sv_len
         if not far_cols:
             null_dists[i] = np.nan
