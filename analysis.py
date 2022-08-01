@@ -572,6 +572,150 @@ def cue_mask_dict(data_dict, cue_val, cue_key='cue',
         new_dict[mk] = data_dict[mk][mask]
     return new_dict
 
+def compute_centroid_diffs(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
+                           session_dict=None, cond_types=('pro', 'retro'),
+                           d2_key='d2', min_swaps=10):
+    if session_dict is None:
+        session_dict = dict(elmo_range=range(13),
+                            waldorf_range=range(13, 24),
+                            comb_range=range(24))
+
+    ax_labels = list(use_d1s) + list(' '.join((d2_key, ct)) for ct in cond_types)
+    m_labels = []
+    m_out = np.zeros((len(session_dict), len(use_d1s) + len(cond_types)))
+    p_out = np.zeros_like(m_out)
+    for i, (r_key, use_range) in enumerate(session_dict.items()):
+        m_labels.append(r_key)
+        use_dis = []
+        for d1_c in use_d1s:
+            d1i_use = {k:v for k, v in centroid_dict[d1_c].items()
+                       if k[0] in use_range}
+            use_dis.append(d1i_use)
+        for use_cond in cond_types:
+            d2i_use = {k:v for k, v in centroid_dict[d2_key].items() 
+                       if k[1] == use_cond and k[0] in use_range}
+            use_dis.append(d2i_use)
+
+        comb_dicts = []
+        for dict_i in use_dis:
+            nulls_all = list(v[0] for v in dict_i.values())
+            nulls = np.concatenate(nulls_all, axis=0)
+            swaps_all = list(np.mean(v[1], axis=0) for v in dict_i.values())
+            swaps = np.concatenate(swaps_all, axis=0)
+            comb_dicts.append({'comb':(nulls, swaps)})
+
+        for j, dict_i in enumerate(comb_dicts):
+            nulls, swaps = dict_i['comb']
+            m_null = np.nanmedian(nulls)
+            m_swaps = np.nanmedian(swaps)
+            if len(swaps) > min_swaps:
+                utest = sts.mannwhitneyu(swaps, nulls, alternative='greater',
+                                         nan_policy='omit')
+                p_out[i, j] = utest.pvalue
+            else:
+                p_out[i, j] = np.nan
+            m_out[i, j] = m_swaps - m_null
+    return m_out, p_out
+
+def compute_sweep_ncs(sweep_keys, run_ind,
+                      folder='swap_errors/naive_centroids/',
+                      use_d1s=('d1_cl', 'd1_cu'),
+                      d2_key='d2', cond_types=('pro', 'retro'),
+                      monkey_ranges=None):
+    if monkey_ranges is None:
+        monkey_ranges = dict(elmo_range=range(13),
+                             waldorf_range=range(13, 24),
+                             comb_range=range(24))
+    nc_df = swa.load_nc_sweep(folder, run_ind)
+    ax_vals = []
+    for sk in sweep_keys:
+        if list(nc_df[sk])[0] is None:
+            app_vals = (None,)
+        else:
+            app_vals = np.unique(nc_df[sk])
+        ax_vals.append(app_vals)
+
+    param_shape = list(len(av) for av in ax_vals)
+    cond_shape = [len(monkey_ranges), len(use_d1s) + len(cond_types)]
+    
+    m_arr = np.zeros(param_shape + cond_shape)
+    p_arr = np.zeros_like(m_arr)
+    for ind in u.make_array_ind_iterator(param_shape):
+        mask = list(nc_df[sweep_keys[i]] == av[ind[i]]
+                    for i, av in enumerate(ax_vals)
+                    if av[ind[i]] is not None)
+        mask = np.product(mask, axis=0).astype(bool)
+        nc_masked = nc_df[mask].iloc[0]
+        nc_ind = nc_masked.to_dict()
+        ms, ps = compute_centroid_diffs(nc_ind, use_d1s=use_d1s,
+                                        cond_types=cond_types,
+                                        d2_key=d2_key,
+                                        session_dict=monkey_ranges)
+        m_arr[ind] = ms
+        p_arr[ind] = ps
+    return ax_vals, m_arr, p_arr
+
+
+def _get_corr_swap_inds(ps, corr_decider, swap_decider, and_corr_mask=None,
+                        and_swap_mask=None):
+    corr_mask = corr_decider(ps)
+    swap_mask = swap_decider(ps)
+    common_mask = np.logical_and(corr_mask, swap_mask)
+    corr_mask[common_mask] = False
+    if and_corr_mask is not None:
+        corr_mask = np.logical_and(corr_mask, and_corr_mask)
+    swap_mask[common_mask] = False
+    if and_swap_mask is not None:
+        swap_mask = np.logical_and(swap_mask, and_swap_mask)
+    corr_inds = np.where(corr_mask)[0]
+    swap_inds = np.where(swap_mask)[0]
+    return corr_inds, swap_inds
+
+def naive_forgetting(data_dict,
+                     cue_key='cue',
+                     flip_cue = False,
+                     no_cue_targ='C_u',
+                     no_cue_dist='C_l',
+                     tp_key='p',
+                     cue_targ=1,
+                     activity_key='y',
+                     swap_decider=swap_argmax,
+                     corr_decider=corr_argmax,
+                     col_exclude=0,
+                     cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
+                     kernel='rbf',
+                     convert_splines=True):
+    if flip_cue:
+        no_cue_targ = 'C_l'
+        no_cue_dist = 'C_u'
+        cue_targ = 0
+    c_dec = data_dict[no_cue_targ]
+    c_ndec = data_dict[no_cue_dist]
+    cue_mask = data_dict[cue_key] == cue_targ
+    if len(c_dec.shape) > 1 and convert_splines:
+        c_dec, _ = convert_spline_to_rad(c_dec, c_ndec)
+
+    color_cat = c_dec - np.pi < 0
+    corr_inds, swap_inds = _get_corr_swap_inds(data_dict[tp_key],
+                                               corr_decider,
+                                               swap_decider,
+                                               and_swap_mask=cue_mask)
+    null_score = np.zeros(len(corr_inds))
+    swap_score = np.zeros((len(corr_inds), len(swap_inds)))
+    y = data_dict[activity_key]
+    assert(not np.any(np.isin(swap_inds, corr_inds)))
+
+    cv_gen = cv()
+    # DECODE BINARY COLOR ON ALL CORRECT, test on HIGH SWAP SPECIFIC CUE
+    for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
+        model = skc.SVC(kernel=kernel)
+        model.fit(y[train_inds], color_cat[train_inds])
+        null_score[i] = model.score(y[test_inds], color_cat[test_inds])
+        # print(model.predict(y[test_inds]), color_cat[test_inds])
+        swap_score[i] = model.predict(y[swap_inds]) == color_cat[swap_inds]
+        # print(model.predict(y[swap_inds]), color_cat[swap_inds])
+    return null_score, swap_score
+
 def naive_centroids(data_dict,
                     cue_key='cue',
                     cu_key='C_u',
@@ -610,17 +754,11 @@ def naive_centroids(data_dict,
     if len(c_t.shape) > 1 and convert_splines:
         c_t, c_d = convert_spline_to_rad(c_t, c_d)
 
-    corr_mask = corr_decider(data_dict[tp_key])
-    swap_mask = swap_decider(data_dict[tp_key])
-    common_mask = np.logical_and(corr_mask, swap_mask)
-    corr_mask[common_mask] = False
-    swap_mask[common_mask] = False
-    
-    corr_inds = np.where(corr_mask)[0]
-    null_dists = np.zeros(sum(corr_mask))
-
-    swap_inds = np.where(swap_mask)[0]
-    swap_dists = np.zeros((sum(corr_mask), sum(swap_mask)))
+    corr_inds, swap_inds = _get_corr_swap_inds(data_dict[tp_key],
+                                               corr_decider,
+                                               swap_decider)
+    null_dists = np.zeros(len(corr_mask))
+    swap_dists = np.zeros((len(corr_inds), len(swap_inds)))
     y = data_dict[activity_key]
 
     cv_gen = cv()
@@ -999,6 +1137,7 @@ def compute_diff_dependence(data, targ_field='LABthetaTarget',
     return td_diff, resp_diff, dist_diff
 
 bmp = 'swap_errors/behavioral_model/corr_swap_guess.pkl'
+bmp_ub = 'swap_errors/behavioral_model/csg_dirich.pkl'
 default_prior_dict = {'report_var_var_mean':1,
                       'report_var_var_var':3,
                       'report_var_mean_mean':.64,
@@ -1011,6 +1150,12 @@ default_prior_dict = {'report_var_var_mean':1,
                       'guess_weight_var_var':3,
                       'guess_weight_mean_mean':0,
                       'guess_weight_mean_var':1}
+ub_prior_dict = {'report_var_var_mean':1,
+                 'report_var_var_var':3,
+                 'report_var_mean_mean':.64,
+                 'report_var_mean_var':1,
+                 'swap_weight_mean_mean':0,
+                 'swap_weight_mean_var':1}
 def fit_bhv_model(data, model_path=bmp, targ_field='LABthetaTarget',
                   dist_field='LABthetaDist', resp_field='LABthetaResp',
                   prior_dict=None, stan_iters=2000, stan_chains=4,
