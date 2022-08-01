@@ -162,7 +162,32 @@ def plot_naive_centroid(nulls, swaps, ax=None, biggest_extreme=None,
     y_low, y_up = ax.get_ylim()
     if utest.pvalue < .01:
         ax.plot([m_swaps], [y_up - y_up*.1], '*', ms=5, color=s_color)
+        
     return ax
+
+def plot_nc_sweep(ax_vals, plot_arr, fwid=3, axs=None, p_thr=.01,
+                  vmin=None, vmax=None, **kwargs):
+    if axs is None:
+        n_rows, n_cols = plot_arr.shape[-2:]
+        f, axs = plt.subplots(n_rows, n_cols,
+                              figsize=(n_cols*fwid, n_rows*fwid),
+                              squeeze=False, sharex=True, sharey=True)
+    if vmin is None:
+        vmin = np.nanmin(plot_arr)
+    if vmax is None:
+        vmax = np.nanmax(plot_arr)
+    for (i1, i2) in u.make_array_ind_iterator(axs.shape):
+        plot_map = plot_arr[..., i1, i2]
+        if plot_map.shape[0] == 1:
+            plot_map = np.concatenate((plot_map, plot_map), axis=0)
+            ax_vals = list(av for av in ax_vals)
+            ax_vals[0] = (0, 1)
+        if plot_map.shape[1] == 1:
+            plot_map = np.concatenate((plot_map, plot_map), axis=1)
+            ax_vals = list(av for av in ax_vals)
+            ax_vals[1] = (0, 1)
+        gpl.pcolormesh(*ax_vals, plot_map.T, ax=axs[i1, i2], vmin=vmin,
+                       vmax=vmax, **kwargs)
 
 def plot_naive_centroid_dict_indiv(*dicts, axs=None, fwid=3, **kwargs):
     if axs is None:
