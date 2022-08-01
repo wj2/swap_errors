@@ -706,15 +706,15 @@ def naive_forgetting(data_dict,
     assert(not np.any(np.isin(swap_inds, corr_inds)))
 
     cv_gen = cv()
-    # DECODE BINARY COLOR ON ALL CORRECT, test on HIGH SWAP SPECIFIC CUE
     for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
         corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
         model = skc.SVC(kernel=kernel)
         model.fit(y[corr_tr], color_cat[corr_tr])
         null_score[i] = model.score(y[corr_te], color_cat[corr_te])
-        # print(model.predict(y[test_inds]), color_cat[test_inds])
-        swap_score[i] = model.predict(y[swap_inds]) == color_cat[swap_inds]
-        # print(model.predict(y[swap_inds]), color_cat[swap_inds])
+        if len(swap_inds) > 0:
+            swap_score[i] = model.predict(y[swap_inds]) == color_cat[swap_inds]
+        else:
+            swap_score[i] = np.nan
     return null_score, swap_score
 
 def naive_centroids(data_dict,
