@@ -36,10 +36,14 @@ if __name__ == '__main__':
         config_dict = pickle.load(open(args.config_path, 'rb'))
         args = u.merge_params_dict(args, config_dict)
 
-    corr_decider, swap_decider = decider_dict[args.decider]
+    corr_decider_pl, swap_decider_pl = decider_dict[args.decider]
+    print(args.decider_arg)
     if args.decider_arg is not None:
-        corr_decider = lambda x: corr_decider(x, args.decider_arg)
-        swap_decider = lambda x: swap_decider(x, args.decider_arg)
+        corr_decider = lambda x: corr_decider_pl(x, args.decider_arg)
+        swap_decider = lambda x: swap_decider_pl(x, args.decider_arg)
+    else:
+        corr_decider = corr_decider_pl
+        swap_decider = swap_decider_pl
     args.date = datetime.now()
     if not args.local_test and args.file_templ_d1 is None:
         file_templ_d1 = swaux.cluster_naive_d1_path_templ
