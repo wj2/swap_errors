@@ -210,6 +210,58 @@ def plot_naive_centroid_dict_comb(*dicts, **kwargs):
         comb_dicts.append({'comb':(nulls, swaps)})
     return plot_naive_centroid_dict_indiv(*comb_dicts, **kwargs)
 
+def plot_forget_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
+                     session_dict=None, axs=None, fwid=3):
+    if session_dict is None:
+        session_dict = dict(elmo_range=range(13),
+                            waldorf_range=range(13, 24),
+                            comb_range=range(24))
+
+    if axs is None:
+        n_cols = len(use_keys) 
+        n_rows = len(session_dict)
+        f, axs = plt.subplots(n_rows, n_cols,
+                              figsize=(fwid*n_cols, fwid*n_rows),
+                              sharex=True, sharey=True)
+    list(axs[0, j].set_title(k) for j, k in enumerate(use_keys))
+    for i, (r_key, use_range) in enumerate(session_dict.items()):
+        group = []
+        for uk in use_keys:
+            use_entries = {k:v for k, v in forget_dict[uk].items()
+                           if k[0] in use_range}
+            group.append(use_entries)
+        axs[i, 0].set_ylabel(r_key)
+        plot_forget_group(group, axs[i])
+    return axs
+        
+def plot_forget_group(groups, axs=None):
+    assert len(axs) == len(groups)
+    for i, group in enumerate(groups):
+        diffs = []
+        nulls_all = []
+        swaps_all = []
+        for j, (k, (nulls, swaps)) in enumerate(group.items()):
+            null_pt = np.mean(nulls)
+            swap_pt = np.mean(swaps)
+            if null_pt > .6:
+                diffs.append(null_pt - swap_pt)
+                nulls_all.append(null_pt)
+                swaps_all.append(swap_pt)
+            # l = axs[i].plot([0, 1], [null_pt, swap_pt],
+            #                 linewidth=1)
+            # col = l[0].get_color()
+            # axs[i].plot([0, 1], [null_pt, swap_pt], 'o', ms=5,
+            #             color=col)
+        # axs[i].hist(diffs)
+        axs[i].plot(nulls_all, swaps_all, 'o')
+        axs[i].plot([.25, 1], [.25, 1], color='grey')
+        wil_test = sts.wilcoxon(diffs, alternative='greater',
+                             nan_policy='omit')
+        t_test = sts.ttest_rel(nulls_all, swaps_all, alternative='greater',
+                               nan_policy='omit')
+        print(t_test)
+        print(wil_test)
+
 def plot_all_nc_dict(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
                      session_dict=None, cond_types=('pro', 'retro'),
                      d2_key='d2', axs=None, fwid=3, biggest_extreme=2):

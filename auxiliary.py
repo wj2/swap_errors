@@ -74,17 +74,19 @@ def load_circus_sweep(folder, swept_keys, store_keys=('cue1', 'cue2'),
 cluster_naive_d1_path_templ = (
     '/burg/theory/users/ma3811/assignment_errors/5_colors/'
     'sess_{}/CUE2_ON_diode/-0.5-0.0-0.5_0.5/pca_0.95_before/'
-    'impute_True/spline1_knots/all/{}/stan_data.pkl')
+    'impute_True/spline1_knots/{}/{}/stan_data.pkl')
 cluster_naive_d1_format_options = {
     'sessions':range(0, 23),
+    'region':('all', 'frontal', 'posterior'),
     'trl_type':('retro',)}
 
 cluster_naive_d2_path_templ = (
     '/burg/theory/users/ma3811/assignment_errors/5_colors/'
     'sess_{}/WHEEL_ON_diode/-0.5-0.0-0.5_0.5/pca_0.95_before/'
-    'impute_True/spline1_knots/all/{}/stan_data.pkl')
+    'impute_True/spline1_knots/{}/{}/stan_data.pkl')
 cluster_naive_d2_format_options = {
     'sessions':range(0, 23),
+    'region':('all', 'frontal', 'posterior'),
     'trl_type':('retro', 'pro')}
 
 def load_files_ma_folders(file_template, **format_options):

@@ -674,20 +674,21 @@ def _get_corr_swap_inds(ps, corr_decider, swap_decider, and_corr_mask=None,
 def naive_forgetting(data_dict,
                      cue_key='cue',
                      flip_cue = False,
-                     no_cue_targ='C_u',
-                     no_cue_dist='C_l',
+                     no_cue_targ='up_col_rads',
+                     no_cue_dist='down_col_rads',
                      tp_key='p',
                      cue_targ=1,
                      activity_key='y',
                      swap_decider=swap_argmax,
                      corr_decider=corr_argmax,
                      col_exclude=0,
+                     col_cent=np.pi,
                      cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
                      kernel='rbf',
                      convert_splines=True):
     if flip_cue:
-        no_cue_targ = 'C_l'
-        no_cue_dist = 'C_u'
+        no_cue_targ = 'down_col_rads'
+        no_cue_dist = 'up_col_rads'
         cue_targ = 0
     c_dec = data_dict[no_cue_targ]
     c_ndec = data_dict[no_cue_dist]
@@ -695,7 +696,10 @@ def naive_forgetting(data_dict,
     if len(c_dec.shape) > 1 and convert_splines:
         c_dec, _ = convert_spline_to_rad(c_dec, c_ndec)
 
-    color_cat = c_dec - np.pi < 0
+    norm_diff = u.normalize_periodic_range(c_dec - col_cent)
+    print(np.mean(norm_diff < 0))
+    color_cat = norm_diff < 0
+    
     corr_inds, swap_inds = _get_corr_swap_inds(data_dict[tp_key],
                                                corr_decider,
                                                swap_decider,
@@ -719,12 +723,12 @@ def naive_forgetting(data_dict,
 
 def naive_centroids(data_dict,
                     cue_key='cue',
-                    cu_key='C_u',
-                    cl_key='C_l',
+                    cu_key='up_col_rads',
+                    cl_key='down_col_rads',
                     use_cue=True,
                     flip_cue = False,
-                    no_cue_targ='C_u',
-                    no_cue_dist='C_l',
+                    no_cue_targ='up_col_rads',
+                    no_cue_dist='down_col_rads',
                     tp_key='p',
                     activity_key='y',
                     swap_decider=swap_argmax,
@@ -733,8 +737,8 @@ def naive_centroids(data_dict,
                     cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
                     convert_splines=True):
     if flip_cue:
-        no_cue_targ = 'C_l'
-        no_cue_dist = 'C_u'
+        no_cue_targ = 'down_col_rads'
+        no_cue_dist = 'up_col_rads'
     if not use_cue:
         c_t = np.zeros_like(data_dict[no_cue_targ])
         c_d = np.zeros_like(data_dict[no_cue_dist])
