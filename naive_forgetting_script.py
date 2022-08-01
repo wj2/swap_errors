@@ -22,6 +22,7 @@ def create_parser():
     parser.add_argument('--local_test', default=False, action='store_true')
     parser.add_argument('--forget_kernel', default='rbf', type=str)
     parser.add_argument('--decider_arg', default=None, type=float)
+    parser.add_argument('--col_cent', default=np.pi, type=float)    
     return parser
 
 decider_dict = {'argmax':(swan.corr_argmax, swan.swap_argmax),
@@ -61,12 +62,14 @@ if __name__ == '__main__':
         out_f_cu = swan.naive_forgetting(d_dict, flip_cue=False,
                                          swap_decider=swap_decider,
                                          corr_decider=corr_decider,
-                                         kernel=args.forget_kernel)
+                                         kernel=args.forget_kernel,
+                                         col_cent=args.col_cent)
         out_forget_cu[k] = out_f_cu
         out_f_cl = swan.naive_forgetting(d_dict, flip_cue=True,
                                          swap_decider=swap_decider,
                                          corr_decider=corr_decider,
-                                         kernel=args.forget_kernel)
+                                         kernel=args.forget_kernel,
+                                         col_cent=args.col_cent)
         out_forget_cl[k] = out_f_cl
         
     out_dict = {'args':args, 'forget_cu':out_forget_cu,
