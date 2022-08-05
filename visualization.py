@@ -211,7 +211,7 @@ def plot_naive_centroid_dict_comb(*dicts, **kwargs):
     return plot_naive_centroid_dict_indiv(*comb_dicts, **kwargs)
 
 def plot_forget_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
-                     session_dict=None, axs=None, fwid=3):
+                     session_dict=None, axs=None, fwid=3, regions='all'):
     if session_dict is None:
         session_dict = dict(elmo_range=range(13),
                             waldorf_range=range(13, 24),
@@ -222,49 +222,49 @@ def plot_forget_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
         n_rows = len(session_dict)
         f, axs = plt.subplots(n_rows, n_cols,
                               figsize=(fwid*n_cols, fwid*n_rows),
-                              sharex=True, sharey=True)
+                              sharex=True, sharey=True,
+                              squeeze=False)
     list(axs[0, j].set_title(k) for j, k in enumerate(use_keys))
     for i, (r_key, use_range) in enumerate(session_dict.items()):
         group = []
         for uk in use_keys:
             use_entries = {k:v for k, v in forget_dict[uk].items()
-                           if k[0] in use_range}
+                           if k[0] in use_range and k[1] == regions}
             group.append(use_entries)
         axs[i, 0].set_ylabel(r_key)
         plot_forget_group(group, axs[i])
     return axs
-        
-def plot_forget_group(groups, axs=None):
+
+def _mean_select(*args):
+    return list(np.mean(arg) for arg in args)
+
+def _max_select(a1, *args):
+    ind = np.argmax(a1)
+    return [a1[ind]] + list(arg[ind] for arg in args)
+
+def plot_forget_group(groups, axs=None, select_func=_max_select):
     assert len(axs) == len(groups)
     for i, group in enumerate(groups):
+        axs[i].plot([.25, 1], [.25, 1], color=(.9, .9, .9))
+        gpl.add_vlines(.5, axs[i])
+        gpl.add_hlines(.5, axs[i])
         diffs = []
         nulls_all = []
         swaps_all = []
         for j, (k, (nulls, swaps)) in enumerate(group.items()):
-            null_pt = np.mean(nulls)
-            swap_pt = np.mean(swaps)
-            if null_pt > .6:
-                diffs.append(null_pt - swap_pt)
-                nulls_all.append(null_pt)
-                swaps_all.append(swap_pt)
-            # l = axs[i].plot([0, 1], [null_pt, swap_pt],
-            #                 linewidth=1)
-            # col = l[0].get_color()
-            # axs[i].plot([0, 1], [null_pt, swap_pt], 'o', ms=5,
-            #             color=col)
-        # axs[i].hist(diffs)
+            null_pt, swap_pt = select_func(nulls, swaps)
+            diffs.append(null_pt - swap_pt)
+            nulls_all.append(null_pt)
+            swaps_all.append(swap_pt)
         axs[i].plot(nulls_all, swaps_all, 'o')
-        axs[i].plot([.25, 1], [.25, 1], color='grey')
         wil_test = sts.wilcoxon(diffs, alternative='greater',
-                             nan_policy='omit')
-        t_test = sts.ttest_rel(nulls_all, swaps_all, alternative='greater',
-                               nan_policy='omit')
-        print(t_test)
+                                nan_policy='omit')
         print(wil_test)
 
 def plot_all_nc_dict(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
                      session_dict=None, cond_types=('pro', 'retro'),
-                     d2_key='d2', axs=None, fwid=3, biggest_extreme=2):
+                     d2_key='d2', axs=None, fwid=3, biggest_extreme=2,
+                     regions='all'):
     if session_dict is None:
         session_dict = dict(elmo_range=range(13),
                             waldorf_range=range(13, 24),
@@ -279,15 +279,8 @@ def plot_all_nc_dict(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
     titles = list(use_d1s) + list(' '.join((d2_key, ct)) for ct in cond_types)
     list(ax.set_title(titles[i]) for i, ax in enumerate(axs[0]))
     for i, (r_key, use_range) in enumerate(session_dict.items()):
-        use_dis = []
-        for d1_c in use_d1s:
-            d1i_use = {k:v for k, v in centroid_dict[d1_c].items()
-                       if k[0] in use_range}
-            use_dis.append(d1i_use)
-        for use_cond in cond_types:
-            d2i_use = {k:v for k, v in centroid_dict[d2_key].items() 
-                       if k[1] == use_cond and k[0] in use_range}
-            use_dis.append(d2i_use)
+        use_dis = swan.filter_nc_dis(centroid_dict, use_d1s, cond_types,
+                                     use_range, regions=regions, d2_key=d2_key)
         axs_i = plot_naive_centroid_dict_comb(*use_dis,
                                               biggest_extreme=biggest_extreme,
                                               axs=axs[i:i+1])
@@ -589,7 +582,8 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
 
 def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                n_bins=25, bin_bounds=(-1, 2), file_templ='{}-histograms-pthr{}',
-               mistakes=('spatial', 'cue'), ret_data=True, **kwargs):
+               mistakes=('spatial', 'cue'), ret_data=True, p_comp=np.greater,
+               **kwargs):
     figsize = (fwid*len(mistakes)*mult, fwid)
     if color_dict is None:
         spatial_color = np.array([36, 123, 160])/256
@@ -611,7 +605,7 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
             _, w_dat = plot_session_swap_distr_collection(
                 *args, n_bins=n_bins, p_thresh=p_thr, colors=color_dict,
                 bin_bounds=bin_bounds, axs=axs[k:k+1], trl_filt=trl_type,
-                mistake=mistake)
+                mistake=mistake, p_comp=p_comp)
 
             out_data[(mistake, trl_type, p_thr)] = w_dat
             gpl.clean_plot(axs[k], k)

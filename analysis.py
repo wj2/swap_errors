@@ -191,7 +191,8 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                                      do_correction=False,
                                      type_key='type',
                                      trl_filt=None,
-                                     col_thr=.1):
+                                     col_thr=.1,
+                                     p_comp=np.greater):
     cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
     pp = np.concatenate(fit_az.posterior_predictive[eh_key].to_numpy(),
                         axis=0)
@@ -207,7 +208,7 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
     else:
         p_mult = 1
     if p_thresh is not None:
-        mask = data[p_key][:, p_ind]*p_mult > p_thresh
+        mask = p_comp(data[p_key][:, p_ind]*p_mult, p_thresh)
     else:
         mask = np.ones(len(data[p_key]), dtype=bool)
     if trl_filt is not None:
@@ -572,9 +573,32 @@ def cue_mask_dict(data_dict, cue_val, cue_key='cue',
         new_dict[mk] = data_dict[mk][mask]
     return new_dict
 
+def filter_nc_dis(centroid_dict, use_d1s, cond_types, use_range,
+                  regions='all', d2_key='d2'):
+    use_dis = []
+    for d1_c in use_d1s:
+        if len(list(centroid_dict[d1_c].keys())[0]) > 2:
+            k_filt = lambda k: k[0] in use_range and k[1] == regions
+        else:
+            k_filt = lambda k: k[0] in use_range
+        d1i_use = {k:v for k, v in centroid_dict[d1_c].items()
+                   if k_filt(k)}
+        use_dis.append(d1i_use)
+    for use_cond in cond_types:
+        if len(list(centroid_dict[d2_key].keys())[0]) > 2:
+            k_filt = lambda k: (k[0] in use_range and k[1] == regions
+                                and k[2] == use_cond)
+        else:
+            k_filt = lambda k: (k[0] in use_range and k[1] == use_cond)
+        d2i_use = {k:v for k, v in centroid_dict[d2_key].items() 
+                   if k_filt(k)}
+        use_dis.append(d2i_use)
+    return use_dis
+
+
 def compute_centroid_diffs(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
                            session_dict=None, cond_types=('pro', 'retro'),
-                           d2_key='d2', min_swaps=10):
+                           d2_key='d2', min_swaps=10, regions='all'):
     if session_dict is None:
         session_dict = dict(elmo_range=range(13),
                             waldorf_range=range(13, 24),
@@ -586,16 +610,8 @@ def compute_centroid_diffs(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
     p_out = np.zeros_like(m_out)
     for i, (r_key, use_range) in enumerate(session_dict.items()):
         m_labels.append(r_key)
-        use_dis = []
-        for d1_c in use_d1s:
-            d1i_use = {k:v for k, v in centroid_dict[d1_c].items()
-                       if k[0] in use_range}
-            use_dis.append(d1i_use)
-        for use_cond in cond_types:
-            d2i_use = {k:v for k, v in centroid_dict[d2_key].items() 
-                       if k[1] == use_cond and k[0] in use_range}
-            use_dis.append(d2i_use)
-
+        use_dis = filter_nc_dis(centroid_dict, use_d1s, cond_types,
+                                use_range, regions=regions, d2_key=d2_key)
         comb_dicts = []
         for dict_i in use_dis:
             nulls_all = list(v[0] for v in dict_i.values())
@@ -621,7 +637,7 @@ def compute_sweep_ncs(sweep_keys, run_ind,
                       folder='swap_errors/naive_centroids/',
                       use_d1s=('d1_cl', 'd1_cu'),
                       d2_key='d2', cond_types=('pro', 'retro'),
-                      monkey_ranges=None):
+                      monkey_ranges=None, regions='all'):
     if monkey_ranges is None:
         monkey_ranges = dict(elmo_range=range(13),
                              waldorf_range=range(13, 24),
@@ -650,11 +666,62 @@ def compute_sweep_ncs(sweep_keys, run_ind,
         ms, ps = compute_centroid_diffs(nc_ind, use_d1s=use_d1s,
                                         cond_types=cond_types,
                                         d2_key=d2_key,
-                                        session_dict=monkey_ranges)
+                                        session_dict=monkey_ranges,
+                                        regions=regions)
         m_arr[ind] = ms
         p_arr[ind] = ps
     return ax_vals, m_arr, p_arr
 
+def organize_forgetting(folder, run_ind, sweep_keys=('decider_arg',),
+                        **kwargs):
+    f_df = swa.load_f_sweep(folder, run_ind)
+    if f_df[sweep_keys[0]][0] is None:
+        avs = ((None,),)
+    else:
+        avs = list(np.unique(f_df[sk]) for sk in sweep_keys)
+    
+    out_arr = np.zeros(list(len(av) for av in avs), dtype=object)
+
+    for ind in u.make_array_ind_iterator(out_arr.shape):
+        masks = []
+        for i, sk in enumerate(sweep_keys):
+            if avs[i][ind[i]] is None:
+                masks.append(np.ones(len(f_df[sk]), dtype=bool))
+            else:
+                masks.append(f_df[sk] == avs[i][ind[i]])
+        mask = np.product(masks, axis=0, dtype=bool)
+        df_use = f_df[mask]
+        out_arr[ind] = combine_forgetting(df_use, **kwargs)
+    return avs, out_arr        
+
+def combine_forgetting(f_df, 
+                       include_keys=('forget_cu', 'forget_cl'),
+                       merge_keys=True,
+                       mid_average=True):
+    
+    merge_dict = {}
+    for _, row in f_df.iterrows():
+        for key in include_keys:
+            if merge_keys:
+                save_key = 'comb'
+            else:
+                save_key = key
+            curr_dict = merge_dict.get(save_key, {})
+            for inner_key, (new_nulls, new_swaps) in row[key].items():
+                new_swaps = np.nanmean(new_swaps, axis=0)
+                if mid_average:
+                    new_swaps = np.nanmean(new_swaps, axis=0, keepdims=True)
+                    new_nulls = np.nanmean(new_nulls, axis=0, keepdims=True)
+                curr_entry = curr_dict.get(inner_key)
+                if curr_entry is None:
+                    curr_dict[inner_key] = (new_nulls, new_swaps)
+                else:
+                    curr_nulls, curr_swaps = curr_entry
+                    full_nulls = np.concatenate((curr_nulls, new_nulls), axis=0)
+                    full_swaps = np.concatenate((curr_swaps, new_swaps), axis=0)
+                    curr_dict[inner_key] = (full_nulls, full_swaps)
+            merge_dict[save_key] = curr_dict
+    return merge_dict
 
 def _get_corr_swap_inds(ps, corr_decider, swap_decider, and_corr_mask=None,
                         and_swap_mask=None):
@@ -696,16 +763,21 @@ def naive_forgetting(data_dict,
     if len(c_dec.shape) > 1 and convert_splines:
         c_dec, _ = convert_spline_to_rad(c_dec, c_ndec)
 
-    norm_diff = u.normalize_periodic_range(c_dec - col_cent)
+    norm_diff = col_diff(c_dec - col_cent)
     print(np.mean(norm_diff < 0))
     color_cat = norm_diff < 0
+
+    norm_diff_dist = col_diff(c_ndec - col_cent)
+    color_cat_dist = norm_diff_swap < 0
     
     corr_inds, swap_inds = _get_corr_swap_inds(data_dict[tp_key],
                                                corr_decider,
                                                swap_decider,
                                                and_swap_mask=cue_mask)
-    null_score = np.zeros(len(corr_inds))
-    swap_score = np.zeros((len(corr_inds), len(swap_inds)))
+    null_score_targ = np.zeros(len(corr_inds))
+    swap_score_targ = np.zeros((len(corr_inds), len(swap_inds)))
+    null_score_dist = np.zeros(len(corr_inds))
+    swap_score_dist = np.zeros((len(corr_inds), len(swap_inds)))
     y = data_dict[activity_key]
     assert(not np.any(np.isin(swap_inds, corr_inds)))
 
@@ -714,12 +786,37 @@ def naive_forgetting(data_dict,
         corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
         model = skc.SVC(kernel=kernel)
         model.fit(y[corr_tr], color_cat[corr_tr])
-        null_score[i] = model.score(y[corr_te], color_cat[corr_te])
+        null_score_targ[i] = model.score(y[corr_te], color_cat[corr_te])
+        null_score_dist[i] = model.score(y[corr_te], color_cat_dist[corr_te])
         if len(swap_inds) > 0:
-            swap_score[i] = model.predict(y[swap_inds]) == color_cat[swap_inds]
+            swap_score_targ[i] = (model.predict(y[swap_inds])
+                                  == color_cat[swap_inds])
+            swap_score_dist[i] = (model.predict(y[swap_inds])
+                                  == color_cat_dist[swap_inds])
         else:
-            swap_score[i] = np.nan
-    return null_score, swap_score
+            swap_score_targ[i] = np.nan
+            swap_score_dist[i] = np.nan
+    return null_score_targ, swap_score_targ, null_score_dist, swap_score_dist
+
+def _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols, targ_col, dist_col,
+                        col_thr=np.pi/4,
+                        col_diff=_col_diff_rad):
+    far_cols = col_diff(targ_col, dist_col) > col_thr
+    if far_cols:
+        null_cent_inds = corr_tr[col_diff(tr_targ_cols, targ_col) < col_thr]
+        swap_cent_inds = corr_tr[col_diff(tr_targ_cols, dist_col) < col_thr]
+        
+        null_cent = np.mean(y[null_cent_inds], axis=0, keepdims=True)
+        swap_cent = np.mean(y[swap_cent_inds], axis=0, keepdims=True)
+        swap_vec = swap_cent - null_cent
+        sv_len = np.sqrt(np.sum(swap_vec**2))
+        sv_u = np.expand_dims(u.make_unit_vector(swap_vec), 0)
+
+        test_activity = y[corr_te]
+        dist = np.dot(sv_u, (test_activity - null_cent).T)/sv_len
+    else:
+        dist = np.nan
+    return dist
 
 def naive_centroids(data_dict,
                     cue_key='cue',
@@ -770,39 +867,19 @@ def naive_centroids(data_dict,
     for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
         corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
         tr_targ_cols = c_t[corr_tr]
-        tr_cols = c_d[corr_tr]
+        tr_dist_cols = c_d[corr_tr]
         targ_col = c_t[corr_te]
         dist_col = c_d[corr_te]
-        far_cols = col_diff(targ_col, dist_col) > col_thr
-
-        null_cent_inds = corr_tr[col_diff(tr_targ_cols, targ_col) < col_thr]
-        swap_cent_inds = corr_tr[col_diff(tr_targ_cols, dist_col) < col_thr]
-        
-        null_cent = np.mean(y[null_cent_inds], axis=0, keepdims=True)
-        swap_cent = np.mean(y[swap_cent_inds], axis=0, keepdims=True)
-        swap_vec = swap_cent - null_cent
-        sv_len = np.sqrt(np.sum(swap_vec**2))
-        sv_u = np.expand_dims(u.make_unit_vector(swap_vec), 0)
-
-        test_activity = y[corr_te]
-        swap_activity = y[swap_inds]
-        null_dists[i] = np.dot(sv_u, (test_activity - null_cent).T)/sv_len
-        if not far_cols:
-            null_dists[i] = np.nan
+        null_dists[i] = _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols,
+                                            targ_col, dist_col, col_thr=col_thr,
+                                            col_diff=col_diff)
         for j, si in enumerate(swap_inds):
             targ_col, dist_col = c_t[si], c_d[si]
-            
-            null_cent_inds = corr_tr[col_diff(tr_targ_cols, targ_col) < col_thr]
-            swap_cent_inds = corr_tr[col_diff(tr_targ_cols, dist_col) < col_thr]
-            
-            null_cent = np.mean(y[null_cent_inds], axis=0)
-            swap_cent = np.mean(y[swap_cent_inds], axis=0)
-            swap_vec = swap_cent - null_cent
-            sv_len = np.sqrt(np.sum(swap_vec**2))
-            sv_u = np.expand_dims(u.make_unit_vector(swap_vec), 0)
 
-            swap_activity = y[si]
-            swap_dists[i, j] = np.dot(sv_u, (swap_activity - null_cent).T)/sv_len
+            swap_dists[i, j] = _compute_trl_c_dist(y, corr_tr, si, tr_targ_cols,
+                                                   targ_col, dist_col,
+                                                   col_thr=col_thr,
+                                                   col_diff=col_diff)
     return null_dists, swap_dists
 
 def compute_dists(pop_test, trl_targs, trl_dists, targ_pos, dist_pos,

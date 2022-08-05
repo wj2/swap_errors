@@ -39,12 +39,11 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
                          'sess_{session_num}/{time_period}/{time_bin}/'
                          'pca_0.95_before/impute_True/interpolated_knots/')
 
-nc_sweep_pattern = 'nc_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+\.pkl'
-def load_nc_sweep(folder, run_ind,
-                  template=nc_sweep_pattern):
+
+def load_x_sweep(folder, run_ind, template):
     fls = os.listdir(folder)
     template = template.format(run_ind=run_ind)
-    nc_list = []
+    x_list = []
     for fl in fls:
         m = re.match(template, fl)
         if m is not None:
@@ -52,8 +51,18 @@ def load_nc_sweep(folder, run_ind,
             out_fl = pickle.load(open(os.path.join(folder, fl), 'rb'))
             args = out_fl.pop('args')
             out_fl.update(vars(args))
-            nc_list.append(out_fl)
-    return pd.DataFrame(nc_list)
+            x_list.append(out_fl)
+    return pd.DataFrame(x_list)
+
+nc_sweep_pattern = 'nc_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+\.pkl'
+def load_nc_sweep(folder, run_ind,
+                  template=nc_sweep_pattern):
+    return load_x_sweep(folder, run_ind, template)
+    
+f_sweep_pattern = 'f_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+\.pkl'
+def load_f_sweep(folder, run_ind,
+                 template=f_sweep_pattern):
+    return load_x_sweep(folder, run_ind, template)
 
 circus_sweep_pattern = 'r_[a-zA-Z_0-9]*[0-9]+_[0-9-._:]+\.pkl'
 def load_circus_sweep(folder, swept_keys, store_keys=('cue1', 'cue2'),
