@@ -768,7 +768,7 @@ def naive_forgetting(data_dict,
     color_cat = norm_diff < 0
 
     norm_diff_dist = col_diff(c_ndec, col_cent)
-    color_cat_dist = norm_diff_swap < 0
+    color_cat_dist = norm_diff_dist < 0
     
     corr_inds, swap_inds = _get_corr_swap_inds(data_dict[tp_key],
                                                corr_decider,
