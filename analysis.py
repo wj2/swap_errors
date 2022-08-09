@@ -763,11 +763,11 @@ def naive_forgetting(data_dict,
     if len(c_dec.shape) > 1 and convert_splines:
         c_dec, _ = convert_spline_to_rad(c_dec, c_ndec)
 
-    norm_diff = col_diff(c_dec, col_cent)
+    norm_diff = u.normalize_periodic_range(c_dec - col_cent)
     print(np.mean(norm_diff < 0))
     color_cat = norm_diff < 0
 
-    norm_diff_dist = col_diff(c_ndec, col_cent)
+    norm_diff_dist = u.normalize_periodic_range(c_ndec - col_cent)
     color_cat_dist = norm_diff_dist < 0
     
     corr_inds, swap_inds = _get_corr_swap_inds(data_dict[tp_key],
