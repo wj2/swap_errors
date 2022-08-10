@@ -831,24 +831,16 @@ def naive_swapping(data_dict,
 
 def naive_forgetting(data_dict,
                      cue_key='cue',
-                     flip_cue = False,
-                     no_cue_targ='up_col_rads',
-                     no_cue_dist='down_col_rads',
-                     tp_key='p',
+                     flip_cue=False,
                      cue_targ=1,
-                     activity_key='y',
-                     swap_decider=swap_argmax,
-                     corr_decider=corr_argmax,
-                     col_exclude=0,
-                     col_cent=np.pi,
-                     cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
-                     kernel='rbf',
-                     convert_splines=True):
+                     **kwargs):
     if flip_cue:
         cue_targ = 0
     cue_mask = data_dict[cue_key] == cue_targ
-    out = naive_swapping(data_dict, cue_key=cue_key, 
-                         flip_cue=flip_cue, swap_mask=cue_mask)
+    out = naive_swapping(data_dict, cue_key=cue_key,
+                         use_cue=False,
+                         flip_cue=flip_cue, swap_mask=cue_mask,
+                         **kwargs)
     return out[:2]
 
 def _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols, targ_col, dist_col,
