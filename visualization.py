@@ -251,7 +251,7 @@ def plot_forget_group(groups, axs=None, select_func=_max_select):
         diffs = []
         nulls_all = []
         swaps_all = []
-        for j, (k, (nulls, swaps)) in enumerate(group.items()):
+        for j, (k, (nulls, _, _, swaps)) in enumerate(group.items()):
             null_pt, swap_pt = select_func(nulls, swaps)
             diffs.append(null_pt - swap_pt)
             nulls_all.append(null_pt)

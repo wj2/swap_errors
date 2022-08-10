@@ -10,7 +10,7 @@ import swap_errors.auxiliary as swaux
 import swap_errors.analysis as swan
 
 def create_parser():
-    parser = argparse.ArgumentParser(description='fit several modularizers')
+    parser = argparse.ArgumentParser(description='naive forgetting analysis')
     parser.add_argument('-o', '--output_file',
                         default='swap_errors/naive_forgetting/forget_{}.pkl',
                         type=str,
@@ -18,7 +18,6 @@ def create_parser():
     parser.add_argument('--decider', default='argmax', type=str)
     parser.add_argument('--config_path', default=None, type=str)
     parser.add_argument('--file_templ_d1', default=None, type=str)
-    parser.add_argument('--file_templ_d2', default=None, type=str)
     parser.add_argument('--local_test', default=False, action='store_true')
     parser.add_argument('--forget_kernel', default='rbf', type=str)
     parser.add_argument('--decider_arg', default=None, type=float)
@@ -51,7 +50,7 @@ if __name__ == '__main__':
         form_opts_d1 = swaux.cluster_naive_d1_format_options
     elif args.local_test:
         file_templ_d1 = 'swap_errors/test_sessions/retro_{}/stan_data.pkl'
-        form_opts_d1 = {'test_type':(13,)}
+        form_opts_d1 = {'test_type':(15,)}
     else:
         file_templ_d1, form_opts_d1 = pickle.load(open(args.file_templ_d1, 'rb'))
 

@@ -707,19 +707,29 @@ def combine_forgetting(f_df,
             else:
                 save_key = key
             curr_dict = merge_dict.get(save_key, {})
-            for inner_key, (new_nulls, new_swaps) in row[key].items():
+            for inner_key, vals in row[key].items():
+                (new_nulls, new_swaps,  dist_nulls, dist_swaps) = vals
                 new_swaps = np.nanmean(new_swaps, axis=0)
+                dist_swaps = np.nanmean(dist_swaps, axis=0)
                 if mid_average:
                     new_swaps = np.nanmean(new_swaps, axis=0, keepdims=True)
                     new_nulls = np.nanmean(new_nulls, axis=0, keepdims=True)
+
+                    dist_nulls = np.nanmean(dist_nulls, axis=0, keepdims=True)
+                    dist_swaps = np.nanmean(dist_swaps, axis=0, keepdims=True)
+                    
                 curr_entry = curr_dict.get(inner_key)
                 if curr_entry is None:
-                    curr_dict[inner_key] = (new_nulls, new_swaps)
+                    curr_dict[inner_key] = (new_nulls, new_swaps,
+                                            dist_nulls, dist_swaps)
                 else:
-                    curr_nulls, curr_swaps = curr_entry
+                    curr_nulls, curr_swaps, cd_nulls, cd_swaps = curr_entry
                     full_nulls = np.concatenate((curr_nulls, new_nulls), axis=0)
                     full_swaps = np.concatenate((curr_swaps, new_swaps), axis=0)
-                    curr_dict[inner_key] = (full_nulls, full_swaps)
+                    fd_nulls = np.concatenate((cd_nulls, dist_nulls), axis=0)
+                    fd_swaps = np.concatenate((cd_swaps, dist_swaps), axis=0)
+                    curr_dict[inner_key] = (full_nulls, full_swaps,
+                                            fd_nulls, fd_swaps)
             merge_dict[save_key] = curr_dict
     return merge_dict
 
@@ -738,33 +748,54 @@ def _get_corr_swap_inds(ps, corr_decider, swap_decider, and_corr_mask=None,
     swap_inds = np.where(swap_mask)[0]
     return corr_inds, swap_inds
 
-def naive_forgetting(data_dict,
-                     cue_key='cue',
-                     flip_cue = False,
-                     no_cue_targ='up_col_rads',
-                     no_cue_dist='down_col_rads',
-                     tp_key='p',
-                     cue_targ=1,
-                     activity_key='y',
-                     swap_decider=swap_argmax,
-                     corr_decider=corr_argmax,
-                     col_exclude=0,
-                     col_cent=np.pi,
-                     cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
-                     kernel='rbf',
-                     convert_splines=True):
+def naive_swapping(data_dict,
+                   cu_key='up_col_rads',
+                   cl_key='down_col_rads',
+                   cue_key='cue',
+                   flip_cue = False,
+                   use_cue=True,
+                   no_cue_targ='up_col_rads',
+                   no_cue_dist='down_col_rads',
+                   tp_key='p',
+                   cue_targ=1,
+                   activity_key='y',
+                   swap_decider=swap_argmax,
+                   corr_decider=corr_argmax,
+                   col_exclude=0,
+                   col_cent=np.pi,
+                   cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
+                   kernel='rbf',
+                   convert_splines=True,
+                   swap_mask=None):
     if flip_cue:
         no_cue_targ = 'down_col_rads'
         no_cue_dist = 'up_col_rads'
-        cue_targ = 0
-    c_dec = data_dict[no_cue_targ]
-    c_ndec = data_dict[no_cue_dist]
-    cue_mask = data_dict[cue_key] == cue_targ
+    if not use_cue:
+        c_t = np.zeros_like(data_dict[no_cue_targ])
+        c_d = np.zeros_like(data_dict[no_cue_dist])
+        c_t[:] = data_dict[no_cue_targ][:]
+        c_d[:] = data_dict[no_cue_dist][:]
+    else:
+        c_t = np.zeros_like(data_dict[cu_key])
+        c_d = np.zeros_like(data_dict[cl_key])
+        
+        c1_mask = data_dict[cue_key] == 1
+        c0_mask = data_dict[cue_key] == 0
+
+        c_t[c1_mask] = data_dict[cu_key][c1_mask]
+        c_t[c0_mask] = data_dict[cl_key][c0_mask]
+        
+        c_d[c1_mask] = data_dict[cl_key][c1_mask]
+        c_d[c0_mask] = data_dict[cu_key][c0_mask]
+    if len(c_t.shape) > 1 and convert_splines:
+        c_t, c_d = convert_spline_to_rad(c_t, c_d)
+        
+    c_dec = c_t
+    c_ndec = c_d
     if len(c_dec.shape) > 1 and convert_splines:
-        c_dec, _ = convert_spline_to_rad(c_dec, c_ndec)
+        c_dec, c_ndec = convert_spline_to_rad(c_dec, c_ndec)
 
     norm_diff = u.normalize_periodic_range(c_dec - col_cent)
-    print(np.mean(norm_diff < 0))
     color_cat = norm_diff < 0
 
     norm_diff_dist = u.normalize_periodic_range(c_ndec - col_cent)
@@ -773,7 +804,7 @@ def naive_forgetting(data_dict,
     corr_inds, swap_inds = _get_corr_swap_inds(data_dict[tp_key],
                                                corr_decider,
                                                swap_decider,
-                                               and_swap_mask=cue_mask)
+                                               and_swap_mask=swap_mask)
     null_score_targ = np.zeros(len(corr_inds))
     swap_score_targ = np.zeros((len(corr_inds), len(swap_inds)))
     null_score_dist = np.zeros(len(corr_inds))
@@ -797,6 +828,28 @@ def naive_forgetting(data_dict,
             swap_score_targ[i] = np.nan
             swap_score_dist[i] = np.nan
     return null_score_targ, swap_score_targ, null_score_dist, swap_score_dist
+
+def naive_forgetting(data_dict,
+                     cue_key='cue',
+                     flip_cue = False,
+                     no_cue_targ='up_col_rads',
+                     no_cue_dist='down_col_rads',
+                     tp_key='p',
+                     cue_targ=1,
+                     activity_key='y',
+                     swap_decider=swap_argmax,
+                     corr_decider=corr_argmax,
+                     col_exclude=0,
+                     col_cent=np.pi,
+                     cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
+                     kernel='rbf',
+                     convert_splines=True):
+    if flip_cue:
+        cue_targ = 0
+    cue_mask = data_dict[cue_key] == cue_targ
+    out = naive_swapping(data_dict, cue_key=cue_key, 
+                         flip_cue=flip_cue, swap_mask=cue_mask)
+    return out[:2]
 
 def _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols, targ_col, dist_col,
                         col_thr=np.pi/4,
