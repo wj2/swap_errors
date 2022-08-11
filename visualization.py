@@ -210,8 +210,15 @@ def plot_naive_centroid_dict_comb(*dicts, **kwargs):
         comb_dicts.append({'comb':(nulls, swaps)})
     return plot_naive_centroid_dict_indiv(*comb_dicts, **kwargs)
 
-def plot_forget_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
-                     session_dict=None, axs=None, fwid=3, regions='all'):
+def plot_forget_dict(*args, **kwargs):
+    return plot_fs_dict(*args, plot=plot_forget_group, **kwargs)
+
+def plot_swap_dict(*args, **kwargs):
+    return plot_fs_dict(*args, plot=plot_swap_group, **kwargs)
+
+def plot_fs_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
+                 session_dict=None, axs=None, fwid=3, regions='all',
+                 plot=plot_forget_group):
     if session_dict is None:
         session_dict = dict(elmo_range=range(13),
                             waldorf_range=range(13, 24),
@@ -232,7 +239,7 @@ def plot_forget_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
                            if k[0] in use_range and k[1] == regions}
             group.append(use_entries)
         axs[i, 0].set_ylabel(r_key)
-        plot_forget_group(group, axs[i])
+        plot(group, axs[i])
     return axs
 
 def _mean_select(*args):
@@ -241,6 +248,33 @@ def _mean_select(*args):
 def _max_select(a1, *args):
     ind = np.argmax(a1)
     return [a1[ind]] + list(arg[ind] for arg in args)
+
+def plot_swap_group(groups, axs=None, select_func=_max_select):
+    assert len(axs) == len(groups)
+    for i, group in enumerate(groups):
+        axs[i].plot([-.5, .5], [-.5, .5], color=(.9, .9, .9))
+        gpl.add_vlines(0, axs[i])
+        gpl.add_hlines(0, axs[i])
+        diffs_null = []
+        diffs_swap = []
+        nulls_all = []
+        swaps_all = []
+        for j, (k, item) in enumerate(group.items()):
+            item_pt = select_func(*item)
+            (nulls_targ, swaps_targ, nulls_dist, swaps_dist) = item_pt
+
+            diffs_null.append(nulls_targ - swaps_targ)
+            diffs_swap.append(nulls_targ - swaps_dist)
+            nulls_all.append(swaps_targ - .5)
+            swaps_all.append(swaps_dist - .5)
+        axs[i].plot(nulls_all, swaps_all, 'o')
+        wil_test = sts.wilcoxon(np.array(nulls_all) - np.array(swaps_all),
+                                alternative='less',
+                                nan_policy='omit')
+        axs[i].set_xlim([-.5, .5])
+        axs[i].set_ylim([-.5, .5])
+        print(wil_test)
+
 
 def plot_forget_group(groups, axs=None, select_func=_max_select):
     assert len(axs) == len(groups)
@@ -251,8 +285,9 @@ def plot_forget_group(groups, axs=None, select_func=_max_select):
         diffs = []
         nulls_all = []
         swaps_all = []
-        for j, (k, (nulls, _, _, swaps)) in enumerate(group.items()):
+        for j, (k, (nulls, swaps)) in enumerate(group.items()):
             null_pt, swap_pt = select_func(nulls, swaps)
+
             diffs.append(null_pt - swap_pt)
             nulls_all.append(null_pt)
             swaps_all.append(swap_pt)

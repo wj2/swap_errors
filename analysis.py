@@ -672,9 +672,9 @@ def compute_sweep_ncs(sweep_keys, run_ind,
         p_arr[ind] = ps
     return ax_vals, m_arr, p_arr
 
-def organize_forgetting(folder, run_ind, sweep_keys=('decider_arg',),
-                        **kwargs):
-    f_df = swa.load_f_sweep(folder, run_ind)
+def organize_forgetting_swapping(folder, run_ind, sweep_keys=('decider_arg',),
+                                 **kwargs):
+    f_df = swa.load_fs_sweep(folder, run_ind)
     if f_df[sweep_keys[0]][0] is None:
         avs = ((None,),)
     else:
@@ -766,7 +766,9 @@ def naive_swapping(data_dict,
                    cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
                    kernel='rbf',
                    convert_splines=True,
-                   swap_mask=None):
+                   swap_mask=None,
+                   targeted=False,
+                   avg_width=np.pi/2):
     if flip_cue:
         no_cue_targ = 'down_col_rads'
         no_cue_dist = 'up_col_rads'
@@ -816,18 +818,76 @@ def naive_swapping(data_dict,
     for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
         corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
         model = skc.SVC(kernel=kernel)
-        model.fit(y[corr_tr], color_cat[corr_tr])
-        null_score_targ[i] = model.score(y[corr_te], color_cat[corr_te])
-        null_score_dist[i] = model.score(y[corr_te], color_cat_dist[corr_te])
-        if len(swap_inds) > 0:
-            swap_score_targ[i] = (model.predict(y[swap_inds])
-                                  == color_cat[swap_inds])
-            swap_score_dist[i] = (model.predict(y[swap_inds])
-                                  == color_cat_dist[swap_inds])
+        if targeted:
+            ns_targ, ns_dist = _target_dec(y, c_dec, c_ndec, corr_tr,
+                                           corr_te, avg_width, kernel=kernel)
         else:
-            swap_score_targ[i] = np.nan
-            swap_score_dist[i] = np.nan
+            tr_labels = color_cat[corr_tr]
+            te_labels = color_cat[corr_te]
+            te_dist_labels = color_cat_dist[corr_te]
+            y_tr_use = y[corr_tr]
+            model.fit(y_tr_use, tr_labels)
+            ns_targ[i] = model.score(y[corr_te], te_labels)
+            ns_dist[i] = model.score(y[corr_te], te_dist_labels)
+        null_score_targ[i], null_score_dist[i] = ns_targ, ns_dist
+        
+        if targeted:
+            out = _target_dec(y, c_dec, c_ndec, corr_tr,
+                              swap_inds, avg_width, kernel=kernel)
+        else:
+            out = _non_target_swap_dec(model, y[swap_inds],
+                                       color_cat[swap_inds],
+                                       color_cat_dist[swap_inds])
+        swap_score_targ[i], swap_score_dist[i] = out
     return null_score_targ, swap_score_targ, null_score_dist, swap_score_dist
+
+def make_cats(col1, col2, width, *to_label, to_mask=None):
+    labeled = []
+    masked = []
+    if to_mask is None:
+        to_mask = (None,)*len(to_label)
+    for i, tl in enumerate(to_label):
+        c1_mask = u.normalize_periodic_range(tl - col1) < width
+        c2_mask = u.normalize_periodic_range(tl - col2) < width
+        tr_mask = np.logical_xor(c1_mask, c2_mask)
+        labeled.append(c2_mask[tr_mask])
+        if to_mask[i] is not None:
+            masked.append(to_mask[i][tr_mask])
+        else:
+            masked.append(None)
+    return labeled, masked
+
+def _target_dec(y, targ_cols, dist_cols, corr_tr, test_inds,
+                     col_width, model=skc.SVC, **kwargs):
+    score_targ = np.zeros(len(test_inds))
+    score_dist = np.zeros_like(score_targ)
+    for i, ti in enumerate(test_inds):
+        tc, dc = targ_cols[ti], dist_cols[ti]
+        if np.abs(u.normalize_periodic_range(tc - dc)) < col_width:
+            score_targ[i] = np.nan
+            score_dist[i] = np.nan
+        else:
+            out = make_cats(tc, dc,
+                            col_width, targ_cols[corr_tr],
+                            to_mask=(y[corr_tr],))
+            (tr_labels,), (y_tr,) = out
+            m = model(**kwargs)
+            m.fit(y_tr, tr_labels)
+            score_targ[i] = m.predict([y[ti]]) == np.array([0])
+            score_dist[i] = np.logical_not(score_targ[i])
+    return score_targ, score_dist
+
+def _non_target_swap_dec(model, y_use, color_cat_use, color_cat_dist_use):
+    if len(y_use) > 0:
+        swap_score_targ = (model.predict(y_use)
+                              == color_cat_use)
+        swap_score_dist = (model.predict(y_use)
+                           == color_cat_dist_use)
+    else:
+        swap_score_targ = np.nan
+        swap_score_dist = np.nan
+    return swap_score_targ, swap_score_dist
+    
 
 def naive_forgetting(data_dict,
                      cue_key='cue',

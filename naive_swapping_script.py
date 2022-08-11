@@ -22,7 +22,9 @@ def create_parser():
     parser.add_argument('--local_test', default=False, action='store_true')
     parser.add_argument('--decider_arg', default=None, type=float)
     parser.add_argument('--forget_kernel', default='rbf', type=str)
-    parser.add_argument('--col_cent', default=np.pi, type=float)    
+    parser.add_argument('--col_cent', default=np.pi, type=float)
+    parser.add_argument('--avg_width', default=np.pi/2, type=float)
+    parser.add_argument('--use_targeted', default=False, action='store_true')
     return parser
 
 decider_dict = {'argmax':(swan.corr_argmax, swan.swap_argmax),
@@ -63,14 +65,18 @@ if __name__ == '__main__':
                                      swap_decider=swap_decider,
                                      corr_decider=corr_decider,
                                      kernel=args.forget_kernel,
-                                     col_cent=args.col_cent)
+                                     col_cent=args.col_cent,
+                                     avg_width=args.avg_width,
+                                     targeted=args.use_targeted)
         out_d1_cu[k] = out_cu
         out_cl = swan.naive_swapping(d_dict, use_cue=False,
                                      flip_cue=True,
                                      swap_decider=swap_decider,
                                      corr_decider=corr_decider,
                                      kernel=args.forget_kernel,
-                                     col_cent=args.col_cent)
+                                     col_cent=args.col_cent,
+                                     avg_width=args.avg_width,
+                                     targeted=args.use_targeted)
         out_d1_cl[k] = out_cl
         
     if not args.local_test and args.file_templ_d2 is None:
@@ -89,7 +95,9 @@ if __name__ == '__main__':
                                   swap_decider=swap_decider,
                                   corr_decider=corr_decider,
                                   kernel=args.forget_kernel,
-                                  col_cent=args.col_cent)
+                                  col_cent=args.col_cent,
+                                  avg_width=args.avg_width,
+                                  targeted=args.use_targeted)
         out_d2[k] = out
 
     out_dict = {'args':args, 'd1_cu':out_d1_cu, 'd1_cl':out_d1_cl,
