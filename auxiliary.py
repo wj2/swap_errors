@@ -59,7 +59,7 @@ def load_nc_sweep(folder, run_ind,
                   template=nc_sweep_pattern):
     return load_x_sweep(folder, run_ind, template)
     
-fs_sweep_pattern = ('[fs]_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+'
+fs_sweep_pattern = ('[fst]+_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+'
                     '\.pkl')
 def load_fs_sweep(folder, run_ind,
                  template=fs_sweep_pattern):

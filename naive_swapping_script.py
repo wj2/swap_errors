@@ -23,7 +23,7 @@ def create_parser():
     parser.add_argument('--decider_arg', default=None, type=float)
     parser.add_argument('--forget_kernel', default='rbf', type=str)
     parser.add_argument('--col_cent', default=np.pi, type=float)
-    parser.add_argument('--avg_width', default=np.pi/2, type=float)
+    parser.add_argument('--avg_dist', default=np.pi/4, type=float)
     parser.add_argument('--use_targeted', default=False, action='store_true')
     return parser
 
@@ -66,7 +66,7 @@ if __name__ == '__main__':
                                      corr_decider=corr_decider,
                                      kernel=args.forget_kernel,
                                      col_cent=args.col_cent,
-                                     avg_width=args.avg_width,
+                                     avg_width=args.avg_dist,
                                      targeted=args.use_targeted)
         out_d1_cu[k] = out_cu
         out_cl = swan.naive_swapping(d_dict, use_cue=False,
@@ -75,7 +75,7 @@ if __name__ == '__main__':
                                      corr_decider=corr_decider,
                                      kernel=args.forget_kernel,
                                      col_cent=args.col_cent,
-                                     avg_width=args.avg_width,
+                                     avg_width=args.avg_dist,
                                      targeted=args.use_targeted)
         out_d1_cl[k] = out_cl
         
@@ -96,7 +96,7 @@ if __name__ == '__main__':
                                   corr_decider=corr_decider,
                                   kernel=args.forget_kernel,
                                   col_cent=args.col_cent,
-                                  avg_width=args.avg_width,
+                                  avg_width=args.avg_dist,
                                   targeted=args.use_targeted)
         out_d2[k] = out
 

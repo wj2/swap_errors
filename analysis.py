@@ -827,8 +827,8 @@ def naive_swapping(data_dict,
             te_dist_labels = color_cat_dist[corr_te]
             y_tr_use = y[corr_tr]
             model.fit(y_tr_use, tr_labels)
-            ns_targ[i] = model.score(y[corr_te], te_labels)
-            ns_dist[i] = model.score(y[corr_te], te_dist_labels)
+            ns_targ = model.score(y[corr_te], te_labels)
+            ns_dist = model.score(y[corr_te], te_dist_labels)
         null_score_targ[i], null_score_dist[i] = ns_targ, ns_dist
         
         if targeted:
