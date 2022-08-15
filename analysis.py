@@ -847,8 +847,8 @@ def make_cats(col1, col2, width, *to_label, to_mask=None):
     if to_mask is None:
         to_mask = (None,)*len(to_label)
     for i, tl in enumerate(to_label):
-        c1_mask = u.normalize_periodic_range(tl - col1) < width
-        c2_mask = u.normalize_periodic_range(tl - col2) < width
+        c1_mask = np.abs(u.normalize_periodic_range(tl - col1)) < width
+        c2_mask = np.abs(u.normalize_periodic_range(tl - col2)) < width
         tr_mask = np.logical_xor(c1_mask, c2_mask)
         labeled.append(c2_mask[tr_mask])
         if to_mask[i] is not None:
