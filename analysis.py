@@ -672,9 +672,39 @@ def compute_sweep_ncs(sweep_keys, run_ind,
         p_arr[ind] = ps
     return ax_vals, m_arr, p_arr
 
+def organize_target_swapping(folder, run_ind,
+                             sweep_keys=('decider_arg', 'avg_dist'),
+                             res_keys=('d1_cu', 'd1_cl', 'd2'),
+                             **kwargs):
+    st_df = swa.load_fs_sweep(folder, run_ind)
+    ax_vals = []
+    for sk in sweep_keys:
+        if list(st_df[sk])[0] is None:
+            app_vals = (None,)
+        else:
+            app_vals = np.unique(st_df[sk])
+        ax_vals.append(app_vals)
+
+    out_arr = np.zeros(list(len(av) for av in ax_vals), dtype=object)
+    for ind in u.make_array_ind_iterator(out_arr.shape):
+        mask = list(st_df[sweep_keys[i]] == av[ind[i]]
+                    for i, av in enumerate(ax_vals)
+                    if av[ind[i]] is not None)
+        mask = np.product(mask, axis=0).astype(bool)
+        st_masked = st_df[mask].iloc[0]
+        st_ind = st_masked.to_dict()
+        out_arr[ind] = combine_forgetting(st_df[mask],
+                                          include_keys=res_keys,
+                                          mid_average=False,
+                                          merge_keys=False)
+    return ax_vals, out_arr
+
 def organize_forgetting_swapping(folder, run_ind, sweep_keys=('decider_arg',),
                                  **kwargs):
     f_df = swa.load_fs_sweep(folder, run_ind)
+    print(f_df.columns)
+    print(f_df[sweep_keys[0]])
+    
     if f_df[sweep_keys[0]][0] is None:
         avs = ((None,),)
     else:
@@ -684,6 +714,7 @@ def organize_forgetting_swapping(folder, run_ind, sweep_keys=('decider_arg',),
 
     for ind in u.make_array_ind_iterator(out_arr.shape):
         masks = []
+        print(out_arr.shape, avs)
         for i, sk in enumerate(sweep_keys):
             if avs[i][ind[i]] is None:
                 masks.append(np.ones(len(f_df[sk]), dtype=bool))
@@ -923,21 +954,48 @@ def _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols, targ_col, dist_col,
         dist = np.nan
     return dist
 
-def naive_centroids(data_dict,
-                    cue_key='cue',
-                    cu_key='up_col_rads',
-                    cl_key='down_col_rads',
-                    use_cue=True,
-                    flip_cue = False,
-                    no_cue_targ='up_col_rads',
-                    no_cue_dist='down_col_rads',
-                    tp_key='p',
-                    activity_key='y',
-                    swap_decider=swap_argmax,
-                    corr_decider=corr_argmax,
-                    col_thr=np.pi/4,
-                    cv=skms.LeaveOneOut, col_diff=_col_diff_rad,
-                    convert_splines=True):
+def naive_centroids(*args, shuffle_nulls=False,
+                    shuffle_swaps=False, **kwargs):
+    if shuffle_nulls or shuffle_swaps:
+        nds, sds = naive_centroids_shuffle(*args, **kwargs,
+                                           shuffle_nulls=shuffle_nulls,
+                                           shuffle_swaps=shuffle_swaps)
+        if not shuffle_nulls:
+            nds = nds[0]
+        if not shuffle_swaps:
+            sds = sds[0]
+    else:
+        nds, sds = _naive_centroids_inner(*args, **kwargs)
+    return nds, sds
+
+def naive_centroids_shuffle(*args, n_shuffles=5, **kwargs):
+    null_dists_all = []
+    swap_dists_all = []
+    for i in range(n_shuffles):
+        nds, sds = _naive_centroids_inner(*args, **kwargs)
+        null_dists_all.append(nds)
+        swap_dists_all.append(sds)
+    return np.array(null_dists_all), np.array(swap_dists_all)
+
+def _naive_centroids_inner(data_dict,
+                           cue_key='cue',
+                           cu_key='up_col_rads',
+                           cl_key='down_col_rads',
+                           use_cue=True,
+                           flip_cue = False,
+                           no_cue_targ='up_col_rads',
+                           no_cue_dist='down_col_rads',
+                           tp_key='p',
+                           activity_key='y',
+                           swap_decider=swap_argmax,
+                           corr_decider=corr_argmax,
+                           col_thr=np.pi/4,
+                           cv=skms.LeaveOneOut,
+                           col_diff=_col_diff_rad,
+                           convert_splines=True,
+                           shuffle_nulls=False,
+                           shuffle_swaps=False):
+    rng = np.random.default_rng()
     if flip_cue:
         no_cue_targ = 'down_col_rads'
         no_cue_dist = 'up_col_rads'
@@ -974,12 +1032,16 @@ def naive_centroids(data_dict,
         tr_targ_cols = c_t[corr_tr]
         tr_dist_cols = c_d[corr_tr]
         targ_col = c_t[corr_te]
+        if shuffle_nulls:
+            dist_col = rng.choice(c_d)
         dist_col = c_d[corr_te]
         null_dists[i] = _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols,
                                             targ_col, dist_col, col_thr=col_thr,
                                             col_diff=col_diff)
         for j, si in enumerate(swap_inds):
             targ_col, dist_col = c_t[si], c_d[si]
+            if shuffle_swaps:
+                dist_col = rng.choice(c_d)               
 
             swap_dists[i, j] = _compute_trl_c_dist(y, corr_tr, si, tr_targ_cols,
                                                    targ_col, dist_col,

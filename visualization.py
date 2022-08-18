@@ -216,9 +216,12 @@ def plot_forget_dict(*args, **kwargs):
 def plot_swap_dict(*args, **kwargs):
     return plot_fs_dict(*args, plot=plot_swap_group, **kwargs)
 
+def plot_target_swap_dict(*args, **kwargs):
+    return plot_fs_dict(*args, plot=plot_target_swap_group, **kwargs)
+
 def plot_fs_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
                  session_dict=None, axs=None, fwid=3, regions='all',
-                 plot=plot_forget_group):
+                 plot=plot_forget_group, cond_type=None):
     if session_dict is None:
         session_dict = dict(elmo_range=range(13),
                             waldorf_range=range(13, 24),
@@ -235,8 +238,14 @@ def plot_fs_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
     for i, (r_key, use_range) in enumerate(session_dict.items()):
         group = []
         for uk in use_keys:
+            if cond_type is not None:
+                def filt(k): return (k[0] in use_range and k[1] == regions
+                                     and k[2] == cond_type)
+            else:
+                def filt(k): return (k[0] in use_range and k[1] == regions)
+            
             use_entries = {k:v for k, v in forget_dict[uk].items()
-                           if k[0] in use_range and k[1] == regions}
+                           if filt(k)}
             group.append(use_entries)
         axs[i, 0].set_ylabel(r_key)
         plot(group, axs[i])
@@ -248,6 +257,27 @@ def _mean_select(*args):
 def _max_select(a1, *args):
     ind = np.argmax(a1)
     return [a1[ind]] + list(arg[ind] for arg in args)
+
+def plot_target_swap_group(groups, axs=None):
+    assert len(axs) == len(groups)
+    for i, group in enumerate(groups):
+        axs[i].plot([0, 1], [0, 1], color=(.9, .9, .9))
+        gpl.add_vlines(.5, axs[i])
+        gpl.add_hlines(.5, axs[i])
+        nulls_all = []
+        swaps_all = []
+        for j, (k, item) in enumerate(group.items()):
+            (nulls_targ, swaps_targ, nulls_dist, swaps_dist) = item
+            nulls_all.append(np.nanmean(nulls_dist))
+            swaps_all.append(np.nanmean(swaps_dist))
+
+        axs[i].plot(nulls_all, swaps_all, 'o')
+        wil_test = sts.wilcoxon(np.array(nulls_all) - np.array(swaps_all),
+                                alternative='greater',
+                                nan_policy='omit')
+        axs[i].set_xlim([0, 1])
+        axs[i].set_ylim([0, 1])
+        print(wil_test)
 
 def plot_swap_group(groups, axs=None, select_func=_max_select):
     assert len(axs) == len(groups)

@@ -22,6 +22,9 @@ def create_parser():
     parser.add_argument('--file_templ_d2', default=None, type=str)
     parser.add_argument('--local_test', default=False, action='store_true')
     parser.add_argument('--decider_arg', default=None, type=float)
+    parser.add_argument('--shuffle_swaps', default=False, action='store_true')
+    parser.add_argument('--shuffle_nulls', default=False, action='store_true')
+    
     return parser
 
 decider_dict = {'argmax':(swan.corr_argmax, swan.swap_argmax),
@@ -50,7 +53,7 @@ if __name__ == '__main__':
         form_opts_d1 = swaux.cluster_naive_d1_format_options
     elif args.local_test:
         file_templ_d1 = 'swap_errors/test_sessions/retro_{}/stan_data.pkl'
-        form_opts_d1 = {'test_type':(13,)}
+        form_opts_d1 = {'test_type':(15,)}
     else:
         file_templ_d1, form_opts_d1 = pickle.load(open(args.file_templ_d1, 'rb'))
 
@@ -61,13 +64,17 @@ if __name__ == '__main__':
         out_cu = swan.naive_centroids(d_dict, use_cue=False,
                                       swap_decider=swap_decider,
                                       corr_decider=corr_decider,
-                                      col_thr=args.avg_dist)
+                                      col_thr=args.avg_dist,
+                                      shuffle_nulls=args.shuffle_nulls,
+                                      shuffle_swaps=args.shuffle_swaps)
         out_d1_cu[k] = out_cu
         out_cl = swan.naive_centroids(d_dict, use_cue=False,
                                       flip_cue=True,
                                       swap_decider=swap_decider,
                                       corr_decider=corr_decider,
-                                      col_thr=args.avg_dist)
+                                      col_thr=args.avg_dist,
+                                      shuffle_nulls=args.shuffle_nulls,
+                                      shuffle_swaps=args.shuffle_swaps)
         out_d1_cl[k] = out_cl
         
     if not args.local_test and args.file_templ_d2 is None:
@@ -75,7 +82,7 @@ if __name__ == '__main__':
         form_opts_d2 = swaux.cluster_naive_d2_format_options
     elif args.local_test:
         file_templ_d2 = 'swap_errors/test_sessions/retro_{}/stan_data.pkl'
-        form_opts_d2 = {'test_type':(4,)}
+        form_opts_d2 = {'test_type':(10,)}
     else:
         file_templ_d2, form_opts_d2 = pickle.load(open(args.file_templ_d2, 'rb'))
 
@@ -85,7 +92,9 @@ if __name__ == '__main__':
         out = swan.naive_centroids(d_dict,
                                    swap_decider=swap_decider,
                                    corr_decider=corr_decider,
-                                   col_thr=args.avg_dist)
+                                   col_thr=args.avg_dist,
+                                   shuffle_nulls=args.shuffle_nulls,
+                                   shuffle_swaps=args.shuffle_swaps)
         out_d2[k] = out
 
     out_dict = {'args':args, 'd1_cu':out_d1_cu, 'd1_cl':out_d1_cl,
