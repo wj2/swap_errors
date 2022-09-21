@@ -204,52 +204,15 @@ def plot_naive_centroid_dict_comb(*dicts, **kwargs):
     comb_dicts = []
     for dict_i in dicts:
         nulls_all = list(v[0] for v in dict_i.values())
+        if len(nulls_all[0].shape) > 1:
+            nulls_all = list(np.concatenate(na) for na in nulls_all)
         nulls = np.concatenate(nulls_all, axis=0)
         swaps_all = list(np.mean(v[1], axis=0) for v in dict_i.values())
+        if len(swaps_all[0].shape) > 1:
+            swaps_all = list(np.concatenate(sa) for sa in swaps_all)
         swaps = np.concatenate(swaps_all, axis=0)
         comb_dicts.append({'comb':(nulls, swaps)})
     return plot_naive_centroid_dict_indiv(*comb_dicts, **kwargs)
-
-def plot_forget_dict(*args, **kwargs):
-    return plot_fs_dict(*args, plot=plot_forget_group, **kwargs)
-
-def plot_swap_dict(*args, **kwargs):
-    return plot_fs_dict(*args, plot=plot_swap_group, **kwargs)
-
-def plot_target_swap_dict(*args, **kwargs):
-    return plot_fs_dict(*args, plot=plot_target_swap_group, **kwargs)
-
-def plot_fs_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
-                 session_dict=None, axs=None, fwid=3, regions='all',
-                 plot=plot_forget_group, cond_type=None):
-    if session_dict is None:
-        session_dict = dict(elmo_range=range(13),
-                            waldorf_range=range(13, 24),
-                            comb_range=range(24))
-
-    if axs is None:
-        n_cols = len(use_keys) 
-        n_rows = len(session_dict)
-        f, axs = plt.subplots(n_rows, n_cols,
-                              figsize=(fwid*n_cols, fwid*n_rows),
-                              sharex=True, sharey=True,
-                              squeeze=False)
-    list(axs[0, j].set_title(k) for j, k in enumerate(use_keys))
-    for i, (r_key, use_range) in enumerate(session_dict.items()):
-        group = []
-        for uk in use_keys:
-            if cond_type is not None:
-                def filt(k): return (k[0] in use_range and k[1] == regions
-                                     and k[2] == cond_type)
-            else:
-                def filt(k): return (k[0] in use_range and k[1] == regions)
-            
-            use_entries = {k:v for k, v in forget_dict[uk].items()
-                           if filt(k)}
-            group.append(use_entries)
-        axs[i, 0].set_ylabel(r_key)
-        plot(group, axs[i])
-    return axs
 
 def _mean_select(*args):
     return list(np.mean(arg) for arg in args)
@@ -325,6 +288,49 @@ def plot_forget_group(groups, axs=None, select_func=_max_select):
         wil_test = sts.wilcoxon(diffs, alternative='greater',
                                 nan_policy='omit')
         print(wil_test)
+
+
+def plot_forget_dict(*args, **kwargs):
+    return plot_fs_dict(*args, plot=plot_forget_group, **kwargs)
+
+def plot_swap_dict(*args, **kwargs):
+    return plot_fs_dict(*args, plot=plot_swap_group, **kwargs)
+
+def plot_target_swap_dict(*args, **kwargs):
+    return plot_fs_dict(*args, plot=plot_target_swap_group, **kwargs)
+
+def plot_fs_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
+                 session_dict=None, axs=None, fwid=3, regions='all',
+                 plot=plot_forget_group, cond_type=None):
+    if session_dict is None:
+        session_dict = dict(elmo_range=range(13),
+                            waldorf_range=range(13, 24),
+                            comb_range=range(24))
+
+    if axs is None:
+        n_cols = len(use_keys) 
+        n_rows = len(session_dict)
+        f, axs = plt.subplots(n_rows, n_cols,
+                              figsize=(fwid*n_cols, fwid*n_rows),
+                              sharex=True, sharey=True,
+                              squeeze=False)
+    list(axs[0, j].set_title(k) for j, k in enumerate(use_keys))
+    for i, (r_key, use_range) in enumerate(session_dict.items()):
+        group = []
+        for uk in use_keys:
+            if cond_type is not None:
+                def filt(k): return (k[0] in use_range and k[1] == regions
+                                     and k[2] == cond_type)
+            else:
+                def filt(k): return (k[0] in use_range and k[1] == regions)
+            
+            use_entries = {k:v for k, v in forget_dict[uk].items()
+                           if filt(k)}
+            group.append(use_entries)
+        axs[i, 0].set_ylabel(r_key)
+        plot(group, axs[i])
+    return axs
+
 
 def plot_all_nc_dict(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
                      session_dict=None, cond_types=('pro', 'retro'),
