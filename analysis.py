@@ -959,7 +959,7 @@ def _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols, targ_col, dist_col,
         out = (dist, null_cent, swap_cent)
     else:
         out = dist
-    return dist
+    return out
 
 def naive_centroids(*args, shuffle_nulls=False,
                     shuffle_swaps=False, **kwargs):
@@ -1055,7 +1055,7 @@ def _naive_centroids_inner(data_dict,
         out = _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols,
                                   targ_col, dist_col, col_thr=col_thr,
                                   col_diff=col_diff)
-        null_dists[i], (null_cent[i], swap_cent[i]) = out
+        null_dists[i], null_cent[i], swap_cent[i] = out
         for j, si in enumerate(swap_inds):
             targ_col, dist_col = c_t[si], c_d[si]
             if shuffle_swaps:
@@ -1065,8 +1065,8 @@ def _naive_centroids_inner(data_dict,
                                       targ_col, dist_col,
                                       col_thr=col_thr,
                                       col_diff=col_diff)
-            swap_dists[i, j], (s_null_cent[i, j], s_swap_cent[i, j]) = out
-    cents_all = ((null_cents, swap_cents), (s_null_cents, s_swap_cents))
+            swap_dists[i, j], s_null_cent[i, j], s_swap_cent[i, j] = out
+    cents_all = ((null_cent, swap_cent), (s_null_cent, s_swap_cent))
     return null_dists, swap_dists, cents_all
 
 def compute_dists(pop_test, trl_targs, trl_dists, targ_pos, dist_pos,
