@@ -1066,6 +1066,8 @@ def _naive_centroids_inner(data_dict,
                                       col_thr=col_thr,
                                       col_diff=col_diff)
             swap_dists[i, j], s_null_cent[i, j], s_swap_cent[i, j] = out
+    s_null_cent = np.mean(s_null_cent, axis=0)
+    s_swap_cent = np.mean(s_swap_cent, axis=0)
     cents_all = ((null_cent, swap_cent), (s_null_cent, s_swap_cent))
     return null_dists, swap_dists, cents_all
 
