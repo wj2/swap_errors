@@ -936,7 +936,8 @@ def naive_forgetting(data_dict,
 
 def _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols, targ_col, dist_col,
                         col_thr=np.pi/4,
-                        col_diff=_col_diff_rad):
+                        col_diff=_col_diff_rad,
+                        return_centroids=True):
     far_cols = col_diff(targ_col, dist_col) > col_thr
     if far_cols:
         null_cent_inds = corr_tr[col_diff(tr_targ_cols, targ_col) < col_thr]
@@ -952,30 +953,41 @@ def _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols, targ_col, dist_col,
         dist = np.dot(sv_u, (test_activity - null_cent).T)/sv_len
     else:
         dist = np.nan
+        null_cent = np.nan
+        swap_cent = np.nan
+    if return_centroids:
+        out = (dist, null_cent, swap_cent)
+    else:
+        out = dist
     return dist
 
 def naive_centroids(*args, shuffle_nulls=False,
                     shuffle_swaps=False, **kwargs):
     if shuffle_nulls or shuffle_swaps:
-        nds, sds = naive_centroids_shuffle(*args, **kwargs,
-                                           shuffle_nulls=shuffle_nulls,
-                                           shuffle_swaps=shuffle_swaps)
+        out = naive_centroids_shuffle(*args, **kwargs,
+                                      shuffle_nulls=shuffle_nulls,
+                                      shuffle_swaps=shuffle_swaps)
+        nds, sds, cents = out
         if not shuffle_nulls:
             nds = nds[0]
         if not shuffle_swaps:
             sds = sds[0]
     else:
-        nds, sds = _naive_centroids_inner(*args, **kwargs)
-    return nds, sds
+        nds, sds, cents = _naive_centroids_inner(*args, **kwargs)
+    return nds, sds, cents
 
 def naive_centroids_shuffle(*args, n_shuffles=5, **kwargs):
     null_dists_all = []
     swap_dists_all = []
+    cents_all = []
     for i in range(n_shuffles):
-        nds, sds = _naive_centroids_inner(*args, **kwargs)
+        nds, sds, cents = _naive_centroids_inner(*args, **kwargs)
         null_dists_all.append(nds)
         swap_dists_all.append(sds)
-    return np.array(null_dists_all), np.array(swap_dists_all)
+        cents_all.append(cents)
+    out = (np.array(null_dists_all), np.array(swap_dists_all),
+           np.array(cents_all))
+    return out
 
 def _naive_centroids_inner(data_dict,
                            cue_key='cue',
@@ -1026,6 +1038,11 @@ def _naive_centroids_inner(data_dict,
     swap_dists = np.zeros((len(corr_inds), len(swap_inds)))
     y = data_dict[activity_key]
 
+    null_cent = np.zeros((len(corr_inds), y.shape[1]))
+    swap_cent = np.zeros_like(null_cent)
+    s_null_cent = np.zeros((len(corr_inds), len(swap_inds), y.shape[1]))
+    s_swap_cent = np.zeros_like(s_null_cent)
+
     cv_gen = cv()
     for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
         corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
@@ -1035,19 +1052,22 @@ def _naive_centroids_inner(data_dict,
         if shuffle_nulls:
             dist_col = rng.choice(c_d)
         dist_col = c_d[corr_te]
-        null_dists[i] = _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols,
-                                            targ_col, dist_col, col_thr=col_thr,
-                                            col_diff=col_diff)
+        out = _compute_trl_c_dist(y, corr_tr, corr_te, tr_targ_cols,
+                                  targ_col, dist_col, col_thr=col_thr,
+                                  col_diff=col_diff)
+        null_dists[i], (null_cent[i], swap_cent[i]) = out
         for j, si in enumerate(swap_inds):
             targ_col, dist_col = c_t[si], c_d[si]
             if shuffle_swaps:
                 dist_col = rng.choice(c_d)               
 
-            swap_dists[i, j] = _compute_trl_c_dist(y, corr_tr, si, tr_targ_cols,
-                                                   targ_col, dist_col,
-                                                   col_thr=col_thr,
-                                                   col_diff=col_diff)
-    return null_dists, swap_dists
+            out = _compute_trl_c_dist(y, corr_tr, si, tr_targ_cols,
+                                      targ_col, dist_col,
+                                      col_thr=col_thr,
+                                      col_diff=col_diff)
+            swap_dists[i, j], (s_null_cent[i, j], s_swap_cent[i, j]) = out
+    cents_all = ((null_cents, swap_cents), (s_null_cents, s_swap_cents))
+    return null_dists, swap_dists, cents_all
 
 def compute_dists(pop_test, trl_targs, trl_dists, targ_pos, dist_pos,
                   col_means, norm_neurons=True, mean=None, std=None):

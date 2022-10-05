@@ -200,7 +200,7 @@ def plot_naive_centroid_dict_indiv(*dicts, axs=None, fwid=3, **kwargs):
             ax_ji = plot_naive_centroid(null, swaps, ax=axs[j, i], **kwargs)
     return axs        
 
-def plot_naive_centroid_dict_comb(*dicts, **kwargs):
+def merge_session_dicts(*dicts):
     comb_dicts = []
     for dict_i in dicts:
         nulls_all = list(v[0] for v in dict_i.values())
@@ -212,6 +212,10 @@ def plot_naive_centroid_dict_comb(*dicts, **kwargs):
             swaps_all = list(np.concatenate(sa) for sa in swaps_all)
         swaps = np.concatenate(swaps_all, axis=0)
         comb_dicts.append({'comb':(nulls, swaps)})
+    return comb_dicts
+
+def plot_naive_centroid_dict_comb(*dicts, **kwargs):
+    comb_dicts = merge_session_dicts(*dicts)
     return plot_naive_centroid_dict_indiv(*comb_dicts, **kwargs)
 
 def _mean_select(*args):
@@ -331,6 +335,45 @@ def plot_fs_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
         plot(group, axs[i])
     return axs
 
+def plot_nc_epoch_corr(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
+                       session_dict=None, cond_types=('retro',),
+                       d2_key='d2', axs=None, fwid=3, biggest_extreme=2,
+                       regions='all'):
+    if session_dict is None:
+        session_dict = dict(elmo_range=range(13),
+                            waldorf_range=range(13, 24),
+                            comb_range=range(24))
+
+    if axs is None:
+        n_cols = len(use_d1s)*len(cond_types)
+        n_rows = len(session_dict)
+        f, axs = plt.subplots(n_rows, n_cols,
+                              figsize=(fwid*n_cols, fwid*n_rows),
+                              sharex=True, sharey=True)
+    titles = list(use_d1s) + list(' '.join((d2_key, ct)) for ct in cond_types)
+    list(ax.set_title(titles[i]) for i, ax in enumerate(axs[0]))
+    for i, (r_key, use_range) in enumerate(session_dict.items()):
+        use_dis = swan.filter_nc_dis(centroid_dict, use_d1s, cond_types,
+                                     use_range, regions=regions, d2_key=d2_key)
+        merge_dis = merge_session_dicts(*use_dis)
+        nulls_cl, swaps_cl = merge_dis[0]['comb']
+        nulls_cu, swaps_cu = merge_dis[1]['comb']
+        nulls_d2, swaps_d2 = merge_dis[2]['comb']
+        axs[i, 0].plot(nulls_cl, nulls_d2, 'o')
+        axs[i, 0].plot(swaps_cl, swaps_d2, 'o')
+        print('{} cl null'.format(r_key),
+              sts.spearmanr(nulls_cl, nulls_d2, nan_policy='omit'))
+        print('{} cl swap'.format(r_key),
+              sts.spearmanr(swaps_cl, swaps_d2, nan_policy='omit'))
+        axs[i, 1].plot(nulls_cu, nulls_d2, 'o')
+        axs[i, 1].plot(swaps_cu, swaps_d2, 'o')
+        print('{} cu null'.format(r_key),
+              sts.spearmanr(nulls_cu, nulls_d2, nan_policy='omit'))
+        print('{} cu swap'.format(r_key),
+              sts.spearmanr(swaps_cu, swaps_d2, nan_policy='omit'))
+        axs[i, 0].set_ylabel(r_key)
+    return axs
+    
 
 def plot_all_nc_dict(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
                      session_dict=None, cond_types=('pro', 'retro'),
