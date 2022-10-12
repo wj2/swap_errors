@@ -214,6 +214,20 @@ def merge_session_dicts(*dicts):
         comb_dicts.append({'comb':(nulls, swaps)})
     return comb_dicts
 
+def merge_centroid_dicts(*dicts):
+    v = list(dicts[0].values())[0]
+    n_conds = len(v)
+    n_cents = len(v[0])
+    out_arr = np.array((n_conds, n_cents), dtype=object)
+    comb_dicts = []
+    for dict_i in dicts:
+        for i, j in u.make_array_ind_iterator((n_conds, n_cents)):
+            c_ij_all = list(v[2][i][j] for v in dict_i.values())
+            c_ij = np.concatenate(c_ij_all, axis=0)
+            out_arr[i, j] = c_ij
+        comb_dicts.append({'comb':out_arr})
+    return comb_dicts
+
 def plot_naive_centroid_dict_comb(*dicts, **kwargs):
     comb_dicts = merge_session_dicts(*dicts)
     return plot_naive_centroid_dict_indiv(*comb_dicts, **kwargs)
@@ -334,6 +348,86 @@ def plot_fs_dict(forget_dict, use_keys=('forget_cu', 'forget_cl'),
         axs[i, 0].set_ylabel(r_key)
         plot(group, axs[i])
     return axs
+
+def vec_correlation(c1, c2):
+    c1_null, c1_swap = c1
+    c2_null, c2_swap = c2
+    c1_vu = u.make_unit_vector(c1_swap - c1_null)
+    c2_vu = u.make_unit_vector(c2_swap - c2_null)
+    out = np.sum(c1_vu*c2_vu, axis=1)
+    return out
+
+def config_distance(c1, c2):
+    c1_null, c1_swap = c1
+    c2_null, c2_swap = c2
+
+    null_config = c1_null + c2_null
+    swap_config = c1_swap + c2_swap
+    dists = np.sqrt(np.sum((null_config - swap_config)**2, axis=1))
+    c1_ax_dist = np.sqrt(np.sum((c1_null - c1_swap)**2, axis=1))
+    c2_ax_dist = np.sqrt(np.sum((c2_null - c2_swap)**2, axis=1))    
+    return dists, c1_ax_dist, c2_ax_dist
+
+def plot_config_differences(centroid_dict, k1='d1_cl', k2='d1_cu',
+                            session_dict=None, axs=None, fwid=3,
+                            biggest_extreme=2, cent_key=2,
+                            regions='all'):
+    if session_dict is None:
+        session_dict = dict(elmo_range=range(13),
+                            waldorf_range=range(13, 24),
+                            comb_range=range(24))
+
+    if axs is None:
+        n_cols = 4
+        n_rows = len(session_dict)
+        f, axs = plt.subplots(n_rows, n_cols,
+                              figsize=(fwid*n_cols, fwid*n_rows),
+                              sharex=True, sharey=True)
+    dists = {}
+    for i, (r_key, use_range) in enumerate(session_dict.items()):
+        d1, d2 = swan.filter_nc_dis(centroid_dict, (k1, k2), (),
+                                    use_range, regions=regions)
+        null_conf_dists = []
+        swap_conf_dists = []
+        n1_dists = []
+        n2_dists = []
+        s1_dists = []
+        s2_dists = []
+        vcorr_nulls = []
+        vcorr_swaps = []
+        vcorr_mus = []
+        for (k, v1) in d1.items():
+            v2 = d2[k]
+            null_cents1, swap_cents1 = v1[cent_key]
+            null_cents2, swap_cents2 = v2[cent_key]
+            vcorr_null = vec_correlation(null_cents1, null_cents2)
+            out = config_distance(null_cents1, null_cents2)
+            null_dists, n1_dist, n2_dist = out
+            null_conf_dists.extend(null_dists)
+            n1_dists.extend(n1_dist)
+            n2_dists.extend(n2_dist)
+            
+            vcorr_swap = vec_correlation(swap_cents1, swap_cents2)
+            out = config_distance(swap_cents1, swap_cents2)
+            swap_dists, s1_dist, s2_dist = out
+            swap_conf_dists.extend(swap_dists)
+            s1_dists.extend(s1_dist)
+            s2_dists.extend(s2_dist)
+            vcorr_nulls.extend(vcorr_null)
+            vcorr_swaps.extend(vcorr_swap)
+            vcorr_mus.append(np.mean(vcorr_null))
+            
+        axs[i, 0].hist(null_conf_dists, density=True)
+        axs[i, 0].hist(swap_conf_dists, density=True, histtype='step')
+        axs[i, 1].hist(n1_dists, density=True)
+        axs[i, 1].hist(s1_dists, density=True, histtype='step')
+        axs[i, 2].hist(n2_dists, density=True)
+        axs[i, 2].hist(s2_dists, density=True, histtype='step')
+        axs[i, 3].hist(vcorr_mus, density=True)
+        # axs[i, 3].hist(vcorr_swaps, density=True, histtype='step')
+        print(r_key, np.mean(vcorr_nulls), np.mean(vcorr_mus))
+        dists[r_key] = (null_conf_dists, swap_conf_dists)
+    return dists
 
 def plot_nc_epoch_corr(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
                        session_dict=None, cond_types=('retro',),

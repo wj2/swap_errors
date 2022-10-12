@@ -967,14 +967,15 @@ def naive_centroids(*args, shuffle_nulls=False,
         out = naive_centroids_shuffle(*args, **kwargs,
                                       shuffle_nulls=shuffle_nulls,
                                       shuffle_swaps=shuffle_swaps)
-        nds, sds, cents = out
+        nds, sds = out[:2]
         if not shuffle_nulls:
             nds = nds[0]
         if not shuffle_swaps:
             sds = sds[0]
+        out = (nds, sds) + tuple(out[2:])
     else:
-        nds, sds, cents = _naive_centroids_inner(*args, **kwargs)
-    return nds, sds, cents
+        out = _naive_centroids_inner(*args, **kwargs)
+    return out
 
 def naive_centroids_shuffle(*args, n_shuffles=5, **kwargs):
     null_dists_all = []
@@ -1044,7 +1045,10 @@ def _naive_centroids_inner(data_dict,
     s_swap_cent = np.zeros_like(s_null_cent)
 
     cv_gen = cv()
+    null_ps = np.zeros((len(corr_inds), 3))
+    swap_ps = data_dict[tp_key][swap_inds]
     for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
+        null_ps[i] = data_dict[tp_key][test_inds]
         corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
         tr_targ_cols = c_t[corr_tr]
         tr_dist_cols = c_d[corr_tr]
@@ -1069,7 +1073,8 @@ def _naive_centroids_inner(data_dict,
     s_null_cent = np.mean(s_null_cent, axis=0)
     s_swap_cent = np.mean(s_swap_cent, axis=0)
     cents_all = ((null_cent, swap_cent), (s_null_cent, s_swap_cent))
-    return null_dists, swap_dists, cents_all
+    ps = (null_ps, swap_ps)
+    return null_dists, swap_dists, cents_all, ps
 
 def compute_dists(pop_test, trl_targs, trl_dists, targ_pos, dist_pos,
                   col_means, norm_neurons=True, mean=None, std=None):
