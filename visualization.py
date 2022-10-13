@@ -370,7 +370,8 @@ def config_distance(c1, c2):
 
 def plot_config_differences(centroid_dict, k1='d1_cl', k2='d1_cu',
                             session_dict=None, axs=None, fwid=3,
-                            biggest_extreme=2, cent_key=2,
+                            biggest_extreme=2, cent_ind=2,
+                            p_ind=3, swap_p_ind=1,
                             regions='all'):
     if session_dict is None:
         session_dict = dict(elmo_range=range(13),
@@ -382,7 +383,7 @@ def plot_config_differences(centroid_dict, k1='d1_cl', k2='d1_cu',
         n_rows = len(session_dict)
         f, axs = plt.subplots(n_rows, n_cols,
                               figsize=(fwid*n_cols, fwid*n_rows),
-                              sharex=True, sharey=True)
+                              sharex='col', sharey='col')
     dists = {}
     for i, (r_key, use_range) in enumerate(session_dict.items()):
         d1, d2 = swan.filter_nc_dis(centroid_dict, (k1, k2), (),
@@ -396,10 +397,14 @@ def plot_config_differences(centroid_dict, k1='d1_cl', k2='d1_cu',
         vcorr_nulls = []
         vcorr_swaps = []
         vcorr_mus = []
+        p_rates_nulls = []
+        p_rates_swaps = []
         for (k, v1) in d1.items():
             v2 = d2[k]
-            null_cents1, swap_cents1 = v1[cent_key]
-            null_cents2, swap_cents2 = v2[cent_key]
+            null_cents1, swap_cents1 = v1[cent_ind]
+            null_cents2, swap_cents2 = v2[cent_ind]
+            null_ps1, swap_ps1 = v1[p_ind]
+            all_ps = np.concatenate((null_ps1, swap_ps1), axis=0)
             vcorr_null = vec_correlation(null_cents1, null_cents2)
             out = config_distance(null_cents1, null_cents2)
             null_dists, n1_dist, n2_dist = out
@@ -416,14 +421,16 @@ def plot_config_differences(centroid_dict, k1='d1_cl', k2='d1_cu',
             vcorr_nulls.extend(vcorr_null)
             vcorr_swaps.extend(vcorr_swap)
             vcorr_mus.append(np.mean(vcorr_null))
-            
+            p_rates_nulls.extend(null_ps1[:, swap_p_ind])
+            p_rates_swaps.extend(swap_ps1[:, swap_p_ind])
         axs[i, 0].hist(null_conf_dists, density=True)
         axs[i, 0].hist(swap_conf_dists, density=True, histtype='step')
         axs[i, 1].hist(n1_dists, density=True)
         axs[i, 1].hist(s1_dists, density=True, histtype='step')
         axs[i, 2].hist(n2_dists, density=True)
         axs[i, 2].hist(s2_dists, density=True, histtype='step')
-        axs[i, 3].hist(vcorr_mus, density=True)
+        axs[i, 3].plot(vcorr_nulls, p_rates_nulls, 'o')
+        axs[i, 3].plot(vcorr_swaps, p_rates_swaps, 'o')
         # axs[i, 3].hist(vcorr_swaps, density=True, histtype='step')
         print(r_key, np.mean(vcorr_nulls), np.mean(vcorr_mus))
         dists[r_key] = (null_conf_dists, swap_conf_dists)

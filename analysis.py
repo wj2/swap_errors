@@ -1048,7 +1048,7 @@ def _naive_centroids_inner(data_dict,
     null_ps = np.zeros((len(corr_inds), 3))
     swap_ps = data_dict[tp_key][swap_inds]
     for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
-        null_ps[i] = data_dict[tp_key][test_inds]
+        null_ps[i] = data_dict[tp_key][corr_inds[test_inds]]
         corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
         tr_targ_cols = c_t[corr_tr]
         tr_dist_cols = c_d[corr_tr]
