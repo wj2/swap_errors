@@ -1,6 +1,7 @@
 
 import argparse
 import os
+import datetime
 import scipy.stats as sts
 import numpy as np
 import pickle
@@ -14,7 +15,8 @@ def create_parser():
     parser.add_argument('-o', '--output_folder',
                         default='~/results/swap_errors/fits/', type=str,
                         help='folder to save the output in')
-    default_outname = 'fit_{num_colors}_{sess_ind}_{period}.pkl'
+    default_outname = ('fit_spline{num_colors}_sess{sess_ind}_{period}_'
+                       '{jobid}.pkl')
     parser.add_argument('--output_name', default=default_outname)
     parser.add_argument('--model_path',
                         default='swap_errors/ushh_dh_t_inter_model.pkl',
@@ -25,6 +27,7 @@ def create_parser():
                     '-0.5-0.0-0.5_0.5/'
                     'pca_0.95_before/impute_True/spline1_knots/all/'
                     'joint/stan_data.pkl')
+    parser.add_argument('--jobid', default='-1', type=str)    
     parser.add_argument('--data_path', default=default_data, type=str)
     parser.add_argument('--num_colors', default=5, type=int)
     parser.add_argument('--period', default='WHEEL_ON', type=str)
@@ -49,9 +52,11 @@ if __name__ == '__main__':
                                      chains=n_chains)
     out_name = args.output_name.format(num_colors=args.num_colors,
                                        sess_ind=args.sess_ind,
-                                       period=args.period)
+                                       period=args.period,
+                                       jobid=args.jobid)
     out_path = os.path.join(args.output_folder,
                             out_name)
-    pickle.dump((fit_az, diag), open(out_path, 'wb'))
+    now = datetime.datetime.now()
+    pickle.dump((fit_az, diag, now), open(out_path, 'wb'))
 
     
