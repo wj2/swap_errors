@@ -76,12 +76,6 @@ if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
     data_path = args.data_path
-<<<<<<< HEAD
-    data_path = data_path.format(num_colors=args.num_colors,
-                                 sess_ind=args.sess_ind,
-                                 period=args.period)
-    data = pickle.load(open(data_path, 'rb'))
-=======
     if args.use_joint_data:
         data_path.format(num_colors=args.num_colors,
                          sess_ind=args.sess_ind,
@@ -99,7 +93,6 @@ if __name__ == '__main__':
             data_unmerged[utt] = data_i
         data = merge_data(data_unmerged)
     model = pickle.load(open(args.model_path, 'rb'))
->>>>>>> 75e06d6d455ecbd0765ec7d029d859b8d868b852
 
     n_iter = args.n_iter
     n_chains = args.n_chains
