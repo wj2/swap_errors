@@ -55,6 +55,7 @@ def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys):
     last_keys = list(noerr_types.intersection(all_keys))
     ordered_keys = first_keys + last_keys
     full_dict = {'is_joint':1}
+    extra_dict = {}
     key_ind = 1
     for key in ordered_keys:
         dk = data_d[key]
@@ -63,14 +64,14 @@ def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys):
         full_dict['K'] = dk['K']
         full_dict['type'] = np.concatenate((full_dict.get('type', []),
                                             np.ones(dk['T'])*key_ind))
-        full_dict['type_str'] = full_dict.get('type_str', ()) + (key,)*dk['T']
+        extra_dict['type_str'] = extra_dict.get('type_str', ()) + (key,)*dk['T']
         model_error = key not in noerr_types
         full_dict['model_error'] = (full_dict.get('model_error', ())
                                     + (model_error,)*dk['T'])
         for ak in default_add_keys:
             full_dict[ak] = add_key(ak, full_dict, dk)
         key_ind = key_ind + 1
-    return full_dict
+    return full_dict, extra_dict
 
 if __name__ == '__main__':
     parser = create_parser()
@@ -82,6 +83,7 @@ if __name__ == '__main__':
                                      period=args.period,
                                      trl_type='joint')
         data = pickle.load(open(data_path, 'rb'))
+        extra_data = {}
     else:
         data_unmerged = {}
         for i, utt in enumerate(args.use_trl_types):
@@ -91,7 +93,7 @@ if __name__ == '__main__':
                                          trl_type=utt)
             data_i = pickle.load(open(data_path, 'rb'))
             data_unmerged[utt] = data_i
-        data = merge_data(data_unmerged)
+        data, extra_data = merge_data(data_unmerged)
     model = pickle.load(open(args.model_path, 'rb'))
 
     n_iter = args.n_iter
@@ -106,6 +108,14 @@ if __name__ == '__main__':
     out_path = os.path.join(args.output_folder,
                             out_name)
     now = datetime.datetime.now()
-    pickle.dump((fit_az, diag, now), open(out_path, 'wb'))
+    data.update(extra_data)
+    out_struct = {
+        'model_fit':fit_az,
+        'diags':diag,
+        'fit_time':now,
+        'data':data,
+    }
+    
+    pickle.dump(out_struct, open(out_path, 'wb'))
 
     
