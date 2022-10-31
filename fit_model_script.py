@@ -13,7 +13,7 @@ import general.stan_utility as su
 def create_parser():
     parser = argparse.ArgumentParser(description='fit several autoencoders')
     parser.add_argument('-o', '--output_folder',
-                        default='~/results/swap_errors/fits/', type=str,
+                        default='../results/swap_errors/fits/', type=str,
                         help='folder to save the output in')
     default_outname = ('fit_spline{num_colors}_sess{sess_ind}_{period}_'
                        '{jobid}.pkl')
@@ -27,7 +27,7 @@ def create_parser():
                     '-0.5-0.0-0.5_0.5/'
                     'pca_0.95_before/impute_True/spline1_knots/all/'
                     'joint/stan_data.pkl')
-    parser.add_argument('--jobid', default='-1', type=str)    
+    parser.add_argument('--jobid', default='0000', type=str)    
     parser.add_argument('--data_path', default=default_data, type=str)
     parser.add_argument('--num_colors', default=5, type=int)
     parser.add_argument('--period', default='WHEEL_ON', type=str)
