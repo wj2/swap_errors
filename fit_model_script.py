@@ -13,7 +13,7 @@ import general.stan_utility as su
 def create_parser():
     parser = argparse.ArgumentParser(description='fit several autoencoders')
     parser.add_argument('-o', '--output_folder',
-                        default='~/results/swap_errors/fits/', type=str,
+                        default='../results/swap_errors/fits/', type=str,
                         help='folder to save the output in')
     default_outname = ('fit_spline{num_colors}_sess{sess_ind}_{period}_'
                        '{jobid}.pkl')
@@ -26,7 +26,9 @@ def create_parser():
                     '{num_colors}_colors/sess_{sess_ind}/{period}_diode/'
                     '-0.5-0.0-0.5_0.5/'
                     'pca_0.95_before/impute_True/spline1_knots/all/'
-                    'joint/stan_data.pkl')
+                    '{trl_type}/stan_data.pkl')
+    parser.add_argument('--use_trl_types', default=('pro', 'retro'),
+                        type=str, nargs='+')
     parser.add_argument('--jobid', default='-1', type=str)    
     parser.add_argument('--data_path', default=default_data, type=str)
     parser.add_argument('--num_colors', default=5, type=int)
@@ -36,14 +38,52 @@ def create_parser():
     parser.add_argument('--n_chains', default=4, type=int)
     return parser
 
+default_add_keys = ('y', 'C_u', 'C_l', 'cue', 'p', 'up_col_rads',
+                    'down_col_rads')
+def add_key(key, fd, kd):
+    if fd.get(key) is None:
+        out = kd[key]
+    else:
+        out = np.concatenate((fd[key], kd[key]))
+    return out
+
+def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys):
+    all_keys = set(data_d.keys())
+    noerr_types = set(noerr_types)
+    first_keys = list(all_keys.difference(noerr_types))
+    last_keys = list(noerr_types.intersection(all_keys))
+    ordered_keys = first_keys + last_keys
+    full_dict = {'is_joint':1}
+    key_ind = 1
+    for key in ordered_keys:
+        dk = data_d[key]
+        full_dict['T'] = full_dict.get('T', 0) + dk['T']
+        full_dict['N'] = dk['N']
+        full_dict['K'] = dk['K']
+        full_dict['type'] = np.concatenate((full_dict.get('type', []),
+                                            np.ones(dk['T'])*key_ind))
+        full_dict['type_str'] = full_dict.get('type_str', ()) + (key,)*dk['T']
+        model_error = key not in noerr_types
+        full_dict['model_error'] = (full_dict.get('model_error', ())
+                                    + (model_error,)*dk['T'])
+        for ak in default_add_keys:
+            full_dict[ak] = add_key(ak, full_dict, dk)
+        key_ind = key_ind + 1
+    return full_dict
+
 if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
     data_path = args.data_path
-    data_path = data_path.format(num_colors=args.num_colors,
-                                 sess_ind=args.sess_ind,
-                                 period=args.period)
-    data = pickle.load(open(data_path, 'rb'))
+    data_unmerged = {}
+    for i, utt in enumerate(args.use_trl_types):
+        data_path = data_path.format(num_colors=args.num_colors,
+                                     sess_ind=args.sess_ind,
+                                     period=args.period,
+                                     trl_type=utt)
+        data_i = pickle.load(open(data_path, 'rb'))
+        data_unmerged[utt] = data_i
+    data = merge_data(data_unmerged)
     model = pickle.load(open(args.model_path, 'rb'))
 
     n_iter = args.n_iter
