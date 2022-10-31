@@ -29,6 +29,7 @@ def create_parser():
                     '{trl_type}/stan_data.pkl')
     parser.add_argument('--use_trl_types', default=('pro', 'retro'),
                         type=str, nargs='+')
+    parser.add_argument('--use_joint_data', default=False, action='store_true')
     parser.add_argument('--jobid', default='-1', type=str)    
     parser.add_argument('--data_path', default=default_data, type=str)
     parser.add_argument('--num_colors', default=5, type=int)
@@ -75,15 +76,22 @@ if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
     data_path = args.data_path
-    data_unmerged = {}
-    for i, utt in enumerate(args.use_trl_types):
-        data_path = data_path.format(num_colors=args.num_colors,
-                                     sess_ind=args.sess_ind,
-                                     period=args.period,
-                                     trl_type=utt)
-        data_i = pickle.load(open(data_path, 'rb'))
-        data_unmerged[utt] = data_i
-    data = merge_data(data_unmerged)
+    if args.use_joint_data:
+        data_path.format(num_colors=args.num_colors,
+                         sess_ind=args.sess_ind,
+                         period=args.period,
+                         trl_type='joint')
+        data = pickle.load(open(data_path, 'rb'))
+    else:
+        data_unmerged = {}
+        for i, utt in enumerate(args.use_trl_types):
+            data_path = data_path.format(num_colors=args.num_colors,
+                                         sess_ind=args.sess_ind,
+                                         period=args.period,
+                                         trl_type=utt)
+            data_i = pickle.load(open(data_path, 'rb'))
+            data_unmerged[utt] = data_i
+        data = merge_data(data_unmerged)
     model = pickle.load(open(args.model_path, 'rb'))
 
     n_iter = args.n_iter
