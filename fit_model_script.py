@@ -41,12 +41,11 @@ if __name__ == '__main__':
                                  sess_ind=args.sess_ind,
                                  period=args.period)
     data = pickle.load(open(data_path, 'rb'))
-    model = pickle.load(open(args.model_path, 'rb'))
 
     n_iter = args.n_iter
     n_chains = args.n_chains
 
-    fit, fit_az, diag = su.fit_model(data, model, iter=n_iter, 
+    fit, fit_az, diag = su.fit_model(data, args.model_path, iter=n_iter, 
                                      chains=n_chains)
     out_name = args.output_name.format(num_colors=args.num_colors,
                                        sess_ind=args.sess_ind,
