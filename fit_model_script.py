@@ -77,10 +77,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     data_path = args.data_path
     if args.use_joint_data:
-        data_path.format(num_colors=args.num_colors,
-                         sess_ind=args.sess_ind,
-                         period=args.period,
-                         trl_type='joint')
+        data_path = data_path.format(num_colors=args.num_colors,
+                                     sess_ind=args.sess_ind,
+                                     period=args.period,
+                                     trl_type='joint')
         data = pickle.load(open(data_path, 'rb'))
     else:
         data_unmerged = {}
