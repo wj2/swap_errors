@@ -431,8 +431,12 @@ def plot_config_differences(centroid_dict, k1='d1_cl', k2='d1_cu',
         axs[i, 2].hist(s2_dists, density=True, histtype='step')
         axs[i, 3].plot(vcorr_nulls, p_rates_nulls, 'o')
         axs[i, 3].plot(vcorr_swaps, p_rates_swaps, 'o')
+        r_nulls = sts.pearsonr(vcorr_nulls, p_rates_nulls)
+        r_swaps = sts.pearsonr(vcorr_swaps, p_rates_swaps)
         # axs[i, 3].hist(vcorr_swaps, density=True, histtype='step')
         print(r_key, np.mean(vcorr_nulls), np.mean(vcorr_mus))
+        print(np.mean(vcorr_swaps))
+        print(r_nulls, r_swaps)
         dists[r_key] = (null_conf_dists, swap_conf_dists)
     return dists
 
