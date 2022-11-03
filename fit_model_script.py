@@ -108,15 +108,17 @@ if __name__ == '__main__':
                                        jobid=args.jobid)
     out_path = os.path.join(args.output_folder,
                             out_name)
+    out_root, _ = os.path.splitext(out_path)
+    out_az_path = out_root + '_az.nc'
     now = datetime.datetime.now()
     data.update(extra_data)
     out_struct = {
-        'model_fit':fit_az,
+        'model_fit_path':out_az_path,
         'diags':diag,
         'fit_time':now,
         'data':data,
     }
-    
     pickle.dump(out_struct, open(out_path, 'wb'))
+    fit_az.to_netcdf(out_az_path)
 
     
