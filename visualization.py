@@ -799,6 +799,39 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
         ax.plot(*pts_dr.T, 'o')
     return ax
 
+def save_all_dists(loaded_data, p_thrs=(0, .2, .3, .4, .5),
+                   corr_fl='histogram'):
+    for (m, time, trl), data in loaded_data.items():
+        if time == 'cue':
+            types = (None,)
+            mistakes = ('misbind',)
+        else:
+            types = ('retro',)
+            mistakes = ('spatial', 'cue', 'spatial-cue')
+
+        file_templ = (
+            '{}-'
+            + '{}-{}-{}-'.format(m, time, trl)
+            + corr_fl
+            + '-pthr'
+            + '{}')
+        n_bins=18
+
+        figs, e_dat = plot_dists(p_thrs, types, data, n_bins=n_bins,
+                                 file_templ=file_templ, mistakes=mistakes, 
+                                 bin_bounds=(-1, 2), ret_data=False)
+    
+        file_templ = ('{}-'
+                      + '{}-{}-{}-less-histograms-pthr'.format(m, time, trl)
+                      + '{}')
+        n_bins=18
+
+        figs, e_dat = plot_dists(p_thrs[1:], types, data, n_bins=n_bins,
+                                 file_templ=file_templ, mistakes=mistakes, 
+                                 bin_bounds=(-1, 2), ret_data=False,
+                                 p_comp=np.less)
+
+
 def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                n_bins=25, bin_bounds=(-1, 2), file_templ='{}-histograms-pthr{}',
                mistakes=('spatial', 'cue'), ret_data=True, p_comp=np.greater,
