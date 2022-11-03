@@ -63,7 +63,7 @@ def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys):
         full_dict['N'] = dk['N']
         full_dict['K'] = dk['K']
         full_dict['type'] = np.concatenate((full_dict.get('type', []),
-                                            np.ones(dk['T'])*key_ind))
+                                            np.ones(dk['T'], dtype=int)*key_ind))
         extra_dict['type_str'] = extra_dict.get('type_str', ()) + (key,)*dk['T']
         model_error = (np.ones(dk['T'])*(key not in noerr_types)).astype(int)
         full_dict['model_error'] = (full_dict.get('model_error', ())
@@ -79,10 +79,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     data_path = args.data_path
     if args.use_joint_data:
-        data_path.format(num_colors=args.num_colors,
-                         sess_ind=args.sess_ind,
-                         period=args.period,
-                         trl_type='joint')
+        data_path = data_path.format(num_colors=args.num_colors,
+                                     sess_ind=args.sess_ind,
+                                     period=args.period,
+                                     trl_type='joint')
         data = pickle.load(open(data_path, 'rb'))
         extra_data = {}
     else:
