@@ -65,12 +65,13 @@ def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys):
         full_dict['type'] = np.concatenate((full_dict.get('type', []),
                                             np.ones(dk['T'])*key_ind))
         extra_dict['type_str'] = extra_dict.get('type_str', ()) + (key,)*dk['T']
-        model_error = key not in noerr_types
+        model_error = (np.ones(dk['T'])*(key not in noerr_types)).astype(int)
         full_dict['model_error'] = (full_dict.get('model_error', ())
                                     + (model_error,)*dk['T'])
         for ak in default_add_keys:
             full_dict[ak] = add_key(ak, full_dict, dk)
         key_ind = key_ind + 1
+    full_dict['type'] = full_dict['type'].astype(int)
     return full_dict, extra_dict
 
 if __name__ == '__main__':
@@ -107,15 +108,17 @@ if __name__ == '__main__':
                                        jobid=args.jobid)
     out_path = os.path.join(args.output_folder,
                             out_name)
+    out_root, _ = os.path.splitext(out_path)
+    out_az_path = out_root + '_az.nc'
     now = datetime.datetime.now()
     data.update(extra_data)
     out_struct = {
-        'model_fit':fit_az,
+        'model_fit_path':out_az_path,
         'diags':diag,
         'fit_time':now,
         'data':data,
     }
-    
     pickle.dump(out_struct, open(out_path, 'wb'))
+    fit_az.to_netcdf(out_az_path)
 
     
