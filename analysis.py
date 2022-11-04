@@ -114,14 +114,33 @@ def log_likelihood_comparison(model_dict, use_weights=None, thresh=None):
         names[i1, i2] = (k1, k2)
     return m_diff, sem_diff, names
 
-def _get_key_mu(posterior, cols, keys, mean=True, mask=None, inter_key=None):
+def _get_key_mu(posterior, cols, keys, mean=True, mask=None, inter_key=None,
+                use_ind=None):
     for i, k in enumerate(keys):
-        arr = np.concatenate(posterior[k].to_numpy(), axis=0)
         if mask is not None:
             cols_use = cols[i, mask].T
         else:
             cols_use = cols[i].T
-        dot_arr = np.dot(arr, cols_use)
+        if use_ind is not None:
+            k = k + '_type'
+            if mask is not None:                
+                ui = use_ind[mask]
+            else:
+                ui = use_ind
+            cols_use = np.expand_dims(cols_use, axis=(0, 1, 2))
+        else:
+            cols_use = np.expand_dims(cols_use, axis=(0, 1))
+        arr = np.concatenate(posterior[k].to_numpy(), axis=0)
+        arr = np.expand_dims(arr, axis=-1)
+        dot_arr = np.sum(arr*cols_use, axis=-2)
+        if use_ind is not None:
+            dot_arr_new = np.zeros((dot_arr.shape[0],) + dot_arr.shape[2:])
+            da0 = dot_arr[:, 0]
+            da1 = dot_arr[:, 1]
+            dot_arr_new[:, :, ui == 1] = da0[..., ui == 1]
+            dot_arr_new[:, :, ui == 2] = da1[..., ui == 2]
+            dot_arr = dot_arr_new
+        # dot_arr = np.dot(arr, cols_use)
         if i == 0:
             mu_arr = dot_arr
         else:
@@ -192,6 +211,7 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                                      type_key='type',
                                      trl_filt=None,
                                      col_thr=.1,
+                                     new_joint=False,
                                      p_comp=np.greater):
     cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
     pp = np.concatenate(fit_az.posterior_predictive[eh_key].to_numpy(),
@@ -229,8 +249,13 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
     for i, cue in enumerate(u_cues):
         cue_mask = np.logical_and(mask, cues == cue)
         p_vals.append(data[p_key][cue_mask])
+        if new_joint:
+            use_ind = data[type_key]
+        else:
+            use_ind = None
         mu1 = _get_key_mu(fit_az.posterior, cols, cent1_keys[cue][0],
-                          mask=cue_mask, inter_key=cent1_keys[cue][1])
+                          mask=cue_mask, inter_key=cent1_keys[cue][1],
+                          use_ind=use_ind)
         mu2 = _get_key_mu(fit_az.posterior, cols, cent2_keys[cue][0],
                           mask=cue_mask, inter_key=cent2_keys[cue][1])
         v_len = np.sqrt(np.sum((mu2 - mu1)**2, axis=1))
