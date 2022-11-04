@@ -10,6 +10,7 @@ import general.paper_utilities as pu
 import general.utility as u
 import general.data_io as gio
 import swap_errors.visualization as swv
+import swap_errors.auxiliary as swa
 
 config_path = 'swap_errors/figures.conf'
 
@@ -225,7 +226,7 @@ class EphysIntroFigure(SwapErrorFigure):
     def _get_experimental_data(self):
         if self.exp_data is None:
             max_files = np.inf
-
+            df = '../data/swap_errors/'
             data = gio.Dataset.from_readfunc(
                 swa.load_buschman_data,
                 df,
@@ -248,6 +249,7 @@ class EphysIntroFigure(SwapErrorFigure):
             exp_data = self._get_experimental_data()
 
     def _decode_pseudopop(self, data_m, field_str, type_str,
+                          gen_field_str,
                           mask_func=_upper_color_mask):
         tbeg = self.params.getfloat(field_str + '_beg')
         tend = self.params.getfloat(field_str + '_end')
@@ -255,6 +257,8 @@ class EphysIntroFigure(SwapErrorFigure):
         tstep = self.params.getfloat('step')
 
         tzf = self.params.get('{}_{}_timekey'.format(field_str, type_str))
+        gen_tzf = self.params.get('{}_{}_timekey'.format(gen_field_str,
+                                                         type_str))
         min_trials = self.params.getint('min_trials')
         pre_pca = self.params.getfloat('pre_pca')
         repl_nan = self.params.getboolean('repl_nan')
@@ -273,7 +277,10 @@ class EphysIntroFigure(SwapErrorFigure):
                                   pseudo=pseudo, repl_nan=repl_nan, 
                                   min_trials_pseudo=min_trials,
                                   pre_pca=pre_pca, dec_less=dec_less,
-                                  dec_beg=dec_beg, dec_end=dec_end)
+                                  collapse_time=collapse_time,
+                                  dec_beg=dec_beg, dec_end=dec_end,
+                                  decode_m1=mask_c1, decode_m2=mask_c2,
+                                  decode_tzf=gen_tzf)
         return out
 
     def panel_dec(self):
@@ -304,13 +311,13 @@ class EphysIntroFigure(SwapErrorFigure):
             pro_d2 = {}
             for label, mf in mask_funcs.items():
                 retro_d1[label] = self._decode_pseudopop(data_retro, 'delay1',
-                                                         'retro', mf)
+                                                         'retro', 'delay2', mf)
                 retro_d2[label] = self._decode_pseudopop(data_retro, 'delay2',
-                                                         'retro', mf)
+                                                         'retro', 'delay1', mf)
                 pro_d1[label] = self._decode_pseudopop(data_pro, 'delay1',
-                                                       'pro', mf)
+                                                       'pro', 'delay2', mf)
                 pro_d2[label] = self._decode_pseudopop(data_pro, 'delay2',
-                                                       'pro', mf)
+                                                       'pro', 'delay1', mf)
             self.data[key] = ((retro_d1, retro_d2),
                               (pro_d1, pro_d2))
             # self.data[key] = ((retro_d1,),
@@ -325,7 +332,7 @@ class EphysIntroFigure(SwapErrorFigure):
                     ('time from cue', 'time from stimuli'))
         for (i, j) in u.make_array_ind_iterator((2, 2)):
             ax = axs[i, j]
-            for (key, (dec, xs)) in decs[i][j].items():
+            for (key, (dec, xs, gen)) in decs[i][j].items():
                 dec_avg = np.mean(dec, axis=1)
                 gpl.plot_trace_werr(xs, dec_avg, ax=ax, label=key,
                                     conf95=True)
