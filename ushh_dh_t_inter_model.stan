@@ -61,12 +61,16 @@ parameters {
   
   vector[N] intercept_up;
   vector[N] intercept_down;
+  matrix[2, N] i_up_type;
+  matrix[2, N] i_down_type;
   vector<lower=2>[N] nu; // DOF for student T
   vector<lower=0>[N] vars_raw;
   vector<lower=0>[N] pr_var_c; // prior variances
   vector<lower=0>[N] pr_var_d; // prior variances
   vector<lower=0>[N] pr_var_c_ul; // prior variances
   vector<lower=0>[N] pr_var_d_ul; // prior variances
+  vector<lower=0>[N] pr_var_i_up;
+  vector<lower=0>[N] pr_var_i_down;
   simplex[3] p_err[is_joint ? 2:1]; // probability of a cue, spatial, or no error
 }
 
@@ -88,6 +92,8 @@ model {
   matrix[N, K] mu_l_use;
   matrix[N, K] mu_d_u_use;
   matrix[N, K] mu_d_l_use;
+  vector[N] i_up_use;
+  vector[N] i_down_use;
 
   // prior
   for (k in 1:K){
@@ -115,6 +121,12 @@ model {
   }
   intercept_up ~ normal(0, 5);
   intercept_down ~ normal(0, 5);
+  pr_var_i_up ~ inv_gamma(2,1);
+  pr_var_i_down ~ inv_gamma(2,1);
+  for (i in 1:2) {
+    i_up_type[i] ~ normal(intercept_up, pr_var_i_up);
+    i_down_type[i] ~ normal(intercept_down, pr_var_i_down);
+  }
   
   vars_raw ~ inv_gamma(2, 1);
   nu ~ gamma(2, .1);
@@ -129,12 +141,14 @@ model {
     mu_l_use = to_matrix(mu_l_type[type[n]]);
     mu_d_u_use = to_matrix(mu_d_u_type[type[n]]);
     mu_d_l_use = to_matrix(mu_d_l_type[type[n]]);
+    i_up_use = i_up_type[type[n]]';
+    i_down_use = i_down_type[type[n]]';
     
     nom = color_likelihood(y[n], C_u[n], C_l[n],
 			   mu_u_use, mu_d_u_use,
 			   mu_l_use, mu_d_l_use,
 			   cue[n], vars, nu,
-			   intercept_up, intercept_down);
+			   i_up_use, i_down_use);
     lp[1] = log_p[n][1] + nom;
     // spatial errors
     lp_swp[1] = (log_p_err[type[n]][1]
@@ -142,14 +156,14 @@ model {
 				    mu_u_use, mu_d_u_use,
 				    mu_l_use, mu_d_l_use,
 				    cue[n], vars, nu,
-				    intercept_up, intercept_down));
+				    i_up_use, i_down_use));
     // cue errors
     lp_swp[2] = (log_p_err[type[n]][2]
 		 + color_likelihood(y[n], C_u[n], C_l[n],
 				    mu_u_use, mu_d_u_use,
 				    mu_l_use, mu_d_l_use,
 				    1 - cue[n], vars, nu,
-				    intercept_up, intercept_down));
+				    i_up_use, i_down_use));
     // no errors
     lp_swp[3] = log_p_err[type[n]][3] + nom;
 		 
@@ -176,44 +190,47 @@ generated quantities{
     matrix[N, K] mu_l_use;
     matrix[N, K] mu_d_u_use;
     matrix[N, K] mu_d_l_use;
+    vector[N] i_up_use;
+    vector[N] i_down_use;
 
     mu_u_use = to_matrix(mu_u_type[type[n]]);
     mu_l_use = to_matrix(mu_l_type[type[n]]);
     mu_d_u_use = to_matrix(mu_d_u_type[type[n]]);
     mu_d_l_use = to_matrix(mu_d_l_type[type[n]]);
-
+    i_up_use = i_up_type[type[n]]';
+    i_down_use = i_down_type[type[n]]';
     
     lp[1] = log_p[n][1] + color_likelihood(y[n], C_u[n], C_l[n],
 					   mu_u_use, mu_d_u_use,
 					   mu_l_use, mu_d_l_use, cue[n],
 					   vars, nu,
-					   intercept_up, intercept_down);
+					   i_up_use, i_down_use);
     // spatial errors
     lp_swp[1] = (log_p_err[type[n]][1]
 		 + color_likelihood(y[n], C_l[n], C_u[n], mu_u_use,
 				    mu_d_u_use,
 				    mu_l_use, mu_d_l_use, cue[n], vars, nu,
-				    intercept_up, intercept_down));
+				    i_up_use, i_down_use));
     // cue errors
     lp_swp[2] = (log_p_err[type[n]][2]
 		 + color_likelihood(y[n], C_u[n], C_l[n], mu_u_use,
 				    mu_d_u_use,
 				    mu_l_use, mu_d_l_use, 1 - cue[n],
 				    vars, nu,
-				    intercept_up, intercept_down));
+				    i_up_use, i_down_use));
     // no errors
     lp_swp[3] = (log_p_err[type[n]][3]
 		 + color_likelihood(y[n], C_u[n], C_l[n], mu_u_use, mu_d_u_use,
 				    mu_l_use,
 				    mu_d_l_use, cue[n], vars, nu,
-				    intercept_up, intercept_down));
+				    i_up_use, i_down_use));
 		 
     // swap errors (spatial and cue)                    
     lp[2] = log_p[n][2] + log_sum_exp(lp_swp);   
     lp[3] = log_p[n][3] + color_likelihood(y[n], C_u[n], C_l[n], mu_u_use,
 					   mu_d_u_use, mu_l_use,
 					   mu_d_l_use, cue[n], vars, nu,
-					   intercept_up, intercept_down);
+					   i_up_use, i_down_use);
     log_lik[n] = log_sum_exp(lp);
 
     // generative model
@@ -225,7 +242,7 @@ generated quantities{
     {
       err_hat[n] = color_rng(C_u[n], C_l[n], mu_u_use, mu_d_u_use, mu_l_use,
 			     mu_d_l_use,
-			     cue[n], vars, nu, intercept_up, intercept_down);
+			     cue[n], vars, nu, i_up_use, i_down_use);
     }
     else if (trl_type==2)
     {
@@ -233,26 +250,26 @@ generated quantities{
       {
         err_hat[n] = color_rng(C_l[n], C_u[n], mu_u_use, mu_d_u_use, mu_l_use,
 			       mu_d_l_use,
-			       cue[n], vars, nu, intercept_up, intercept_down);
+			       cue[n], vars, nu, i_up_use, i_down_use);
       }
       else if (swp_type==2)
       {
         err_hat[n] = color_rng(C_u[n], C_l[n], mu_u_use, mu_d_u_use, mu_l_use,
 			       mu_d_l_use,
-			       1 - cue[n], vars, nu, intercept_up, intercept_down);
+			       1 - cue[n], vars, nu, i_up_use, i_down_use);
       }
       else if (swp_type==3)
       {
         err_hat[n] = color_rng(C_u[n], C_l[n], mu_u_use, mu_d_u_use, mu_l_use,
 			       mu_d_l_use,
-			       cue[n], vars, nu, intercept_up, intercept_down);
+			       cue[n], vars, nu, i_up_use, i_down_use);
       }
     }
     else if (trl_type==3)
     {
       err_hat[n] = color_rng(C_u[n], C_l[n], mu_u_use, mu_d_u_use, mu_l_use,
 			     mu_d_l_use,
-			     cue[n], vars, nu, intercept_up, intercept_down);
+			     cue[n], vars, nu, i_up_use, i_down_use);
     }
 
   }
