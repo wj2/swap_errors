@@ -39,6 +39,37 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
                          'sess_{session_num}/{time_period}/{time_bin}/'
                          'pca_0.95_before/impute_True/interpolated_knots/')
 
+o_fit_templ = 'fit_spline{n_colors}_sess{sess_ind}_{period}_{run_ind}{ext}'
+o_fp = '../results/swap_errors/fits/'
+
+def load_o_fits(run_ind, n_colors=5, sess_inds=range(23),
+                period='WHEEL_ON', load_data=False, fit_templ=o_fit_templ,
+                folder=o_fp):
+    out_dict = {}
+    for ind in sess_inds:
+        az_ind = fit_templ.format(n_colors=n_colors, sess_ind=ind,
+                                  period=period,
+                                  ext='_az.nc',
+                                  run_ind=run_ind)
+        az_fp = os.path.join(folder, az_ind)
+        fit = az.from_netcdf(az_fp)
+        out_dict[ind] = ({'other':fit},)
+        if load_data:
+            d_ind = fit_templ.format(n_colors=n_colors, sess_ind=ind,
+                                     period=period,
+                                     ext='.pkl',
+                                     run_ind=run_ind)
+            d_fp = os.path.join(folder, d_ind)
+            data = pickle.load(open(d_fp, 'rb'))
+            for k, v in data['diags'].items():
+                if not v:
+                    print('session {ind} has {k} warning'.format(ind=ind,
+                                                                 k=k))
+            fit_data = data.pop('data')
+            data.update(fit_data)
+            out_dict[ind] = out_dict[ind] + (data,)
+    return out_dict
+    
 
 def load_x_sweep(folder, run_ind, template):
     fls = os.listdir(folder)

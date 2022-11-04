@@ -505,7 +505,40 @@ def plot_all_nc_dict(centroid_dict, use_d1s=('d1_cl', 'd1_cu'),
                                               axs=axs[i:i+1])
         axs[i, 0].set_ylabel(r_key)
     return axs
-    
+
+def _plot_simplex(pts, ax, line_grey_col=(.6, .6, .6)):
+    pts_x = pts[:, 1] - pts[:, 0]
+    pts_y = pts[:, 2] - (pts[:, 0] + pts[:, 1])
+    ax.plot(pts_x, pts_y, 'o')
+    ax.plot([-1, 0], [-1, 1], color=line_grey_col)
+    ax.plot([0, 1], [1, -1], color=line_grey_col)
+    ax.plot([-1, 1], [-1, -1], color=line_grey_col)
+    ax.set_aspect('equal')
+
+
+def plot_all_simplices(o_dict, axs_dict=None, fwid=3,
+                       model_key='other', simplex_key='p_err', thin=10,
+                       line_grey_col=(.6, .6, .6),):
+    if axs_dict is None:
+        axs_dict = {}
+    for k, fit_dict in o_dict.items():
+        if axs_dict.get(k) is None:
+            if k[-1] == 'joint':
+                sec_ax = 2
+            else:
+                sec_ax = 1
+            f, axs_k = plt.subplots(1, sec_ax, figsize=(fwid*sec_ax, fwid))
+        for sess_ind, (fit, data) in fit_dict.items():
+            simplex = np.concatenate(fit[model_key].posterior[simplex_key],
+                                     axis=0)
+            if len(simplex.shape) == 3:
+                for ind in range(simplex.shape[1]):
+                    pts = simplex[::thin, ind]
+                    _plot_simplex(pts, axs_k[ind], line_grey_col=line_grey_col)
+            else:
+                pts = simplex[::thin]
+                _plot_simplex(pts, axs_k, line_grey_col=line_grey_col)
+            
 def visualize_simplex_2d(pts, ax=None, ax_labels=None, thr=.5,
                          pt_grey_col=(.7, .7, .7),
                          line_grey_col=(.6, .6, .6),
@@ -800,7 +833,8 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
     return ax
 
 def save_all_dists(loaded_data, p_thrs=(0, .2, .3, .4, .5),
-                   corr_fl='histogram', wheel_types=('retro', 'pro')):
+                   corr_fl='histogram', wheel_types=('retro', 'pro'),
+                   new_joint=False):
     for (m, time, trl), data in loaded_data.items():
         if time == 'cue':
             types = (None,)
@@ -817,25 +851,27 @@ def save_all_dists(loaded_data, p_thrs=(0, .2, .3, .4, .5),
             + '{}')
         n_bins=18
 
-        figs, e_dat = plot_dists(p_thrs, types, data, n_bins=n_bins,
-                                 file_templ=file_templ, mistakes=mistakes, 
-                                 bin_bounds=(-1, 2), ret_data=False)
+        figs = plot_dists(p_thrs, types, data, n_bins=n_bins,
+                          file_templ=file_templ, mistakes=mistakes, 
+                          bin_bounds=(-1, 2), ret_data=False,
+                          new_joint=new_joint)
     
         file_templ = ('{}-'
                       + '{}-{}-{}-less-histograms-pthr'.format(m, time, trl)
                       + '{}')
         n_bins=18
 
-        figs, e_dat = plot_dists(p_thrs[1:], types, data, n_bins=n_bins,
-                                 file_templ=file_templ, mistakes=mistakes, 
-                                 bin_bounds=(-1, 2), ret_data=False,
-                                 p_comp=np.less)
+        figs = plot_dists(p_thrs[1:], types, data, n_bins=n_bins,
+                          file_templ=file_templ, mistakes=mistakes, 
+                          bin_bounds=(-1, 2), ret_data=False,
+                          p_comp=np.less,
+                          new_joint=new_joint)
 
 
 def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                n_bins=25, bin_bounds=(-1, 2), file_templ='{}-histograms-pthr{}',
                mistakes=('spatial', 'cue'), ret_data=True, p_comp=np.greater,
-               **kwargs):
+               new_joint=False, **kwargs):
     figsize = (fwid*len(mistakes)*mult, fwid)
     if color_dict is None:
         spatial_color = np.array([36, 123, 160])/256
@@ -857,7 +893,7 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
             _, w_dat = plot_session_swap_distr_collection(
                 *args, n_bins=n_bins, p_thresh=p_thr, colors=color_dict,
                 bin_bounds=bin_bounds, axs=axs[k:k+1], trl_filt=trl_type,
-                mistake=mistake, p_comp=p_comp)
+                mistake=mistake, p_comp=p_comp, new_joint=new_joint)
 
             out_data[(mistake, trl_type, p_thr)] = w_dat
             gpl.clean_plot(axs[k], k)
@@ -923,7 +959,8 @@ def plot_proj_p_scatter(td, p, ax=None, bounds=(-1, 2), color=None,
 def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                                        fwid=3, p_ind=1, bin_bounds=None,
                                        ret_data=True, colors=None,
-                                       mistake='spatial', **kwargs):
+                                       mistake='spatial', new_joint=False,
+                                       **kwargs):
     if colors is None:
         colors = {}
     if axs is None:
@@ -963,6 +1000,7 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
     for (sn, (mdict, data)) in session_dict.items():
         for (k, faz) in mdict.items():
             out = swan.get_normalized_centroid_distance(faz, data, p_ind=p_ind,
+                                                        new_joint=new_joint,
                                                         **cent_keys)
             true, pred, ps = out
             true_k = true_d.get(k, [])
