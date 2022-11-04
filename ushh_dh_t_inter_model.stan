@@ -2,8 +2,9 @@ functions {
   real color_likelihood(vector resp, vector cu, vector cl,
 			matrix mu_u, matrix mu_d_u,
 			matrix mu_l, matrix mu_d_l,
-			int cue, vector vars,
-			vector nu, vector intercept_up, vector intercept_down) {
+			int cue,
+			vector vars, vector nu,
+			vector intercept_up, vector intercept_down) {
     real out;
     out = (cue*(student_t_lpdf(resp | nu, mu_u*cu + mu_d_l*cl + intercept_up,
 			       sqrt(vars))) 
@@ -12,11 +13,15 @@ functions {
     return out;
   }
 
-  vector color_rng(vector cu, vector cl, matrix mu_u, matrix mu_d_u,
-		   matrix mu_l, matrix mu_d_l, int cue, vector vars,
-		   vector nu, vector intercept_up, vector intercept_down) {
+  vector color_rng(vector cu, vector cl,
+		   matrix mu_u, matrix mu_d_u,
+		   matrix mu_l, matrix mu_d_l,
+		   int cue,
+		   vector vars, vector nu,
+		   vector intercept_up, vector intercept_down) {
     vector[dims(vars)[1]] out;
-    out = to_vector(student_t_rng(nu, cue*(mu_u*cu + mu_d_l*cl + intercept_up)
+    out = to_vector(student_t_rng(nu,
+				  cue*(mu_u*cu + mu_d_l*cl + intercept_up)
 				  + (1-cue)*(mu_l*cl + mu_d_u*cu + intercept_down),
 				  sqrt(vars)));
     return out;
@@ -125,20 +130,25 @@ model {
     mu_d_u_use = to_matrix(mu_d_u_type[type[n]]);
     mu_d_l_use = to_matrix(mu_d_l_type[type[n]]);
     
-    nom = color_likelihood(y[n], C_u[n], C_l[n], mu_u_use, mu_d_u_use,
-			   mu_l_use, mu_d_l_use, cue[n], vars, nu,
+    nom = color_likelihood(y[n], C_u[n], C_l[n],
+			   mu_u_use, mu_d_u_use,
+			   mu_l_use, mu_d_l_use,
+			   cue[n], vars, nu,
 			   intercept_up, intercept_down);
     lp[1] = log_p[n][1] + nom;
     // spatial errors
     lp_swp[1] = (log_p_err[type[n]][1]
-		 + color_likelihood(y[n], C_l[n], C_u[n], mu_u_use,
-				    mu_d_u_use,
-				    mu_l_use, mu_d_l_use, cue[n], vars, nu,
+		 + color_likelihood(y[n], C_l[n], C_u[n],
+				    mu_u_use, mu_d_u_use,
+				    mu_l_use, mu_d_l_use,
+				    cue[n], vars, nu,
 				    intercept_up, intercept_down));
     // cue errors
     lp_swp[2] = (log_p_err[type[n]][2]
-		 + color_likelihood(y[n], C_u[n], C_l[n], mu_u_use, mu_d_u_use,
-				    mu_l_use, mu_d_l_use, 1 - cue[n], vars, nu,
+		 + color_likelihood(y[n], C_u[n], C_l[n],
+				    mu_u_use, mu_d_u_use,
+				    mu_l_use, mu_d_l_use,
+				    1 - cue[n], vars, nu,
 				    intercept_up, intercept_down));
     // no errors
     lp_swp[3] = log_p_err[type[n]][3] + nom;

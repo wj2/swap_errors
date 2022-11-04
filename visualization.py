@@ -833,13 +833,14 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
     return ax
 
 def save_all_dists(loaded_data, p_thrs=(0, .2, .3, .4, .5),
-                   corr_fl='histogram', new_joint=False):
+                   corr_fl='histogram', wheel_types=('retro', 'pro'),
+                   new_joint=False):
     for (m, time, trl), data in loaded_data.items():
         if time == 'cue':
             types = (None,)
             mistakes = ('misbind',)
         else:
-            types = ('retro', 'pro')
+            types = wheel_types
             mistakes = ('spatial', 'cue', 'spatial-cue')
 
         file_templ = (
@@ -978,6 +979,8 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                          cent2_keys=((('mu_l', 'mu_d_u'), 'intercept_down'),
                                      (('mu_d_l', 'mu_u'), 'intercept_up')))
     elif mistake == 'cue':
+        ## IS THIS RIGHT? or is something weird with intercepts?
+        ## CHECK THIS CODE (again, sheesh)
         cent_keys = dict(cent1_keys=((('mu_d_u', 'mu_l'), 'intercept_down'),
                                      (('mu_u', 'mu_d_l'), 'intercept_up')),
                          cent2_keys = ((('mu_u', 'mu_d_l'), 'intercept_up'),
