@@ -746,7 +746,7 @@ def _compute_common_dimred(mdict, use_keys=(), convert=True, truncate_dim=None,
 
 def visualize_model_collection(mdict, dim_red=True, mu_u_keys=('mu_u', 'mu_d_u'),
                                mu_l_keys=('mu_l', 'mu_d_l'),
-                               inter_up='intercept_up', inter_down='intercept_down',
+                               inter_up='i_up_type', inter_down='i_down_type',
                                ax=None, common_dim_red=False, **kwargs):
     trs = None
     if ax is None:
@@ -974,22 +974,22 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
     pred_d = {}
     ps_d = {}
     if mistake == 'spatial':
-        cent_keys = dict(cent1_keys=((('mu_d_u', 'mu_l'), 'intercept_down'),
-                                     (('mu_u', 'mu_d_l'), 'intercept_up')),
-                         cent2_keys=((('mu_l', 'mu_d_u'), 'intercept_down'),
-                                     (('mu_d_l', 'mu_u'), 'intercept_up')))
+        cent_keys = dict(cent1_keys=((('mu_d_u', 'mu_l'), 'i_down_type'),
+                                     (('mu_u', 'mu_d_l'), 'i_up_type')),
+                         cent2_keys=((('mu_l', 'mu_d_u'), 'i_down_type'),
+                                     (('mu_d_l', 'mu_u'), 'i_up_type')))
     elif mistake == 'cue':
         ## IS THIS RIGHT? or is something weird with intercepts?
         ## CHECK THIS CODE (again, sheesh)
-        cent_keys = dict(cent1_keys=((('mu_d_u', 'mu_l'), 'intercept_down'),
-                                     (('mu_u', 'mu_d_l'), 'intercept_up')),
-                         cent2_keys = ((('mu_u', 'mu_d_l'), 'intercept_up'),
-                                       (('mu_d_u', 'mu_l'), 'intercept_down')))
+        cent_keys = dict(cent1_keys=((('mu_d_u', 'mu_l'), 'i_down_type'),
+                                     (('mu_u', 'mu_d_l'), 'i_up_type')),
+                         cent2_keys = ((('mu_u', 'mu_d_l'), 'i_up_type'),
+                                       (('mu_d_u', 'mu_l'), 'i_down_type')))
     elif mistake == 'spatial-cue':
-        cent_keys = dict(cent1_keys=((('mu_l', 'mu_d_u'), 'intercept_down'),
-                                     (('mu_d_l', 'mu_u'), 'intercept_up')),
-                         cent2_keys = ((('mu_u', 'mu_d_l'), 'intercept_up'),
-                                       (('mu_d_u', 'mu_l'), 'intercept_down')))
+        cent_keys = dict(cent1_keys=((('mu_l', 'mu_d_u'), 'i_down_type'),
+                                     (('mu_d_l', 'mu_u'), 'i_up_type')),
+                         cent2_keys = ((('mu_u', 'mu_d_l'), 'i_up_type'),
+                                       (('mu_d_u', 'mu_l'), 'i_down_type')))
     elif mistake == 'misbind':
         cent_keys = dict(cent1_keys=((('mu_u', 'mu_l'), None),),
                          cent2_keys=((('mu_l', 'mu_u'), None),))

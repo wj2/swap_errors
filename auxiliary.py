@@ -52,15 +52,16 @@ def load_o_fits(run_ind, n_colors=5, sess_inds=range(23),
                                   ext='_az.nc',
                                   run_ind=run_ind)
         az_fp = os.path.join(folder, az_ind)
-        fit = az.from_netcdf(az_fp)
-        out_dict[ind] = ({'other':fit},)
-        if load_data:
-            d_ind = fit_templ.format(n_colors=n_colors, sess_ind=ind,
-                                     period=period,
-                                     ext='.pkl',
-                                     run_ind=run_ind)
-            d_fp = os.path.join(folder, d_ind)
-            data = pickle.load(open(d_fp, 'rb'))
+        if os.path.isfile(az_fp):
+            fit = az.from_netcdf(az_fp)
+            out_dict[ind] = ({'other':fit},)
+            if load_data:
+                d_ind = fit_templ.format(n_colors=n_colors, sess_ind=ind,
+                                         period=period,
+                                         ext='.pkl',
+                                         run_ind=run_ind)
+                d_fp = os.path.join(folder, d_ind)
+                data = pickle.load(open(d_fp, 'rb'))
             for k, v in data['diags'].items():
                 if not v:
                     print('session {ind} has {k} warning'.format(ind=ind,
@@ -68,6 +69,8 @@ def load_o_fits(run_ind, n_colors=5, sess_inds=range(23),
             fit_data = data.pop('data')
             data.update(fit_data)
             out_dict[ind] = out_dict[ind] + (data,)
+        else:
+            print('no file found for session {}'.format(ind))
     return out_dict
     
 

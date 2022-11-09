@@ -146,8 +146,17 @@ def _get_key_mu(posterior, cols, keys, mean=True, mask=None, inter_key=None,
         else:
             mu_arr = mu_arr + dot_arr
     if inter_key is not None and inter_key in posterior.keys():
-        inter_pt = np.expand_dims(np.concatenate(posterior[inter_key].to_numpy(),
-                                                 axis=0), 2)
+        inter_pt = np.concatenate(posterior[inter_key].to_numpy(),
+                                  axis=0)
+        if use_ind is not None:
+            i_new = np.zeros(mu_arr.shape)
+            i0 = inter_pt[:, 0]
+            i1 = inter_pt[:, 1]
+            i_new[:, :, ui == 1] = np.expand_dims(i0, 2)
+            i_new[:, :, ui == 2] = np.expand_dims(i1, 2)
+            inter_pt = i_new
+        else:
+            inter_pt = np.expand_dims(inter_pt, 2)
         mu_arr = mu_arr + inter_pt 
     if mean:
         mu_arr = np.mean(mu_arr, axis=0)
@@ -257,7 +266,8 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                           mask=cue_mask, inter_key=cent1_keys[cue][1],
                           use_ind=use_ind)
         mu2 = _get_key_mu(fit_az.posterior, cols, cent2_keys[cue][0],
-                          mask=cue_mask, inter_key=cent2_keys[cue][1])
+                          mask=cue_mask, inter_key=cent2_keys[cue][1],
+                          use_ind=use_ind)
         v_len = np.sqrt(np.sum((mu2 - mu1)**2, axis=1))
         v_len[v_len < eps] = 1
         resp_c = resp[cue_mask]

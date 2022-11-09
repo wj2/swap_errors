@@ -25,10 +25,11 @@ def create_parser():
     default_data = ('/burg/theory/users/ma3811/assignment_errors/'
                     '{num_colors}_colors/sess_{sess_ind}/{period}_diode/'
                     '-0.5-0.0-0.5_0.5/'
-                    'pca_0.95_before/impute_True/spline1_knots/all/'
+                    'pca_0.95_before/impute_True/spline{spline_order}_knots/all/'
                     '{trl_type}/stan_data.pkl')
-    parser.add_argument('--use_trl_types', default=('pro', 'retro'),
+    parser.add_argument('--use_trl_types', default=('retro', 'pro'),
                         type=str, nargs='+')
+    parser.add_argument('--spline_order', default=1, type=int)
     parser.add_argument('--use_joint_data', default=False, action='store_true')
     parser.add_argument('--jobid', default='0000', type=str)    
     parser.add_argument('--data_path', default=default_data, type=str)
@@ -39,16 +40,17 @@ def create_parser():
     parser.add_argument('--n_chains', default=4, type=int)
     return parser
 
-default_add_keys = ('y', 'C_u', 'C_l', 'cue', 'p', 'up_col_rads',
-                    'down_col_rads')
+default_add_keys = ('y', 'C_u', 'C_l', 'cue', 'p')
+default_extra_keys = ('up_col_rads', 'down_col_rads')
 def add_key(key, fd, kd):
     if fd.get(key) is None:
-        out = kd[key]
+        out = kd.get(key)
     else:
-        out = np.concatenate((fd[key], kd[key]))
+        out = np.concatenate((fd[key], kd.get(key)))
     return out
 
-def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys):
+def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys,
+               extra_add_keys=default_extra_keys):
     all_keys = set(data_d.keys())
     noerr_types = set(noerr_types)
     first_keys = list(all_keys.difference(noerr_types))
@@ -68,30 +70,35 @@ def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys):
         model_error = (np.ones(dk['T'])*(key not in noerr_types)).astype(int)
         full_dict['model_error'] = (full_dict.get('model_error', ())
                                     + (model_error,)*dk['T'])
-        for ak in default_add_keys:
+        for ak in add_keys:
             full_dict[ak] = add_key(ak, full_dict, dk)
+        for eak in extra_add_keys:
+            extra_dict[eak] = add_key(eak, full_dict, dk)
         key_ind = key_ind + 1
+    full_dict['model_error'] = np.concatenate(full_dict['model_error'])
     full_dict['type'] = full_dict['type'].astype(int)
     return full_dict, extra_dict
 
 if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
-    data_path = args.data_path
+    data_path_templ = args.data_path
     if args.use_joint_data:
-        data_path = data_path.format(num_colors=args.num_colors,
-                                     sess_ind=args.sess_ind,
-                                     period=args.period,
-                                     trl_type='joint')
+        data_path = data_path_templ.format(num_colors=args.num_colors,
+                                           sess_ind=args.sess_ind,
+                                           period=args.period,
+                                           trl_type='joint',
+                                           spline_order=args.spline_order)
         data = pickle.load(open(data_path, 'rb'))
         extra_data = {}
     else:
         data_unmerged = {}
         for i, utt in enumerate(args.use_trl_types):
-            data_path = data_path.format(num_colors=args.num_colors,
-                                         sess_ind=args.sess_ind,
-                                         period=args.period,
-                                         trl_type=utt)
+            data_path = data_path_templ.format(num_colors=args.num_colors,
+                                               sess_ind=args.sess_ind,
+                                               period=args.period,
+                                               trl_type=utt,
+                                               spline_order=args.spline_order)
             data_i = pickle.load(open(data_path, 'rb'))
             data_unmerged[utt] = data_i
         data, extra_data = merge_data(data_unmerged)
