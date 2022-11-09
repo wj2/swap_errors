@@ -248,7 +248,10 @@ class EphysIntroFigure(SwapErrorFigure):
         if self.data.get(key) is None:
             exp_data = self._get_experimental_data()
 
-    def _decode_pseudopop(self, data_m, field_str, type_str,
+    def _decode_pseudopop(self,
+                          data_m,
+                          field_str,
+                          type_str,
                           gen_field_str,
                           mask_func=_upper_color_mask):
         tbeg = self.params.getfloat(field_str + '_beg')
@@ -259,6 +262,7 @@ class EphysIntroFigure(SwapErrorFigure):
         tzf = self.params.get('{}_{}_timekey'.format(field_str, type_str))
         gen_tzf = self.params.get('{}_{}_timekey'.format(gen_field_str,
                                                          type_str))
+        
         min_trials = self.params.getint('min_trials')
         pre_pca = self.params.getfloat('pre_pca')
         repl_nan = self.params.getboolean('repl_nan')
@@ -330,12 +334,23 @@ class EphysIntroFigure(SwapErrorFigure):
                     ('decoding performance', ''))
         x_labels = (('time from stimuli', 'time from cue'),
                     ('time from cue', 'time from stimuli'))
+        plot_dec = ((('upper color', 'lower color'), ('target color', 'cue')),
+                    (('cue',), ('target color')))
+        plot_gen = (((), ('upper color', 'lower color')),
+                    ((), ('cue',)))
         for (i, j) in u.make_array_ind_iterator((2, 2)):
             ax = axs[i, j]
             for (key, (dec, xs, gen)) in decs[i][j].items():
-                dec_avg = np.mean(dec, axis=1)
-                gpl.plot_trace_werr(xs, dec_avg, ax=ax, label=key,
-                                    conf95=True)
+                if key in plot_dec[i][j]:
+                    dec_avg = np.mean(dec, axis=1)
+                    gpl.plot_trace_werr(xs, dec_avg, ax=ax, label=key,
+                                        conf95=True)
+                if key in plot_gen[i][j]:
+                    gen_avg = np.mean(gen, axis=1)
+                    gpl.plot_trace_werr(xs, gen_avg, ax=ax, label=key,
+                                        conf95=True)
+                    
+                
             ax.set_xlabel(x_labels[i][j])
             ax.set_ylabel(y_labels[i][j])
             ax.set_title(titles[i][j], loc='left')
