@@ -241,12 +241,8 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
     else:
         mask = np.ones(len(data[p_key]), dtype=bool)
     if trl_filt is not None:
-        if trl_filt == 'retro':
-            mask = np.logical_and(mask, data[type_key] == 1)
-        elif trl_filt == 'pro':
-            mask = np.logical_and(mask, data[type_key] == 2)
-        else:
-            raise IOError('trl_filt key not recognized')
+        ind, ti = swa.get_type_ind(trl_filt, data, return_type=True)
+        mask = np.logical_and(mask, data[type_key] == ti)
     true_arr = []
     pred_arr = []
     p_vals = []

@@ -38,10 +38,12 @@ def create_parser():
     parser.add_argument('--sess_ind', default=0, type=int)
     parser.add_argument('--n_iter', default=500, type=int)
     parser.add_argument('--n_chains', default=4, type=int)
+    parser.add_argument('--fit_guesses', default=False, action='store_true')
+    parser.add_argument('--fit_delay1', default=False, action='store_true')
     return parser
 
-default_add_keys = ('y', 'C_u', 'C_l', 'cue', 'p')
-default_extra_keys = ('up_col_rads', 'down_col_rads')
+default_add_keys = ('y', 'C_u', 'C_l', 'cue', 'p', 'C_resp')
+default_extra_keys = ('up_col_rads', 'down_col_rads', 'resp_rads')
 def add_key(key, fd, kd):
     if fd.get(key) is None:
         out = kd.get(key)
@@ -83,6 +85,10 @@ if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
     data_path_templ = args.data_path
+    if args.fit_delay1:
+        args.period = 'CUE2_ON'
+        args.use_trl_types = ('retro',)
+        args.model_path = 'swap_errors/ushh_d1_t_model.pkl'
     if args.use_joint_data:
         data_path = data_path_templ.format(num_colors=args.num_colors,
                                            sess_ind=args.sess_ind,
@@ -90,6 +96,7 @@ if __name__ == '__main__':
                                            trl_type='joint',
                                            spline_order=args.spline_order)
         data = pickle.load(open(data_path, 'rb'))
+        data['C_resp'] = data['resp_spl']
         extra_data = {}
     else:
         data_unmerged = {}
@@ -100,6 +107,7 @@ if __name__ == '__main__':
                                                trl_type=utt,
                                                spline_order=args.spline_order)
             data_i = pickle.load(open(data_path, 'rb'))
+            data_i['C_resp'] = data_i['resp_spl']
             data_unmerged[utt] = data_i
         data, extra_data = merge_data(data_unmerged)
     model = pickle.load(open(args.model_path, 'rb'))
@@ -107,7 +115,15 @@ if __name__ == '__main__':
     n_iter = args.n_iter
     n_chains = args.n_chains
 
-    fit, fit_az, diag = su.fit_model(data, args.model_path, iter=n_iter, 
+    if args.fit_guesses:
+        if args.fit_delay1:
+            model_path = 'swap_errors/ushh_dh_guess_t_model.pkl'
+        else:
+            model_path = 'swap_errors/ushh_d1_guess_t_model.pkl'
+    else:
+        model_path = args.model_path
+
+    fit, fit_az, diag = su.fit_model(data, model_path, iter=n_iter, 
                                      chains=n_chains)
     out_name = args.output_name.format(num_colors=args.num_colors,
                                        sess_ind=args.sess_ind,
@@ -124,6 +140,8 @@ if __name__ == '__main__':
         'diags':diag,
         'fit_time':now,
         'data':data,
+        'model_path':model_path,
+        'args':args
     }
     pickle.dump(out_struct, open(out_path, 'wb'))
     fit_az.to_netcdf(out_az_path)

@@ -13,6 +13,7 @@ import seaborn as sns
 import general.plotting as gpl
 import general.utility as u
 import swap_errors.analysis as swan
+import swap_errors.auxiliary as swaux
 
 def plot_trial_lls(m1, m2, axs=None, use_types=None, model_key='hybrid',
                    l_key='y', fwid=3):
@@ -515,9 +516,35 @@ def _plot_simplex(pts, ax, line_grey_col=(.6, .6, .6)):
     ax.plot([-1, 1], [-1, -1], color=line_grey_col)
     ax.set_aspect('equal')
 
+def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
+                          model_key='other', simplex_key='p_guess_err',
+                          type_order=('retro', 'pro'),
+                          line_grey_col=(.6, .6, .6),):
+    if axs_dict is None:
+        axs_dict = {}
+    for k, fit_dict in o_dict.items():
+        if axs_dict.get(k) is None:
+            if k[-1] == 'joint':
+                sec_ax = 2
+            else:
+                sec_ax = 1
+            f, axs_k = plt.subplots(1, sec_ax, figsize=(fwid*sec_ax, fwid))
+        for sess_ind, (fit, data) in fit_dict.items():
+            simplex = np.concatenate(fit[model_key].posterior[simplex_key],
+                                     axis=0)
+            if len(simplex.shape) == 3:
+                for i, type_ in enumerate(type_order):
+                    ind = swaux.get_type_ind(type_, data)
+                    pts = simplex[:, ind]
+                    axs_k[i].hist(pts[:, 0])
+            else:
+                pts = simplex
+                axs_k.hist(pts[:, 0])
+    
 
 def plot_all_simplices(o_dict, axs_dict=None, fwid=3,
                        model_key='other', simplex_key='p_err', thin=10,
+                       type_order=('retro', 'pro'),
                        line_grey_col=(.6, .6, .6),):
     if axs_dict is None:
         axs_dict = {}
@@ -532,9 +559,10 @@ def plot_all_simplices(o_dict, axs_dict=None, fwid=3,
             simplex = np.concatenate(fit[model_key].posterior[simplex_key],
                                      axis=0)
             if len(simplex.shape) == 3:
-                for ind in range(simplex.shape[1]):
+                for i, type_ in enumerate(type_order):
+                    ind = swaux.get_type_ind(type_, data)
                     pts = simplex[::thin, ind]
-                    _plot_simplex(pts, axs_k[ind], line_grey_col=line_grey_col)
+                    _plot_simplex(pts, axs_k[i], line_grey_col=line_grey_col)
             else:
                 pts = simplex[::thin]
                 _plot_simplex(pts, axs_k, line_grey_col=line_grey_col)

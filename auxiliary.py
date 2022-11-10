@@ -42,6 +42,16 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
 o_fit_templ = 'fit_spline{n_colors}_sess{sess_ind}_{period}_{run_ind}{ext}'
 o_fp = '../results/swap_errors/fits/'
 
+def get_type_ind(type_, data, use_default=None, return_type=False):
+    if use_default is None:
+        use_default = {'retro':1, 'pro':2}
+    use_dict = data.get('type_conv', use_default)
+    type_int = use_dict[type_]
+    out = type_int - 1
+    if return_type:
+        out = (out, type_int)
+    return out
+
 def load_o_fits(run_ind, n_colors=5, sess_inds=range(23),
                 period='WHEEL_ON', load_data=False, fit_templ=o_fit_templ,
                 folder=o_fp):
@@ -68,6 +78,7 @@ def load_o_fits(run_ind, n_colors=5, sess_inds=range(23),
                                                                  k=k))
             fit_data = data.pop('data')
             data.update(fit_data)
+            data['type_conv'] = dict(zip(data['type_str'], data['type']))
             out_dict[ind] = out_dict[ind] + (data,)
         else:
             print('no file found for session {}'.format(ind))
