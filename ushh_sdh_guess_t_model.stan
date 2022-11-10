@@ -173,7 +173,7 @@ model {
 
       // guess
       if (cue[n] == 1) {
-	lp_guess[1] = (log_p_err[type[n]][1]
+	lp_guess[1] = (log_p_guess_err[type[n]][1]
 		       + color_likelihood(y[n], C_resp[n], C_l[n],
 					  mu_u_use, mu_d_u_use,
 					  mu_l_use, mu_d_l_use, cue[n],
