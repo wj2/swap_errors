@@ -25,10 +25,12 @@ def create_parser():
     default_data = ('/burg/theory/users/ma3811/assignment_errors/'
                     '{num_colors}_colors/sess_{sess_ind}/{period}_diode/'
                     '-0.5-0.0-0.5_0.5/'
-                    'pca_0.95_before/impute_True/spline{spline_order}_knots/all/'
+                    'pca_0.95_before/impute_{use_impute}'
+                    '/spline{spline_order}_knots/all/'
                     '{trl_type}/stan_data.pkl')
     parser.add_argument('--use_trl_types', default=('retro', 'pro'),
                         type=str, nargs='+')
+    parser.add_argument('--no_imputation', default=False, action='store_true')
     parser.add_argument('--spline_order', default=1, type=int)
     parser.add_argument('--use_joint_data', default=False, action='store_true')
     parser.add_argument('--jobid', default='0000', type=str)    
@@ -79,12 +81,14 @@ def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys,
         key_ind = key_ind + 1
     full_dict['model_error'] = np.concatenate(full_dict['model_error'])
     full_dict['type'] = full_dict['type'].astype(int)
+    print(full_dict['type'], key)
     return full_dict, extra_dict
 
 if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
     data_path_templ = args.data_path
+    use_impute = not args.no_imputation
     if args.fit_delay1:
         args.period = 'CUE2_ON'
         args.use_trl_types = ('retro',)
@@ -94,6 +98,7 @@ if __name__ == '__main__':
                                            sess_ind=args.sess_ind,
                                            period=args.period,
                                            trl_type='joint',
+                                           use_impute=use_impute,
                                            spline_order=args.spline_order)
         data = pickle.load(open(data_path, 'rb'))
         data['C_resp'] = data['resp_spl']
@@ -105,6 +110,7 @@ if __name__ == '__main__':
                                                sess_ind=args.sess_ind,
                                                period=args.period,
                                                trl_type=utt,
+                                               use_impute=use_impute,
                                                spline_order=args.spline_order)
             data_i = pickle.load(open(data_path, 'rb'))
             data_i['C_resp'] = data_i['resp_spl']
@@ -115,14 +121,18 @@ if __name__ == '__main__':
     n_iter = args.n_iter
     n_chains = args.n_chains
 
-    if args.fit_guesses:
-        if args.fit_delay1:
-            model_path = 'swap_errors/ushh_dh_guess_t_model.pkl'
-        else:
-            model_path = 'swap_errors/ushh_d1_guess_t_model.pkl'
-    else:
-        model_path = args.model_path
+    model_dict = {
+        # fit_guesses, fit_delay1, use_single
+        (True, False, False):'swap_errors/ushh_dh_guess_t_model.pkl',
+        (False, False, False):'swap_errors/ushh_dh_t_inter_model.pkl',
+        (True, True, False):'swap_errors/ushh_d1_guess_t_model.pkl',
+        (True, False, True):'swap_errors/ushh_sdh_guess_t_model.pkl',
+        (False, False, True):'swap_errors/ushh_sdh_t_inter_model.pkl',
+    }
 
+    model_path = model_dict[args.fit_guesses, args.fit_delay1,
+                            'single' in args.use_trl_types]
+    print(model_path)
     fit, fit_az, diag = su.fit_model(data, model_path, iter=n_iter, 
                                      chains=n_chains)
     out_name = args.output_name.format(num_colors=args.num_colors,

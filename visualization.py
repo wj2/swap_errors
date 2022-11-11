@@ -864,7 +864,7 @@ def save_all_dists(loaded_data, p_thrs=(0, .2, .3, .4, .5),
                    corr_fl='histogram', wheel_types=('retro', 'pro'),
                    new_joint=False):
     for (m, time, trl), data in loaded_data.items():
-        if time == 'cue':
+        if time == 'CUE2_ON':
             types = (None,)
             mistakes = ('misbind',)
         else:

@@ -33,7 +33,7 @@ data {
   vector[K] C_l[T]; // lower color, 2-hot simplex vector
   vector[K] C_resp[T]; // color reported
   vector[3] p[T]; // probabilities
-  int<lower=1,upper=2> type[T]; // pro or retro tria ... must be all 0 if is_joint = False
+  int<lower=1,upper=3> type[T]; // pro or retro tria ... must be all 0 if is_joint = False
   int<lower=0,upper=1> is_joint; // whether to use two separate simplices
 }
 
@@ -192,7 +192,6 @@ model {
       lp[3] = log_p[n][3] + log_sum_exp(lp_guess);
       trg[n] = log_sum_exp(lp);
     } else {
-    
       nom = color_likelihood(y[n], C_u[n], C_l[n], mu_u_use, mu_u_use*0,
 			     mu_l_use, mu_l_use*0, cue[n], vars, nu,
 			     i_up_use, i_down_use);
@@ -327,13 +326,13 @@ generated quantities{
       }
     } else {
       log_lik[n] = color_likelihood(y[n], C_u[n], C_l[n],
-				    mu_u_use, mu_u_use*0,
-				    mu_l_use, mu_l_use*0, cue[n],
+				    mu_u_use, 0*mu_u_use,
+				    mu_l_use, 0*mu_l_use, cue[n],
 				    vars, nu,
 				    i_up_use, i_down_use);
       err_hat[n] = color_rng(C_u[n], C_l[n],
-			     mu_u_use, mu_d_u_use*0,
-			     mu_l_use, mu_d_l_use*0,
+			     mu_u_use, 0*mu_u_use,
+			     mu_l_use, 0*mu_l_use,
 			     cue[n], vars, nu, i_up_use, i_down_use);
     }
   }

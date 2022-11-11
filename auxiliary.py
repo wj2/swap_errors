@@ -52,6 +52,24 @@ def get_type_ind(type_, data, use_default=None, return_type=False):
         out = (out, type_int)
     return out
 
+def print_error_details(fit, Rhat=True, eps=.05, divergence=True, **kwargs):
+    if not Rhat:
+        rh = az.rhat(fit)
+        eps = .05
+        for k in rh.keys():
+            v = rh[k].to_numpy()
+            m1 = v > 1 + eps
+            m2 = v < 1 - eps
+            mask = np.logical_or(m1, m2)
+
+            if np.any(mask):
+                vals = v[mask]
+                print('rhat in {}\nvals are {}'.format(k, vals))
+    if not divergence:
+        mu_div = np.mean(fit.sample_stats['diverging'].to_numpy())
+        if mu_div > 0:
+            print('div\npercent is {}'.format(mu_div))
+
 def load_o_fits(run_ind, n_colors=5, sess_inds=range(23),
                 period='WHEEL_ON', load_data=False, fit_templ=o_fit_templ,
                 folder=o_fp):
@@ -76,6 +94,7 @@ def load_o_fits(run_ind, n_colors=5, sess_inds=range(23),
                 if not v:
                     print('session {ind} has {k} warning'.format(ind=ind,
                                                                  k=k))
+            print_error_details(fit, **data['diags'])
             fit_data = data.pop('data')
             data.update(fit_data)
             data['type_conv'] = dict(zip(data['type_str'], data['type']))
