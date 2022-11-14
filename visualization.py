@@ -522,6 +522,7 @@ def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
                           line_grey_col=(.6, .6, .6),):
     if axs_dict is None:
         axs_dict = {}
+        
     for k, fit_dict in o_dict.items():
         if axs_dict.get(k) is None:
             if k[-1] == 'joint':
@@ -529,6 +530,7 @@ def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
             else:
                 sec_ax = 1
             f, axs_k = plt.subplots(1, sec_ax, figsize=(fwid*sec_ax, fwid))
+            f.suptitle(k)
         for sess_ind, (fit, data) in fit_dict.items():
             simplex = np.concatenate(fit[model_key].posterior[simplex_key],
                                      axis=0)
@@ -537,10 +539,11 @@ def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
                     ind = swaux.get_type_ind(type_, data)
                     pts = simplex[:, ind]
                     axs_k[i].hist(pts[:, 0])
+                    axs_k[i].set_xlabel('{}\n{}'.format(simplex_key, type_))
             else:
                 pts = simplex
                 axs_k.hist(pts[:, 0])
-    
+                axs_k.set_xlabel('{}'.format(simplex_key))
 
 def plot_all_simplices(o_dict, axs_dict=None, fwid=3,
                        model_key='other', simplex_key='p_err', thin=10,

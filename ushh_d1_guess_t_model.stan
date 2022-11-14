@@ -62,8 +62,8 @@ model {
 
   // prior
   for (k in 1:K){
-    mu_u[:,k] ~ std_normal();
-    mu_l[:,k] ~ std_normal();
+    mu_u[:,k] ~ normal(0, 5);
+    mu_l[:,k] ~ normal(0, 5);
   }
   
   vars_raw ~ inv_gamma(2, 1);

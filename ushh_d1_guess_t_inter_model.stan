@@ -67,6 +67,7 @@ model {
     mu_u[:,k] ~ normal(0, 5);
     mu_l[:,k] ~ normal(0, 5);
   }
+  inter ~ normal(0, 5);
   
   vars_raw ~ inv_gamma(2, 1);
   nu ~ gamma(2, .1);
