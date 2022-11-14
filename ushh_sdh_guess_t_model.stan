@@ -89,6 +89,7 @@ model {
   real lp_swp[3];
   real lp_guess[2];
   real nom;
+  real alpha;
 
   matrix[N, K] mu_u_use;
   matrix[N, K] mu_l_use;
@@ -135,9 +136,10 @@ model {
   vars_raw ~ inv_gamma(2, 1);
   nu ~ gamma(2, .1);
 
+  alpha = 1;
   for (t in 1:size(p_err)){
-    p_err[t] ~ dirichlet(rep_vector(1.5,3));
-    p_guess_err[t] ~ dirichlet(rep_vector(1.5, 2));
+    p_err[t] ~ dirichlet(rep_vector(alpha, 3));
+    p_guess_err[t] ~ dirichlet(rep_vector(alpha, 2));
   }
 
   // likelihood
