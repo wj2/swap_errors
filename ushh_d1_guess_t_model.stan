@@ -59,6 +59,7 @@ model {
   real lp_swp[2];
   real lp_guess[2];
   real nom;
+  real alpha;
 
   // prior
   for (k in 1:K){
@@ -69,8 +70,9 @@ model {
   vars_raw ~ inv_gamma(2, 1);
   nu ~ gamma(2, .1);
 
-  p_err ~ dirichlet(rep_vector(1.5,2));
-  p_guess_err ~ dirichlet(rep_vector(1.5, 2));
+  alpha = 1
+  p_err ~ dirichlet(rep_vector(alpha, 2));
+  p_guess_err ~ dirichlet(rep_vector(alpha, 2));
 
   // likelihood
   for (n in 1:T) {
