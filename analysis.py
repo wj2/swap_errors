@@ -580,14 +580,23 @@ def corr_diff(ps, diff=0):
 def swap_diff(ps, diff=0):
     return _diff_decider(ps, 1, 0, diff=diff)
 
+def guess_diff(ps, diff=0):
+    return _diff_decider(ps, 2, 0, diff=diff)
+
 def swap_plurality(ps, prob=1/3):
     return _plurality_decider(ps, 1, prob=prob)
+
+def guess_plurality(ps, prob=1/3):
+    return _plurality_decider(ps, 2, prob=prob)
 
 def corr_plurality(ps, prob=1/3):
     return _plurality_decider(ps, 0, prob=prob)
 
 def swap_argmax(ps):
     return _argmax_decider(ps, 1)
+
+def guess_argmax(ps):
+    return _argmax_decider(ps, 2)
     
 def corr_argmax(ps):
     return _argmax_decider(ps, 0)
@@ -1037,6 +1046,58 @@ def naive_centroids_shuffle(*args, n_shuffles=5, **kwargs):
            np.array(cents_all))
     return out
 
+def naive_guessing(data_dict,
+                   cue_key='cue',
+                   cu_key='up_col_rads',
+                   cl_key='down_col_rads',
+                   use_cue=True,
+                   flip_cue = False,
+                   no_cue_targ='up_col_rads',
+                   no_cue_dist='resp_rads',
+                   tp_key='p',
+                   guess_key='resp_rads',
+                   activity_key='y',
+                   swap_decider=guess_argmax,
+                   corr_decider=corr_argmax,
+                   col_thr=np.pi/4,
+                   cv=skms.LeaveOneOut,
+                   col_diff=_col_diff_rad,
+                   convert_splines=True,
+                   shuffle_nulls=False,
+                   shuffle_swaps=False):
+    rng = np.random.default_rng()
+    if flip_cue:
+        no_cue_targ = 'down_col_rads'
+        no_cue_dist = 'resp_rads'
+    if not use_cue:
+        c_t = np.zeros_like(data_dict[no_cue_targ])
+        c_d = np.zeros_like(data_dict[no_cue_dist])
+        c_t[:] = data_dict[no_cue_targ][:]
+        c_d[:] = data_dict[no_cue_dist][:]
+    else:
+        c_t = np.zeros_like(data_dict[cu_key])
+        c_d = np.zeros_like(data_dict[cl_key])
+        
+        c1_mask = data_dict[cue_key] == 1
+        c0_mask = data_dict[cue_key] == 0
+
+        c_t[c1_mask] = data_dict[cu_key][c1_mask]
+        c_t[c0_mask] = data_dict[cl_key][c0_mask]
+        
+        c_d[c1_mask] = data_dict[guess_key][c1_mask]
+        c_d[c0_mask] = data_dict[guess_key][c0_mask]
+    if len(c_t.shape) > 1 and convert_splines:
+        c_t, c_d = convert_spline_to_rad(c_t, c_d)
+
+    corr_inds, guess_inds = _get_corr_swap_inds(data_dict[tp_key],
+                                                corr_decider,
+                                                swap_decider)
+    y = data_dict[activity_key]
+    return _compute_centroid_dists(data_dict, y, corr_inds, guess_inds, c_t, c_d,
+                                   col_thr=col_thr, col_diff=col_diff, tp_key=tp_key,
+                                   cv=cv)
+    
+
 def _naive_centroids_inner(data_dict,
                            cue_key='cue',
                            cu_key='up_col_rads',
@@ -1082,9 +1143,17 @@ def _naive_centroids_inner(data_dict,
     corr_inds, swap_inds = _get_corr_swap_inds(data_dict[tp_key],
                                                corr_decider,
                                                swap_decider)
+    y = data_dict[activity_key]
+    return _compute_centroid_dists(data_dict, y, corr_inds, swap_inds, c_t, c_d,
+                                   col_thr=col_thr, col_diff=col_diff,
+                                   cv=cv, tp_key=tp_key)
+
+def _compute_centroid_dists(data_dict, y, corr_inds, swap_inds, c_t, c_d,
+                            col_thr=np.pi/4, col_diff=_col_diff_rad,
+                            cv=skms.LeaveOneOut, tp_key='p',
+                            shuffle_swaps=False, shuffle_nulls=False):
     null_dists = np.zeros(len(corr_inds))
     swap_dists = np.zeros((len(corr_inds), len(swap_inds)))
-    y = data_dict[activity_key]
 
     null_cent = np.zeros((len(corr_inds), y.shape[1]))
     swap_cent = np.zeros_like(null_cent)
