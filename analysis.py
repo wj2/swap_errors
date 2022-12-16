@@ -159,8 +159,10 @@ def _get_key_mu(posterior, cols, keys, mean=True, mask=None, inter_key=None,
             inter_pt = np.expand_dims(inter_pt, 2)
         mu_arr = mu_arr + inter_pt 
     if mean:
-        mu_arr = np.mean(mu_arr, axis=0)
-    return mu_arr.T
+        mu_arr = np.mean(mu_arr, axis=0).T
+    else:
+        mu_arr = np.swapaxes(mu_arr, 1, 2)
+    return mu_arr
 
 spatial_mu_config = ((('mu_d_u', 'mu_l'),
                       ('mu_u', 'mu_d_l')),
@@ -203,7 +205,8 @@ def compute_vecs(fit_az, data, col_keys=('C_u', 'C_l'),
     return vecs, lens, m1s, m2s 
     
 def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
-                                     col_keys=('C_u', 'C_l'), 
+                                     col_keys=('C_u', 'C_l'),
+                                     col_key_guess='C_resp',
                                      cent1_keys=((('mu_d_u', 'mu_l'),
                                                   'intercept_down'),
                                                  (('mu_u', 'mu_d_l'),
@@ -221,7 +224,8 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                                      trl_filt=None,
                                      col_thr=.1,
                                      new_joint=False,
-                                     p_comp=np.greater):
+                                     p_comp=np.greater,
+                                     use_resp_color=False):
     cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
     pp = np.concatenate(fit_az.posterior_predictive[eh_key].to_numpy(),
                         axis=0)
@@ -258,12 +262,24 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
             use_ind = data[type_key]
         else:
             use_ind = None
+        if use_resp_color:
+            alt_cols = np.zeros_like(cols)
+            c_g = data[col_key_guess]
+            if cue == 0:
+                alt_cols[0] = cols[0]
+                alt_cols[1] = c_g
+            else:
+                alt_cols[0] = c_g
+                alt_cols[1] = cols[1]
+        else:
+            alt_cols = cols
         mu1 = _get_key_mu(fit_az.posterior, cols, cent1_keys[cue][0],
                           mask=cue_mask, inter_key=cent1_keys[cue][1],
-                          use_ind=use_ind)
-        mu2 = _get_key_mu(fit_az.posterior, cols, cent2_keys[cue][0],
+                          use_ind=use_ind, mean=True)
+        mu2 = _get_key_mu(fit_az.posterior, alt_cols, cent2_keys[cue][0],
                           mask=cue_mask, inter_key=cent2_keys[cue][1],
-                          use_ind=use_ind)
+                          use_ind=use_ind, mean=True)
+        
         v_len = np.sqrt(np.sum((mu2 - mu1)**2, axis=1))
         v_len[v_len < eps] = 1
         resp_c = resp[cue_mask]
