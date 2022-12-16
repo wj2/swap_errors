@@ -153,6 +153,11 @@ cluster_naive_d1_format_options = {
     'sessions':range(0, 23),
     'region':('all', 'frontal', 'posterior'),
     'trl_type':('retro',)}
+cluster_naive_d1_format_options_noregions = {
+    'sessions':range(0, 23),
+    'region':('all',),
+    'trl_type':('retro',)}
+
 
 cluster_naive_d2_path_templ = (
     '/burg/theory/users/ma3811/assignment_errors/5_colors/'
@@ -161,6 +166,10 @@ cluster_naive_d2_path_templ = (
 cluster_naive_d2_format_options = {
     'sessions':range(0, 23),
     'region':('all', 'frontal', 'posterior'),
+    'trl_type':('retro', 'pro')}
+cluster_naive_d2_format_options_noregions = {
+    'sessions':range(0, 23),
+    'region':('all',),
     'trl_type':('retro', 'pro')}
 
 def load_files_ma_folders(file_template, **format_options):

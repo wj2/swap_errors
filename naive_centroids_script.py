@@ -25,6 +25,7 @@ def create_parser():
     parser.add_argument('--shuffle_swaps', default=False, action='store_true')
     parser.add_argument('--shuffle_nulls', default=False, action='store_true')
     parser.add_argument('--use_guesses', default=False, action='store_true')
+    parser.add_argument('--no_regions', default=False, action='store_true')
     return parser
 
 decider_dict = {
@@ -61,7 +62,10 @@ if __name__ == '__main__':
     args.date = datetime.now()
     if not args.local_test and args.file_templ_d1 is None:
         file_templ_d1 = swaux.cluster_naive_d1_path_templ
-        form_opts_d1 = swaux.cluster_naive_d1_format_options
+        if args.no_regions:
+            form_opts_d1 = swaux.cluster_naive_d1_format_options_noregions
+        else:
+            form_opts_d1 = swaux.cluster_naive_d1_format_options
     elif args.local_test:
         file_templ_d1 = 'swap_errors/test_sessions/retro_{}/stan_data.pkl'
         form_opts_d1 = {'test_type':(14,)}
@@ -90,7 +94,11 @@ if __name__ == '__main__':
         
     if not args.local_test and args.file_templ_d2 is None:
         file_templ_d2 = swaux.cluster_naive_d2_path_templ
-        form_opts_d2 = swaux.cluster_naive_d2_format_options
+        if args.no_regions:
+            form_opts_d2 = swaux.cluster_naive_d2_format_options_noregions
+        else:
+            form_opts_d2 = swaux.cluster_naive_d2_format_options
+
     elif args.local_test:
         file_templ_d2 = 'swap_errors/test_sessions/retro_{}/stan_data.pkl'
         form_opts_d2 = {'test_type':(9,)}
