@@ -190,6 +190,183 @@ class BehaviorFigure(SwapErrorFigure):
         swv.visualize_simplex_2d(sd_arr, ax=ax, colors=simplex_colors,
                                  ax_labels=simplex_labels)
         
+class SingleUnitFigure(SwapErrorFigure):
+
+    def __init__(self, fig_key='single_neurons', colors=colors, **kwargs):
+        fsize = (7.5, 8)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+        
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        self.exp_data = None
+        super().__init__(fsize, params, colors=colors, **kwargs)
+
+    def make_gss(self):
+        gss = {}
+
+        n_egs = len(self.params.getlist('neur_inds'))
+        
+        # brain_schem_grid = self.gs[:33, :33]
+        # gss['panel_brain_schem'] = self.get_axs((brain_schem_grid,))
+
+        offset = 10
+        vert = 40
+        wid = 60
+        v_spacing = 3
+        h_spacing = 3
+        su_retro_tr_grids = pu.make_mxn_gridspec(self.gs, n_egs, 3,
+                                                 offset, offset + vert,
+                                                 0, wid,
+                                                 v_spacing, h_spacing)
+        su_tr_axs = self.get_axs(su_retro_tr_grids, sharex=True,
+                                 sharey='horizontal')
+        su_tune_axs = np.zeros_like(su_tr_axs, dtype=object)
+        for ind in u.make_array_ind_iterator(su_tr_axs.shape):
+            if ind[1] == 0:
+                s_y = None
+            else:
+                s_y = su_tune_axs[ind[0], 0]
+            su_tune_axs[ind] = su_tr_axs[ind].inset_axes(
+                (.6, .6, .4, .4),
+                polar=True,
+                sharey=s_y,
+            )        
+        gss['panel_su_retro_examples'] = (su_tr_axs, su_tune_axs)
+
+        offset = 60
+        su_pro_tr_grids = pu.make_mxn_gridspec(self.gs, n_egs, 3,
+                                                 offset, offset + vert,
+                                                 0, wid,
+                                                 v_spacing, h_spacing)
+        
+        su_tr_axs = self.get_axs(su_pro_tr_grids, sharex=True,
+                                 sharey='horizontal')
+        su_tune_axs = np.zeros_like(su_tr_axs, dtype=object)
+        for ind in u.make_array_ind_iterator(su_tr_axs.shape):
+            if ind[1] == 0:
+                s_y = None
+            else:
+                s_y = su_tune_axs[ind[0], 0]
+            su_tune_axs[ind] = su_tr_axs[ind].inset_axes(
+                (.6, .6, .4, .4),
+                polar=True,
+                sharey=s_y,
+            )        
+        gss['panel_su_pro_examples'] = (su_tr_axs, su_tune_axs)
+
+
+        
+        pop_retro_grids = pu.make_mxn_gridspec(self.gs, 2, 2,
+                                               0, 50, 60, 100,
+                                               2, 2)
+        su_axs = self.get_axs(pop_retro_grids, all_3d=True)
+        gss['panel_pop_retro_examples'] = su_axs
+
+        pop_pro_grids = pu.make_mxn_gridspec(self.gs, 2, 2,
+                                             50, 100, 60, 100,
+                                             2, 2)
+        plot_3ds = np.ones((2, 2), dtype=bool)
+        plot_3ds[0, 0] = False
+        su_axs = self.get_axs(pop_pro_grids, plot_3ds=plot_3ds)
+        gss['panel_pop_pro_examples'] = su_axs
+        
+        self.gss = gss
+
+    
+    def _get_experimental_data(self):
+        if self.exp_data is None:
+            max_files = np.inf
+            df = '../data/swap_errors/'
+            data = gio.Dataset.from_readfunc(
+                swa.load_buschman_data,
+                df,
+                max_files=max_files,
+                seconds=True, 
+                load_bhv_model='../data/swap_errors/bhv_model.pkl',
+                spks_template=swa.busch_spks_templ_mua
+            )
+            self.exp_data = data
+        return self.exp_data
+
+    def _su_examples(self, axs, use_retro=True, plot_colors=True):
+        tr_axs, tune_axs = axs
+
+        data = self._get_experimental_data()
+        date = self.params.get('eg_date')
+        neur_inds = self.params.getlist('neur_inds', typefunc=int)
+
+        upper_color = self.params.getcolor('upper_color')
+        lower_color = self.params.getcolor('lower_color')
+        target_color = self.params.getcolor('target_color')
+        distr_color = self.params.getcolor('distr_color')
+
+        cue_color = self.params.getcolor('cue_color')
+
+        _ = swv.plot_period_units_trace(data, date, neur_inds,
+                                        plot_colors=plot_colors,
+                                        use_retro=use_retro, axs=tr_axs,
+                                        default_upper_color=upper_color,
+                                        default_lower_color=lower_color,
+                                        default_target_color=target_color,
+                                        default_distr_color=distr_color,
+                                        default_cue_color=cue_color,)
+        _ = swv.plot_period_units_tuning(data, date, neur_inds,
+                                         use_retro=use_retro,
+                                         axs=tune_axs,
+                                         default_upper_color=upper_color,
+                                         default_lower_color=lower_color,
+                                         default_target_color=target_color,
+                                         default_distr_color=distr_color,
+                                         default_cue_color=cue_color,)
+
+    def _pop_examples(self, axs, use_retro=True, plot_colors=True,
+                      **kwargs):
+        data = self._get_experimental_data()
+        date = self.params.get('eg_date')
+
+        corr_color = self.params.getcolor('correct_color')
+        swap_color = self.params.getcolor('swap_color')
+        swv.plot_population_toruses(data, date, use_retro=use_retro,
+                                    corr_color=corr_color,
+                                    swap_color=swap_color,
+                                    axs=axs,
+                                    **kwargs)
+        
+    def panel_su_retro_examples(self):
+        key = 'panel_su_retro_examples'
+        axs = self.gss[key]
+        self._su_examples(axs)
+
+    def panel_su_pro_examples(self):
+        key = 'panel_su_pro_examples'
+        axs = self.gss[key]
+        self._su_examples(axs, use_retro=False)
+
+    def panel_pop_retro_examples(self):
+        key = 'panel_pop_retro_examples'
+        axs = self.gss[key]
+        self._pop_examples(axs)
+        
+        axs[0, 0].view_init(40, 30)
+        axs[0, 1].view_init(50, 20)
+        axs[1, 0].view_init(50, 10)
+        axs[1, 1].view_init(50, 10)
+
+
+    def panel_pop_pro_examples(self):
+        key = 'panel_pop_pro_examples'
+        axs = self.gss[key]
+
+        cue_color = self.params.getcolor('cue_color')
+        self._pop_examples(axs, use_retro=False,
+                           default_cue_color=cue_color)
+
+        axs[0, 1].view_init(20, 30)
+        axs[1, 0].view_init(50, 30)
+        axs[1, 1].view_init(50, 30)
+
+
 class EphysIntroFigure(SwapErrorFigure):
 
     def __init__(self, fig_key='ephys', colors=colors, **kwargs):

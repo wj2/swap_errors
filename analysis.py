@@ -10,6 +10,7 @@ import sklearn.model_selection as skms
 import sklearn.svm as skc
 import sklearn.linear_model as sklm
 import sklearn.preprocessing as skp
+import sklearn.pipeline as sklpipe
 import scipy.stats as sts
 import itertools as it
 import statsmodels.stats.weightstats as smw
@@ -1121,7 +1122,6 @@ def naive_guessing(data_dict,
                                    col_thr=col_thr, col_diff=col_diff, tp_key=tp_key,
                                    cv=cv)
     
-
 def _naive_centroids_inner(data_dict,
                            cue_key='cue',
                            cu_key='up_col_rads',
@@ -1466,6 +1466,67 @@ def single_neuron_color(data, tbeg, tend, twindow, tstep,
             k3 = data[neur_region][i].iloc[0][j]
             outs[(k1, k2, k3)] = val
     return outs, xs
+
+def generate_fake_data_from_model(model, stan_data, cu='C_u',
+                                  cl='C_l', use_t=True):
+    use_type = 'type' in stan_data.keys()
+    y_new = np.zeros_like(stan_data['y'])
+    for i, cu_i in enumerate(stan_data[cu]):
+        cl_i = stan_data[cl][i]
+        if use_type:
+            t_i = stan_data['type'][i] - 1
+            mu_u = model.posterior['mu_u_type'][:, :, t_i]
+            mu_l = model.posterior['mu_l_type'][:, :, t_i]
+        else:
+            mu_u = model.posterior['mu_u']
+            mu_l = model.posterior['mu_l']
+        mu_u = np.mean(mu_u, axis=(0, 1))
+        mu_l = np.mean(mu_l, axis=(0, 1))
+        r_mean = mu_u @ cu_i + mu_l @ cl_i
+        
+        std = np.sqrt(np.mean(model.posterior['vars'], axis=(0, 1)))
+        if use_t:
+            nu = np.mean(model.posterior['nu'], axis=(0, 1))
+        y_new[i] = sts.norm(r_mean, std).rvs(1)
+    return y_new
+
+def make_lm_coefficients(*cols, cues=None, spline_knots=4,
+                         spline_degree=2, standardize_splines=True,
+                         use_spliner=None, return_spliner=False):
+    all_coeffs = []
+    if len(cols) > 0:
+        all_cols = np.expand_dims(np.concatenate(cols), 1)
+        if use_spliner is not None:
+            spliner = use_spliner
+        else:
+            pipe = []
+            pipe.append(skp.SplineTransformer(spline_knots, degree=spline_degree,
+                                              include_bias=False,
+                                              extrapolation='periodic'))
+            if standardize_splines:
+                pipe.append(skp.StandardScaler())
+            
+                spliner = sklpipe.make_pipeline(*pipe)
+            spliner.fit(all_cols)
+        for col in cols:
+            col_spl = spliner.transform(np.expand_dims(col, 1))
+            all_coeffs.append(col_spl)
+        
+    elif cues is None:
+        raise IOError('need to provide something! neither colors nor cues '
+                      'present')
+    else:
+        all_cols = np.zeros((len(cues), 0))
+        all_coeffs.append(all_cols)
+    if cues is not None:
+        cues = skp.StandardScaler().fit_transform(np.expand_dims(cues, 1))
+        all_coeffs.append(cues)
+    coeffs = np.concatenate(all_coeffs, axis=1)
+    if return_spliner:
+        out = (coeffs, spliner)
+    else:
+        out = coeffs
+    return out
 
 def retro_mask(data):
     bhv_retro = (data['is_one_sample_displayed'] == 0).rs_and(
