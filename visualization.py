@@ -15,6 +15,29 @@ import general.utility as u
 import swap_errors.analysis as swan
 import swap_errors.auxiliary as swaux
 
+def compare_model_confs(param_key, *models, ax=None, fwid_h=10, fwid_v=1):
+    if ax is None:
+        f, ax = plt.subplots(figsize=(fwid_h, fwid_v))
+    colors = {}
+    wids = {}
+    for i, model in enumerate(models):
+        samples = np.concatenate(model.posterior[param_key], axis=0)
+        samples = np.moveaxis(samples, 0, -1)
+        wids[i] = []
+        for j, ind in enumerate(u.make_array_ind_iterator(samples.shape[:-1])):
+            sl = samples[ind]
+            color = colors.get(i)
+            l = gpl.plot_trace_werr([j + i/(2*len(models))],
+                                    np.expand_dims(sl, 1),
+                                    conf95=True,
+                                    fill=False,
+                                    color=color,
+                                    ax=ax)
+            delt = gpl.conf95_interval(sl)
+            wids[i].append(delt[0, 0] - delt[1, 0])
+            colors[i] = l[0].get_color()
+    return wids
+
 def plot_trial_lls(m1, m2, axs=None, use_types=None, model_key='hybrid',
                    l_key='y', fwid=3):
     if axs is None:
@@ -519,17 +542,24 @@ def _plot_simplex(pts, ax, line_grey_col=(.6, .6, .6)):
 def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
                           model_key='other', simplex_key='p_guess_err',
                           type_order=('retro', 'pro'),
-                          line_grey_col=(.6, .6, .6),):
+                          line_grey_col=(.6, .6, .6),
+                          plot_rate=True, p_ind=1):
     if axs_dict is None:
         axs_dict = {}
-        
+
+    if plot_rate:
+        rows = 2
+    else:
+        rows = 1
     for k, fit_dict in o_dict.items():
         if axs_dict.get(k) is None:
             if k[-1] == 'joint':
                 sec_ax = 2
             else:
                 sec_ax = 1
-            f, axs_k = plt.subplots(1, sec_ax, figsize=(fwid*sec_ax, fwid))
+            f, axs_k = plt.subplots(rows, sec_ax,
+                                    figsize=(fwid*sec_ax, fwid*rows),
+                                    squeeze=False)
             f.suptitle(k)
         for sess_ind, (fit, data) in fit_dict.items():
             simplex = np.concatenate(fit[model_key].posterior[simplex_key],
@@ -538,12 +568,29 @@ def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
                 for i, type_ in enumerate(type_order):
                     ind = swaux.get_type_ind(type_, data)
                     pts = simplex[:, ind]
-                    axs_k[i].hist(pts[:, 0])
-                    axs_k[i].set_xlabel('{}\n{}'.format(simplex_key, type_))
+                    _, _, b = axs_k[0, i].hist(pts[:, 0])
+                    axs_k[0, i].set_xlabel('{}\n{}'.format(simplex_key, type_))
+                    if plot_rate:
+                        ax = axs_k[1, i]
+                        prob = np.nanmean(data['p'], axis=0)[p_ind]
+                        gpl.plot_trace_werr(sess_ind, prob*pts[:, 0:1], ax=ax,
+                                            conf95=True,
+                                            color=b[0].get_facecolor())
             else:
                 pts = simplex
-                axs_k.hist(pts[:, 0])
-                axs_k.set_xlabel('{}'.format(simplex_key))
+                _, _, b = axs_k[0, 0].hist(pts[:, 0])
+                axs_k[0, 0].set_xlabel('{}'.format(simplex_key))
+                if plot_rate:
+                    ax = axs_k[1, 0]
+                    prob = np.mean(data['p'], axis=0)[p_ind]
+                    trls = prob*pts[:, 0:1]
+                    trls = pts[:, 0:1]
+                    gpl.plot_trace_werr(sess_ind, trls,
+                                        ax=ax,
+                                        conf95=True,
+                                        color=b[0].get_facecolor(),
+                                        lw=10)
+        gpl.add_hlines(0, axs_k[1, 0])
 
 def plot_all_simplices(o_dict, axs_dict=None, fwid=3,
                        model_key='other', simplex_key='p_err', thin=10,
@@ -865,44 +912,46 @@ def visualize_fit_torus(fit_az, ax=None, trs=None, eh_key='err_hat',
 
 def save_all_dists(loaded_data, p_thrs=(0, .2, .3, .4, .5),
                    corr_fl='histogram', wheel_types=('retro', 'pro'),
-                   new_joint=False):
+                   new_joint=False, n_bins=20, only_keys=None,):
     for (m, time, trl), data in loaded_data.items():
         if time == 'CUE2_ON':
             types = (None,)
-            mistakes = ('misbind',)
+            mistakes = ('misbind', 'guess')
+            cue_time = True
         else:
             types = wheel_types
-            mistakes = ('spatial', 'cue', 'spatial-cue')
-
+            mistakes = ('spatial', 'cue', 'spatial-cue', 'guess')
+            cue_time = False
         file_templ = (
             '{}-'
             + '{}-{}-{}-'.format(m, time, trl)
             + corr_fl
             + '-pthr'
             + '{}')
-        n_bins=18
+        figs_g = plot_dists(p_thrs, types, data, n_bins=n_bins,
+                            file_templ=file_templ, mistakes=mistakes, 
+                            bin_bounds=(-1, 2), ret_data=False,
+                            new_joint=new_joint, cue_time=cue_time,
+                            only_keys=only_keys)
 
-        figs = plot_dists(p_thrs, types, data, n_bins=n_bins,
-                          file_templ=file_templ, mistakes=mistakes, 
-                          bin_bounds=(-1, 2), ret_data=False,
-                          new_joint=new_joint)
-    
         file_templ = ('{}-'
                       + '{}-{}-{}-less-histograms-pthr'.format(m, time, trl)
                       + '{}')
-        n_bins=18
-
-        figs = plot_dists(p_thrs[1:], types, data, n_bins=n_bins,
+        figs_l = plot_dists(p_thrs, types, data, n_bins=n_bins,
                           file_templ=file_templ, mistakes=mistakes, 
                           bin_bounds=(-1, 2), ret_data=False,
-                          p_comp=np.less,
-                          new_joint=new_joint)
-
+                          p_comp=np.less, 
+                          new_joint=new_joint,
+                            cue_time=cue_time,
+                            only_keys=only_keys,)
+        print(figs_l)
+        return figs_g, figs_l
 
 def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                n_bins=25, bin_bounds=(-1, 2), file_templ='{}-histograms-pthr{}',
                mistakes=('spatial', 'cue'), ret_data=True, p_comp=np.greater,
-               new_joint=False, **kwargs):
+               new_joint=False, cue_time=False, only_keys=None,
+               **kwargs):
     figsize = (fwid*len(mistakes)*mult, fwid)
     if color_dict is None:
         spatial_color = np.array([36, 123, 160])/256
@@ -924,7 +973,8 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
             _, w_dat = plot_session_swap_distr_collection(
                 *args, n_bins=n_bins, p_thresh=p_thr, colors=color_dict,
                 bin_bounds=bin_bounds, axs=axs[k:k+1], trl_filt=trl_type,
-                mistake=mistake, p_comp=p_comp, new_joint=new_joint)
+                mistake=mistake, p_comp=p_comp, new_joint=new_joint,
+                cue_time=cue_time, only_keys=only_keys)
 
             out_data[(mistake, trl_type, p_thr)] = w_dat
             gpl.clean_plot(axs[k], k)
@@ -991,7 +1041,8 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                                        fwid=3, p_ind=1, bin_bounds=None,
                                        ret_data=True, colors=None,
                                        mistake='spatial', new_joint=False,
-                                       **kwargs):
+                                       cue_time=False,
+                                       only_keys=None, **kwargs):
     if colors is None:
         colors = {}
     if axs is None:
@@ -1021,6 +1072,21 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                                      (('mu_d_l', 'mu_u'), 'i_up_type')),
                          cent2_keys = ((('mu_u', 'mu_d_l'), 'i_up_type'),
                                        (('mu_d_u', 'mu_l'), 'i_down_type')))
+    elif mistake == 'guess' and not cue_time:
+        cent_keys = dict(cent1_keys=((('mu_d_u', 'mu_l'), 'i_down_type'),
+                                     (('mu_u', 'mu_d_l'), 'i_up_type')),
+                         cent2_keys=((('mu_d_u', 'mu_l'), 'i_down_type'),
+                                     (('mu_u', 'mu_d_l'), 'i_up_type')))
+        p_ind = 2
+        cent_keys['use_resp_color']  = True
+    elif mistake == 'guess' and cue_time:
+        cent_keys = dict(cent1_keys=((('mu_u', 'mu_l'), None),
+                                     (('mu_u', 'mu_l'), None)),
+                         cent2_keys=((('mu_u', 'mu_l'), None),
+                                     (('mu_u', 'mu_l'), None)))
+        cent_keys['use_cues'] = True
+        p_ind = 2
+        cent_keys['use_resp_color']  = True
     elif mistake == 'misbind':
         cent_keys = dict(cent1_keys=((('mu_u', 'mu_l'), None),),
                          cent2_keys=((('mu_l', 'mu_u'), None),))
@@ -1029,20 +1095,21 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
         raise IOError('unrecognized mistake type')
     cent_keys.update(kwargs)
     for (sn, (mdict, data)) in session_dict.items():
-        for (k, faz) in mdict.items():
-            out = swan.get_normalized_centroid_distance(faz, data, p_ind=p_ind,
-                                                        new_joint=new_joint,
-                                                        **cent_keys)
-            true, pred, ps = out
-            true_k = true_d.get(k, [])
-            true_k.append(true)
-            true_d[k] = true_k
-            pred_k = pred_d.get(k, [])
-            pred_k.append(pred)
-            pred_d[k] = pred_k
-            ps_k = ps_d.get(k, [])
-            ps_k.append(ps[:, p_ind])
-            ps_d[k] = ps_k
+        if only_keys is None or sn in only_keys:
+            for (k, faz) in mdict.items():
+                out = swan.get_normalized_centroid_distance(faz, data, p_ind=p_ind,
+                                                            new_joint=new_joint,
+                                                            **cent_keys)
+                true, pred, ps = out
+                true_k = true_d.get(k, [])
+                true_k.append(true)
+                true_d[k] = true_k
+                pred_k = pred_d.get(k, [])
+                pred_k.append(pred)
+                pred_d[k] = pred_k
+                ps_k = ps_d.get(k, [])
+                ps_k.append(ps[:, p_ind])
+                ps_d[k] = ps_k
     if bin_bounds is not None:
         bins = np.linspace(*bin_bounds, n_bins)
     else:
