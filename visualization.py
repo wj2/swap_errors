@@ -5,13 +5,17 @@ import matplotlib.gridspec as gridspec
 from mpl_toolkits import mplot3d
 import sklearn.decomposition as skd
 import sklearn.manifold as skm
+import sklearn.linear_model as sklm
+import sklearn.svm as sk_svm
 import scipy.stats as sts
 import arviz as az
 import itertools as it
 import seaborn as sns
+import functools as ft
 
 import general.plotting as gpl
 import general.utility as u
+import general.neural_analysis as na
 import swap_errors.analysis as swan
 import swap_errors.auxiliary as swaux
 
@@ -569,7 +573,676 @@ def plot_all_simplices(o_dict, axs_dict=None, fwid=3,
             else:
                 pts = simplex[::thin]
                 _plot_simplex(pts, axs_k, line_grey_col=line_grey_col)
+
+
+def cond_func(x, field=None, split=None):
+    s1 = x[field] < split
+    s2 = x[field] >= split
+    return s1, s2
+
+def mask_func(x, field=None, targ=None, op=np.equal):
+    mask = op(x[field], targ)
+    return mask
+
+no_cue = ft.partial(mask_func, field='IsUpperSample', targ=-1,
+                    op=np.greater)
+
+upper_col_split = ft.partial(cond_func, field='upper_color', split=np.pi)
+lower_col_split = ft.partial(cond_func, field='lower_color', split=np.pi)
+targ_col_split = ft.partial(cond_func, field='LABthetaTarget', split=np.pi)
+dist_col_split = ft.partial(cond_func, field='LABthetaDist', split=np.pi)
+
+cue_split = ft.partial(cond_func, field='IsUpperSample', split=.5)
+
+def plot_period_units_tuning(
+        data,
+        date,
+        neur_inds=None,
+        samples_t_pair=(0, .5),
+        cue_t_pair=(-.5, 0),
+        wheel_t_pair=(-.5, 0),
+        default_upper_color=np.array((0, 187, 62))/255,
+        default_lower_color=np.array((41, 130, 255))/255,
+        default_target_color=np.array((0, 187, 62))/255,
+        default_distr_color=np.array((41, 130, 255))/255,
+        default_cue_color=np.array((181, 144, 225))/255,
+        axs=None,
+        fwid=3,
+        date_field='date',
+        neur_num_field='n_neurs',
+        use_retro=True,
+        polar=True,
+        **kwargs,
+):
+    if neur_inds is None:
+        rd = data.session_mask(data[date_field] == date)
+        n_neurs = rd[neur_num_field].iloc[0]
+        neur_inds = range(n_neurs)
+
+    base_colors_pre = (default_upper_color, default_lower_color)
+    base_colors_wh = (default_target_color, default_distr_color)    
+    if axs is None:
+        figsize=(fwid*3, fwid*len(neur_inds))
+        if polar:
+            subplot_kw = {'projection':'polar'}
+        else:
+            subplot_kw = {}
+
+        f, axs = plt.subplots(len(neur_inds), 3, figsize=figsize, 
+                              sharey='row', sharex='col',
+                              subplot_kw=subplot_kw)
+
+    if use_retro:
+        samp_ind = 0
+        cue_ind = 1
+    else:
+        samp_ind = 1
+        cue_ind = 0
+    wheel_ind = 2
+    
+    if not use_retro:
+        base_colors_pre = (default_target_color, default_distr_color)
+    else:
+        base_colors_cue = base_colors_pre
+
+    plot_single_neuron_tuning_samples(data, *samples_t_pair, date, neur_inds,
+                                      base_colors=base_colors_pre,
+                                      axs=axs[:, samp_ind],
+                                      use_retro=use_retro,
+                                      **kwargs)
+
+    plot_single_neuron_tuning_cue(data, *cue_t_pair, date, neur_inds,
+                                  base_colors=base_colors_pre,
+                                  axs=axs[:, cue_ind],
+                                  use_retro=use_retro,
+                                  **kwargs)
+
+    plot_single_neuron_tuning_wheel(data, *wheel_t_pair, date, neur_inds,
+                                   base_colors=base_colors_wh,
+                                   axs=axs[:, wheel_ind],
+                                   use_retro=use_retro,
+                                   **kwargs)
+    return axs
+
+def plot_period_units_trace(
+        data,
+        date,
+        neur_inds=None,
+        samples_t_pair=(-.5, .7),
+        cue_t_pair=(-.7, .5),
+        wheel_t_pair=(-1.2, .2),
+        plot_colors=True,
+        default_upper_color=np.array((0, 187, 62))/255,
+        default_lower_color=np.array((41, 130, 255))/255,
+        default_target_color=np.array((0, 187, 62))/255,
+        default_distr_color=np.array((41, 130, 255))/255,
+        default_cue_color=np.array((181, 144, 225))/255,
+        axs=None,
+        fwid=3,
+        date_field='date',
+        neur_num_field='n_neurs',
+        use_retro=True,
+        **kwargs,
+):
+    if neur_inds is None:
+        rd = data.session_mask(data[date_field] == date)
+        n_neurs = rd[neur_num_field].iloc[0]
+        neur_inds = range(n_neurs)
+
+    if plot_colors:
+        base_colors_pre = (default_upper_color, default_lower_color)
+        base_colors_wh = (default_target_color, default_distr_color)
+    else:
+        base_colors = (default_cue_color,)
+    if axs is None:
+        figsize=(fwid*3, fwid*len(neur_inds))
+        f, axs = plt.subplots(len(neur_inds), 3, figsize=figsize, 
+                              sharey='row', sharex='col')
+
+    if use_retro:
+        samp_ind = 0
+        cue_ind = 1
+    else:
+        samp_ind = 1
+        cue_ind = 0
+    wheel_ind = 2
+
+    if not use_retro:
+        plot_colors_cue = False
+        base_colors_cue = (default_cue_color,)
+        base_colors_pre = (default_target_color, default_distr_color)
+    else:
+        plot_colors_cue = plot_colors
+        base_colors_cue = base_colors_pre
+
+    plot_single_neuron_trace_samples(data, *samples_t_pair, date, neur_inds,
+                                     plot_colors=plot_colors,
+                                     base_colors=base_colors_pre,
+                                     axs=axs[:, samp_ind],
+                                     use_retro=use_retro,
+                                     **kwargs)
+
+    plot_single_neuron_trace_cue(data, *cue_t_pair, date, neur_inds,
+                                 plot_colors=plot_colors_cue,
+                                 base_colors=base_colors_cue,
+                                 axs=axs[:, cue_ind],
+                                 use_retro=use_retro,
+                                 **kwargs)
+
+    plot_single_neuron_trace_wheel(data, *wheel_t_pair, date, neur_inds,
+                                   plot_colors=plot_colors,
+                                   base_colors=base_colors_wh,
+                                   axs=axs[:, wheel_ind],
+                                   use_retro=use_retro,
+                                   **kwargs)
+    for ax_row in axs:
+        gpl.clean_plot(ax_row[1], 1)
+        gpl.clean_plot(ax_row[2], 2)
+        ax_row[0].set_ylabel('spikes/s')
+    axs[-1, samp_ind].set_xlabel('time from stimuli (s)')
+    axs[-1, cue_ind].set_xlabel('time from cue (s)')
+    axs[-1, wheel_ind].set_xlabel('time from\nresponse wheel (s)')
+    return axs
+
+def plot_single_neuron_trace_samples(*args, plot_colors=True, use_retro=True,
+                                     **kwargs):
+    if plot_colors:
+        if use_retro:
+            cond_funcs = (upper_col_split, lower_col_split)
+        else:
+            cond_funcs = (targ_col_split, dist_col_split)
+    else:
+        cond_funcs = (cue_split,)
+    if use_retro:
+        background = None
+    else:
+        background = (-.5, 0)
+
+    return plot_single_neuron_trace(*args,
+                                    tzf='SAMPLES_ON_diode',
+                                    cond_funcs=cond_funcs,
+                                    use_retro=use_retro, 
+                                    background=background,
+                                    **kwargs)
+
+def plot_single_neuron_trace_cue(*args, use_retro=True, plot_colors=True,
+                                 **kwargs):
+    if plot_colors:
+        cond_funcs = (targ_col_split, dist_col_split)
+    else:
+        cond_funcs = (cue_split,)
+    if use_retro:
+        tzf = 'CUE2_ON_diode'
+        background = (-.5, 0)
+    else:
+        tzf = 'CUE1_ON_diode'
+        background = None
+    return plot_single_neuron_trace(*args,
+                                    tzf=tzf,
+                                    cond_funcs=cond_funcs,
+                                    use_retro=use_retro,
+                                    background=background,
+                                    **kwargs)
+
+def plot_single_neuron_trace_wheel(*args, plot_colors=True, **kwargs):
+    if plot_colors:
+        cond_funcs = (targ_col_split, dist_col_split)
+    else:
+        cond_funcs = (cue_split,)
+    return plot_single_neuron_trace(*args,
+                                    tzf='WHEEL_ON_diode',
+                                    cond_funcs=cond_funcs,
+                                    background=(-.5, 0),
+                                    **kwargs)
+
+
+def plot_single_neuron_tuning_samples(*args, **kwargs):
+    colors = ('upper_color', 'lower_color')
+    return plot_single_neuron_tuning(*args,
+                                     tzf='SAMPLES_ON_diode',
+                                     colors=colors,
+                                     **kwargs)
+
+def plot_single_neuron_tuning_cue(*args, use_retro=True,
+                                 **kwargs):
+    colors = ('upper_color', 'lower_color')
+    if use_retro:
+        tzf = 'CUE2_ON_diode'
+    else:
+        tzf = 'CUE1_ON_diode'
+    return plot_single_neuron_tuning(*args,
+                                     tzf=tzf,
+                                     colors=colors,
+                                     use_retro=use_retro,
+                                     **kwargs)
+
+def plot_single_neuron_tuning_wheel(*args, **kwargs):
+    colors = ('LABthetaTarget', 'LABthetaDist')
+    use_cues = True
+    return plot_single_neuron_tuning(*args,
+                                     tzf='WHEEL_ON_diode',
+                                     colors=colors,
+                                     use_cues=use_cues,
+                                     **kwargs)
+
+def plot_population_toruses(
+        data,
+        date,
+        cue_t_pair=(-.5, 0),
+        wheel_t_pair=(-.5, 0),
+        axs=None,
+        fwid=3,
+        date_field='date',
+        use_retro=True,
+        n_dims=3,
+        wheel_tzf='WHEEL_ON_diode',
+        cue_colors=('upper_color', 'lower_color'),
+        default_cue_color=None,
+        wheel_colors=('LABthetaTarget', 'LABthetaDist'),
+        **kwargs,
+):
+    if axs is None:
+        figsize=(fwid*2, fwid)
+        if n_dims == 3:
+            subplot_kw = {'projection':'3d'}
+        else:
+            subplot_kw = {}
+
+        f, axs = plt.subplots(2, 2, figsize=figsize, 
+                              subplot_kw=subplot_kw)
+    if use_retro:
+        cue_tzf = 'CUE2_ON_diode'
+        plot_func_cue = plot_population_torus
+    else:
+        cue_tzf = 'SAMPLES_ON_diode'
+        plot_func_cue = plot_population_cue
+    
+    plot_func_cue(data, *cue_t_pair, date, tzf=cue_tzf,
+                  axs=axs[0], use_retro=use_retro,
+                  cue_color=default_cue_color,
+                  colors=cue_colors, **kwargs)
+
+    plot_population_torus(data, *wheel_t_pair, date, tzf=wheel_tzf,
+                          axs=axs[1],
+                          use_retro=use_retro,
+                          colors=wheel_colors,
+                          **kwargs)
+
+def plot_population_cue(
+        data,
+        start,
+        end,
+        session_date,
+        tzf='SAMPLES_ON_diode',
+        colors=('upper_color', 'lower_color'),
+        cue='IsUpperSample',
+        use_retro=True,
+        base_colors=None,
+        axs=None,
+        fwid=3,
+        date_field='date',
+        use_corr=True,
+        error_field='StopCondition',
+        region_key='neur_regions',
+        use_cues=False,
+        n_bins=6,
+        spline_knots=5,
+        spline_degree=2,
+        n_pts=100,
+        swap_color=None,
+        corr_color=None,
+        ms=5,
+        grey_col=(.8, .8, .8),
+        eg_pt=(np.pi, 0),
+        n_dims=3,
+        cue_color=None,
+        col_diff=.1,
+):
+    if cue_color is None:
+        cue_color = gpl.get_next_n_colors(1)[0]
+    if axs is None:
+        if n_dims == 3:
+            subplot_kw = {'projection':'3d'}
+        else:
+            subplot_kw = {}
+        f, axs = plt.subplots(1, 2, figsize=(2*fwid, fwid),
+                              squeeze=False,
+                              subplot_kw=subplot_kw)
+        axs = axs.flatten()
+    data = data.session_mask(data[date_field] == session_date)
+    if use_retro:
+        data = swan.retro_mask(data)
+    else:
+        data = swan.pro_mask(data)
+    if use_corr:
+        mask = data[error_field] >= -1
+        data = data.mask(mask)
+
+    cues = data[cue][0]
+    pop, xs = data.get_neural_activity(end - start, start, end,
+                                       stepsize=end - start,
+                                       time_zero_field=tzf)
+
+    pop_use = pop[0][..., 0]
+    inds = np.arange(len(pop_use))
+    m_df = np.zeros(len(pop_use))
+    model = na.make_model_pipeline(norm=True, pca=.99,
+                                   model=sk_svm.LinearSVC)
+    for i in range(len(pop_use)):
+        mask_tr = inds != i
+        mask_te = inds == i
+
+        model.fit(pop_use[mask_tr], cues[mask_tr])
+        m_df[i] = model.decision_function(pop_use[mask_te])
+    cue_mask = cues == 0
+    cue_up_color = gpl.add_color_value(cue_color, -col_diff)
+    cue_down_color = gpl.add_color_value(cue_color, col_diff)
+
+    ys = sts.norm(0, 1).rvs(len(m_df[cue_mask]))
+    axs[0].plot(m_df[cue_mask], ys, 'o',
+                color=cue_up_color, ms=1, alpha=.3)
+    axs[0].plot(np.mean(m_df[cue_mask]), [0], 'o',
+                color=cue_up_color, ms=ms)
+    
+    ys = sts.norm(0, 1).rvs(len(m_df[~cue_mask]))
+    axs[0].plot(m_df[~cue_mask], ys, 'o',
+                color=cue_down_color, ms=1, alpha=.3)
+    axs[0].plot(np.mean(m_df[~cue_mask]), [0], 'o',
+                color=cue_down_color, ms=ms)
+    
+    gpl.add_vlines(0, axs[0])
+    gpl.clean_plot(axs[0], 1)
+    
+    gpl.clean_3d_plot(axs[1])
+    gpl.make_3d_bars(axs[1], bar_len=0, center=(-.1, -.1, -.1))
+
+
+def plot_population_torus(
+        data,
+        start,
+        end,
+        session_date,
+        tzf='SAMPLES_ON_diode',
+        colors=('upper_color', 'lower_color'),
+        cue='IsUpperSample',
+        use_retro=True,
+        base_colors=None,
+        axs=None,
+        fwid=3,
+        date_field='date',
+        use_corr=True,
+        error_field='StopCondition',
+        region_key='neur_regions',
+        use_cues=False,
+        n_bins=6,
+        spline_knots=5,
+        spline_degree=2,
+        n_pts=100,
+        swap_color=None,
+        corr_color=None,
+        ms=5,
+        grey_col=(.8, .8, .8),
+        eg_pt=(np.pi, 0),
+        n_dims=3,
+        **kwargs,
+):
+    
+    if base_colors is None:
+        base_colors = gpl.get_next_n_colors(len(colors))
+    if axs is None:
+        if n_dims == 3:
+            subplot_kw = {'projection':'3d'}
+        else:
+            subplot_kw = {}
+        f, axs = plt.subplots(1, 2, figsize=(2*fwid, fwid),
+                              squeeze=False,
+                              subplot_kw=subplot_kw)
+        axs = axs.flatten()
+    data = data.session_mask(data[date_field] == session_date)
+    if use_retro:
+        data = swan.retro_mask(data)
+    else:
+        data = swan.pro_mask(data)
+    if use_corr:
+        mask = data[error_field] >= -1
+        data = data.mask(mask)
+
+    regions = data[region_key][0].iloc[0]
+
+    cols = list(data[col][0] for col in colors)
+    if use_cues:
+        cues = data[cue][0]
+    else:
+        cues = None
+    coeffs, spliner = swan.make_lm_coefficients(*cols, cues=cues,
+                                                spline_knots=spline_knots,
+                                                spline_degree=spline_degree,
+                                                return_spliner=True)
+
+    pop, xs = data.get_neural_activity(end - start, start, end,
+                                       stepsize=end - start,
+                                       time_zero_field=tzf)
+
+    preproc = na.make_model_pipeline(norm=True, pca=.99, post_norm=True)
+    pop_act = preproc.fit_transform(pop[0][..., 0])
+    m = sklm.Ridge()
+    m.fit(coeffs, pop_act)
+    m_predictive = m.predict(coeffs)
+
+    color_tr = np.linspace(0, np.pi*2, n_pts)
+    color_const = np.zeros(n_pts)
+    if use_cues:
+        cues_const = np.ones(n_pts)
+        eg_cues = np.ones(2)
+    else:
+        cues_const = None
+        eg_cues = None
+    coeffs_upper = swan.make_lm_coefficients(color_tr, color_const,
+                                             cues=cues_const,
+                                             spline_knots=spline_knots,
+                                             spline_degree=spline_degree,
+                                             use_spliner=spliner)
+    coeffs_lower = swan.make_lm_coefficients(color_const, color_tr,
+                                             cues=cues_const,
+                                             spline_knots=spline_knots,
+                                             spline_degree=spline_degree,
+                                             use_spliner=spliner)
+
+    coeffs_eg = swan.make_lm_coefficients(eg_pt, eg_pt[::-1],
+                                          cues=eg_cues,
+                                          spline_knots=spline_knots,
+                                          spline_degree=spline_degree,
+                                          use_spliner=spliner)
+
+    rep_upper = m.predict(coeffs_upper)
+    rep_lower = m.predict(coeffs_lower)
+    rep_eg = m.predict(coeffs_eg)
+    
+    p_upper = skd.PCA(n_dims)
+    plot_upper_u = p_upper.fit_transform(rep_upper)
+    gpl.plot_colored_line(*plot_upper_u.T,
+                          ax=axs[0], cmap='hsv')
+    plot_lower_u = p_upper.transform(rep_lower)
+    axs[0].plot(*plot_lower_u.T, color=grey_col)
+
+    plot_egs_u = p_upper.transform(rep_eg)
+    axs[0].plot(*plot_egs_u[0], 'o', ms=ms, color=corr_color, zorder=10)
+    axs[0].plot(*plot_egs_u[1], 'o', ms=ms, color=swap_color, zorder=10)
+
+    p_lower = skd.PCA(n_dims)
+
+    plot_lower_l = p_lower.fit_transform(rep_lower)
+    gpl.plot_colored_line(*plot_lower_l.T,
+                          ax=axs[1], cmap='hsv')
+    plot_upper_l = p_lower.transform(rep_upper)
+    axs[1].plot(*plot_upper_l.T, color=grey_col)
+    
+    plot_egs_l = p_lower.transform(rep_eg)
+    axs[1].plot(*plot_egs_l[0], 'o', ms=ms, color=corr_color, zorder=10)
+    axs[1].plot(*plot_egs_l[1], 'o', ms=ms, color=swap_color, zorder=10)
+
+    gpl.clean_3d_plot(axs[0])
+    gpl.make_3d_bars(axs[0], bar_len=.5, center=(-.5, -.5, -.5))
+    gpl.clean_3d_plot(axs[1])
+    gpl.make_3d_bars(axs[1], bar_len=.5, center=(-.5, -.5, -.5))
+    
+
+def plot_single_neuron_tuning(
+        data,
+        start,
+        end,
+        session_date,
+        neur_inds,
+        tzf='SAMPLES_ON_diode',
+        colors=('upper_color', 'lower_color'),
+        cue='IsUpperSample',
+        use_retro=True,
+        base_colors=None,
+        axs=None,
+        fwid=3,
+        date_field='date',
+        use_corr=True,
+        error_field='StopCondition',
+        region_key='neur_regions',
+        use_cues=False,
+        n_bins=6,
+        spline_knots=5,
+        spline_degree=1,
+        polar=True,
+        n_pts=100,
+):
+    if base_colors is None:
+        base_colors = gpl.get_next_n_colors(len(colors))
+    if axs is None:
+        n_plots = len(neur_inds)
+        sl = int(np.ceil(np.sqrt(n_plots)))
+        if polar:
+            subplot_kw = {'projection':'polar'}
+        else:
+            subplot_kw = {}
+        f, axs = plt.subplots(sl, sl, figsize=(fwid*sl, fwid*sl),
+                              squeeze=False,
+                              subplot_kw=subplot_kw)
+        axs = axs.flatten()
+    data = data.session_mask(data[date_field] == session_date)
+    if use_retro:
+        data = swan.retro_mask(data)
+    else:
+        data = swan.pro_mask(data)
+    if use_corr:
+        mask = data[error_field] >= -1
+        data = data.mask(mask)
+
+    regions = data[region_key][0].iloc[0]
+
+    cols = list(data[col][0] for col in colors)
+    if use_cues:
+        cues = data[cue][0]
+    else:
+        cues = None
+    coeffs = swan.make_lm_coefficients(*cols, cues=cues,
+                                       spline_knots=spline_knots,
+                                       spline_degree=spline_degree)
+
+    pop, xs = data.get_neural_activity(end - start, start, end,
+                                       stepsize=end - start,
+                                       time_zero_field=tzf)
+    for i, ni in enumerate(neur_inds):
+        neur_act = pop[0][:, ni, 0]
+
+        m = sklm.Ridge()
+        m.fit(coeffs, neur_act)
+        m_predictive = m.predict(coeffs)
+
+        for j, col in enumerate(cols):
+            gpl.plot_scatter_average(col[mask[0]],
+                                     neur_act[mask[0]],
+                                     ax=axs[i], n_bins=n_bins,
+                                     color=base_colors[j],
+                                     polar=polar)
+            gpl.plot_scatter_average(col[mask[0]],
+                                     m_predictive[mask[0]],
+                                     ax=axs[i], n_bins=n_bins,
+                                     color=base_colors[j],
+                                     linestyle='dashed',
+                                     polar=polar)
+
+        # axs[i].set_title('{}, {}, {}'.format(session_date, ni, regions[ni]))
+
+        if polar:
+            xs = np.linspace(0, np.pi*2, n_pts)
+            y_low, y_high = axs[i].get_ylim()
+            ys = np.ones(n_pts)*y_high
+            gpl.plot_colored_line(xs, ys, cmap='hsv', ax=axs[i])
+            axs[i].set_ylim((y_low, y_high))
+            axs[i].set_xticks([0])
+            axs[i].set_xticklabels([''])
+            axs[i].set_rlabel_position(0)
+            # axs[i].set_ylabel('spikes/s')
+            axs[i].spines['polar'].set_visible(False)
+        
+    return axs
+
+def plot_single_neuron_trace(
+        data,
+        start,
+        end,
+        session_date,
+        neur_inds,
+        winsize=.2,
+        winstep=.02,
+        tzf='SAMPLES_ON_diode',
+        cond_funcs=(upper_col_split, lower_col_split),
+        error_field='StopCondition',
+        use_retro=True,
+        date_field='date',
+        axs=None,
+        fwid=3,
+        base_colors=None,
+        col_diff=.1,
+        region_key='neur_regions',
+        use_corr=True,
+        background=None,
+):
+    if base_colors is None:
+        base_colors = gpl.get_next_n_colors(len(cond_funcs))
+    if axs is None:
+        n_plots = len(neur_inds)
+        sl = int(np.ceil(np.sqrt(n_plots)))
+        f, axs = plt.subplots(sl, sl, figsize=(fwid*sl, fwid*sl),
+                              squeeze=False)
+        axs = axs.flatten()
+    data = data.session_mask(data[date_field] == session_date)
+    if use_retro:
+        data = swan.retro_mask(data)
+    else:
+        data = swan.pro_mask(data)
+    if use_corr:
+        mask = data[error_field] >= -1
+        data = data.mask(mask)
+
+    cond_masks = list(cf(data) for cf in cond_funcs)
+    regions = data[region_key][0].iloc[0]
+
+    pop, xs = data.get_neural_activity(winsize, start, end, stepsize=winstep,
+                                       time_zero_field=tzf)
+    for i, ni in enumerate(neur_inds):
+        neur_act = pop[0][:, ni]
+
+        for j, (m1, m2) in enumerate(cond_masks):
+            c1 = gpl.add_color_value(base_colors[j], col_diff)
+            c2 = gpl.add_color_value(base_colors[j], -col_diff)
+            n1_use = neur_act[m1[0]]
+            n2_use = neur_act[m2[0]]
+            gpl.plot_trace_werr(xs, n1_use, ax=axs[i], color=c1)
+            gpl.plot_trace_werr(xs, n2_use, ax=axs[i], color=c2)
             
+        # axs[i].set_title('{}, {}, {}'.format(session_date, ni, regions[ni]))
+        if background is not None:
+            gpl.add_x_background(*background, axs[i])
+    
+    return axs
+                
 def visualize_simplex_2d(pts, ax=None, ax_labels=None, thr=.5,
                          pt_grey_col=(.7, .7, .7),
                          line_grey_col=(.6, .6, .6),
