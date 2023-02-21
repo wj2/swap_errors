@@ -543,7 +543,6 @@ def _plot_simplex(pts, ax, line_grey_col=(.6, .6, .6)):
     ax.plot([0, 1], [1, -1], color=line_grey_col)
     ax.plot([-1, 1], [-1, -1], color=line_grey_col)
     ax.set_aspect('equal')
-
     
 def plot_cumulative_simplex(o_dict, ax=None, fwid=3,
                             model_key='other', simplex_key='p_err',
@@ -559,7 +558,7 @@ def plot_cumulative_simplex(o_dict, ax=None, fwid=3,
         if len(samps_k.shape) > 2:
             samps_k = samps_k[:, type_ind]
         samps_all.extend(samps_k)
-    ax.heatmap(samps_all, **kwargs)    
+    ax.heatmap(np.array(samps_all), **kwargs)    
     
 def plot_cumulative_simplex_1d(o_dict, ax=None, fwid=3,
                                model_key='other', simplex_key='p_err',
