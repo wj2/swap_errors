@@ -392,7 +392,7 @@ class RetroSwapFigure(SwapErrorFigure):
                                         2, 2)
         d1_post_axs = self.get_axs(post_grids)
 
-        avg_grid = pu.make_mxn_gridspec(self.gs, 1, 1,
+        avg_grids = pu.make_mxn_gridspec(self.gs, 1, 1,
                                         33, 50, 50, 100,
                                         2, 2)
         d1_sess_ax = self.get_axs(avg_grids)
