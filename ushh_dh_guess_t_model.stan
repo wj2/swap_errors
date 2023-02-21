@@ -35,6 +35,8 @@ data {
   vector[3] p[T]; // probabilities
   int<lower=1,upper=2> type[T]; // pro or retro tria ... must be all 0 if is_joint = False
   int<lower=0,upper=1> is_joint; // whether to use two separate simplices
+  real<lower=0> prior_alpha;
+  real<lower=0> prior_std;
 }
 
 transformed data {
@@ -89,7 +91,6 @@ model {
   real lp_swp[3];
   real lp_guess[2];
   real nom;
-  real alpha; 
 
   matrix[N, K] mu_u_use;
   matrix[N, K] mu_l_use;
@@ -100,8 +101,8 @@ model {
 
   // prior
   for (k in 1:K){
-    mu_c_pr[:,k] ~ normal(0, 5);
-    mu_d_pr[:,k] ~ normal(0, 5);
+    mu_c_pr[:,k] ~ normal(0, prior_std);
+    mu_d_pr[:,k] ~ normal(0, prior_std);
   }
 
   pr_var_c ~ inv_gamma(2,1);
@@ -122,8 +123,8 @@ model {
       mu_d_l_type[i, :, k] ~ normal(mu_d_l[:, k], pr_var_d_ul);
     }
   }
-  intercept_up ~ normal(0, 5);
-  intercept_down ~ normal(0, 5);
+  intercept_up ~ normal(0, prior_std);
+  intercept_down ~ normal(0, prior_std);
   pr_var_i_up ~ inv_gamma(2,1);
   pr_var_i_down ~ inv_gamma(2,1);
   for (i in 1:2) {
@@ -134,10 +135,9 @@ model {
   vars_raw ~ inv_gamma(2, 1);
   nu ~ gamma(2, .1);
 
-  alpha = 1;
   for (t in 1:size(p_err)){
-    p_err[t] ~ dirichlet(rep_vector(alpha, 3));
-    p_guess_err[t] ~ dirichlet(rep_vector(alpha, 2));
+    p_err[t] ~ dirichlet(rep_vector(prior_alpha, 3));
+    p_guess_err[t] ~ dirichlet(rep_vector(prior_alpha, 2));
   }
 
   // likelihood

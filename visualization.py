@@ -587,7 +587,7 @@ def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
                 if plot_rate:
                     ax = axs_k[1, 0]
                     prob = np.mean(data['p'], axis=0)[p_ind]
-                    trls = prob*pts[:, 0:1]
+                    # trls = prob*pts[:, 0:1]*len(data['p'])
                     trls = pts[:, 0:1]
                     gpl.plot_trace_werr(sess_ind, trls,
                                         ax=ax,
@@ -596,6 +596,31 @@ def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
                                         lw=10)
         gpl.add_hlines(0, axs_k[1, 0])
 
+def plot_rates(*o_dicts, simplex_key='p_err', ref_ind=1, ax=None,
+               colors=None, lw=20, task_ind=0):
+    if colors is None:
+        colors = (None,)*len(o_dicts)
+    if ax is None:
+        f, ax = plt.subplots()
+    for i, od in enumerate(o_dicts):
+        color = colors[i]
+        for sess_ind, (fit, data) in od.items():
+            fit = fit['other']
+            simpl = np.concatenate(fit.posterior[simplex_key])
+            if len(simpl.shape) > 2:
+                simpl = simpl[:, task_ind]
+            pts = 1 - simpl[:, ref_ind]
+            # trls = prob*pts[:, 0:1]*len(data['p'])
+            l = gpl.plot_trace_werr(sess_ind,
+                                    np.expand_dims(pts, 1),
+                                    ax=ax,
+                                    conf95=True,
+                                    elinewidth=lw,
+                                    color=color)
+            color = l[0].get_color()
+    gpl.add_hlines(0, ax)
+            
+        
 def plot_all_simplices(o_dict, axs_dict=None, fwid=3,
                        model_key='other', simplex_key='p_err', thin=10,
                        type_order=('retro', 'pro'),

@@ -1467,12 +1467,19 @@ def single_neuron_color(data, tbeg, tend, twindow, tstep,
             outs[(k1, k2, k3)] = val
     return outs, xs
 
+_sd_keys = ('T', 'K', 'N', 'y', 'cue', 'C_u', 'C_l', 'C_resp',
+            'p', 'type', 'is_joint')
 def generate_fake_data_from_model(model, stan_data, cu='C_u',
-                                  cl='C_l', use_t=True):
-    use_type = 'type' in stan_data.keys()
+                                  cl='C_l', use_t=True,
+                                  make_new_dict=True,
+                                  keep_keys=_sd_keys,
+                                  **kwargs):
+    use_type = len(np.unique(stan_data['type'])) > 1
     y_new = np.zeros_like(stan_data['y'])
+    mp = stan_data['model_path']
     for i, cu_i in enumerate(stan_data[cu]):
-        cl_i = stan_data[cl][i]
+        cl_i = np.expand_dims(stan_data[cl][i], 0)
+        cu_i = np.expand_dims(cu_i, 0)
         if use_type:
             t_i = stan_data['type'][i] - 1
             mu_u = model.posterior['mu_u_type'][:, :, t_i]
@@ -1482,13 +1489,22 @@ def generate_fake_data_from_model(model, stan_data, cu='C_u',
             mu_l = model.posterior['mu_l']
         mu_u = np.mean(mu_u, axis=(0, 1))
         mu_l = np.mean(mu_l, axis=(0, 1))
-        r_mean = mu_u @ cu_i + mu_l @ cl_i
-        
+        r_mean = (np.array(np.sum(mu_u * cu_i, axis=1))
+                  + np.array(np.sum(mu_l * cl_i, axis=1)))
+
         std = np.sqrt(np.mean(model.posterior['vars'], axis=(0, 1)))
         if use_t:
             nu = np.mean(model.posterior['nu'], axis=(0, 1))
-        y_new[i] = sts.norm(r_mean, std).rvs(1)
-    return y_new
+        y_new[i] = sts.norm(r_mean, std).rvs()
+    if make_new_dict:
+        
+        new_dict = {k:v for k,v in stan_data.items()
+                    if k in keep_keys}
+        new_dict['y'] = y_new
+        new_dict.update(kwargs)
+    else:
+        new_dict = y_new
+    return new_dict, mp
 
 def make_lm_coefficients(*cols, cues=None, spline_knots=4,
                          spline_degree=2, standardize_splines=True,

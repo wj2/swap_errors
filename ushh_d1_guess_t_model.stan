@@ -24,7 +24,8 @@ data {
   vector[K] C_resp[T]; // 
   int<lower=0,upper=1> cue[T]; // upper or lower indicator
   vector[3] p[T]; // probabilities
-  
+  real<lower=0> prior_alpha;
+  real<lower=0> prior_std;
 }
 
 transformed data {
@@ -59,20 +60,18 @@ model {
   real lp_swp[2];
   real lp_guess[2];
   real nom;
-  real alpha;
 
   // prior
   for (k in 1:K){
-    mu_u[:,k] ~ normal(0, 5);
-    mu_l[:,k] ~ normal(0, 5);
+    mu_u[:,k] ~ normal(0, prior_std);
+    mu_l[:,k] ~ normal(0, prior_std);
   }
   
   vars_raw ~ inv_gamma(2, 1);
   nu ~ gamma(2, .1);
 
-  alpha = 1
-  p_err ~ dirichlet(rep_vector(alpha, 2));
-  p_guess_err ~ dirichlet(rep_vector(alpha, 2));
+  p_err ~ dirichlet(rep_vector(prior_alpha, 2));
+  p_guess_err ~ dirichlet(rep_vector(prior_alpha, 2));
 
   // likelihood
   for (n in 1:T) {

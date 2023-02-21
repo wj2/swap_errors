@@ -42,6 +42,8 @@ def create_parser():
     parser.add_argument('--n_chains', default=4, type=int)
     parser.add_argument('--fit_guesses', default=False, action='store_true')
     parser.add_argument('--fit_delay1', default=False, action='store_true')
+    parser.add_argument('--prior_alpha', default=1, type=float)
+    parser.add_argument('--prior_std', default=10, type=float)
     return parser
 
 default_add_keys = ('y', 'C_u', 'C_l', 'cue', 'p', 'C_resp')
@@ -77,11 +79,12 @@ def merge_data(data_d, noerr_types=('single',), add_keys=default_add_keys,
         for ak in add_keys:
             full_dict[ak] = add_key(ak, full_dict, dk)
         for eak in extra_add_keys:
-            extra_dict[eak] = add_key(eak, full_dict, dk)
+            extra_dict[eak] = add_key(eak, extra_dict, dk)
         key_ind = key_ind + 1
     full_dict['model_error'] = np.concatenate(full_dict['model_error'])
     full_dict['type'] = full_dict['type'].astype(int)
     print(full_dict['type'], key)
+    print(len(full_dict['y']), len(extra_dict['up_col_rads']))
     return full_dict, extra_dict
 
 if __name__ == '__main__':
@@ -126,6 +129,7 @@ if __name__ == '__main__':
         (True, False, False):'swap_errors/ushh_dh_guess_t_model.pkl',
         (False, False, False):'swap_errors/ushh_dh_t_inter_model.pkl',
         (True, True, False):'swap_errors/ushh_d1_guess_t_model.pkl',
+        (False, True, False):'swap_errors/ushh_d1_t_model.pkl',
         (True, False, True):'swap_errors/ushh_sdh_guess_t_model.pkl',
         (False, False, True):'swap_errors/ushh_sdh_t_inter_model.pkl',
     }
@@ -133,6 +137,8 @@ if __name__ == '__main__':
     model_path = model_dict[args.fit_guesses, args.fit_delay1,
                             'single' in args.use_trl_types]
     print(model_path)
+    data['prior_alpha'] = args.prior_alpha
+    data['prior_std'] = args.prior_std
     fit, fit_az, diag = su.fit_model(data, model_path, iter=n_iter, 
                                      chains=n_chains)
     out_name = args.output_name.format(num_colors=args.num_colors,
