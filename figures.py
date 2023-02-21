@@ -367,6 +367,113 @@ class SingleUnitFigure(SwapErrorFigure):
         axs[1, 1].view_init(50, 30)
 
 
+class RetroSwapFigure(SwapErrorFigure):
+
+    def __init__(self, fig_key='retro_swap', colors=colors, **kwargs):
+        fsize = (6, 7)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+        
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        self.exp_data = None
+        super().__init__(fsize, params, colors=colors, **kwargs)
+    
+    def make_gss(self):
+        gss = {}
+
+        ppc_grids = pu.make_mxn_gridspec(self.gs, 2, 2,
+                                        0, 33, 50, 100,
+                                        2, 2)
+        d1_ppc_axs = self.get_axs(ppc_grids)
+
+        post_grids = pu.make_mxn_gridspec(self.gs, 1, 2,
+                                        33, 50, 0, 50,
+                                        2, 2)
+        d1_post_axs = self.get_axs(post_grids)
+
+        avg_grid = pu.make_mxn_gridspec(self.gs, 1, 1,
+                                        33, 50, 50, 100,
+                                        2, 2)
+        d1_sess_ax = self.get_axs(avg_grids)
+        gss['panel_d1'] = (d1_ppc_axs, d1_post_axs, d1_sess_ax)
+        
+        self.gss = gss
+
+    def get_model_dict(self, ri, period):
+        if self.data.get((ri, period)) is None:
+            self.data[(ri, period)] = self._get_model_dict(ri, period)
+        return self.data[(ri, period)]
+        
+    def _get_model_dict(self, ri, period):
+        n_colors = self.params.get('n_colors')
+        spline_order = self.params.get('spline_order')
+        session_split = self.params.getint('session_split')
+        total_sessions = self.params.getint('total_sessions')
+        fp = self.params.get('model_fit_folder')
+        templ = self.params.get('model_fit_template')
+
+        e_name = self.params.get('Elmo_name')
+        w_name = self.params.get('Waldorf_name')
+
+        elmo_sessions = range(session_split)
+        elmo_fits = swa.load_o_fits(ri, sess_inds=elmo_sessions, load_data=True, 
+                                    n_colors=n_colors, period=period,
+                                    fit_templ=templ, folder=fp)
+        
+        wald_sessions = range(session_split, total_sessions)
+        wald_fits = swa.load_o_fits(ri, sess_inds=wald_sessions, load_data=True, 
+                                    n_colors=n_colors, period=period,
+                                    fit_templ=templ, folder=fp)
+        full_dict = {
+            (e_name, period, 'joint'):elmo_fits,
+            (w_name, period, 'joint'):wald_fits,
+        }
+        return full_dict, elmo_fits, wald_fits
+
+        
+    def get_d1_fits(self):
+        ri = self.params.get('d1_runind')
+        period = 'CUE2_ON'
+        out = self.get_model_dict(ri, period)
+        return out        
+        
+    def panel_d1(self):
+        key = 'panel_d1'
+        ppc_axs, posterior_axs, sess_ax = self.gss[key]
+
+        full_dict, elmo_fits, wald_fits = self.get_d1_fits()
+        swv.plot_cumulative_simplex_1d(elmo_fits, ax=posterior_axs[0])
+        swv.plot_cumulative_simplex_1d(wald_fits, ax=posterior_axs[1])
+
+        swv.plot_rates(elmo_fits, wald_fits, ax=sess_ax)
+
+        p_thr = self.params.getfloat('model_plot_pthr')
+        n_bins = self.params.getint('model_plot_n_bins')
+
+        types = (None,)
+        mistakes = ('misbind',)
+
+        p_ax_arr = np.expand_dims(ppc_axs[0, 0], (0, 1))
+        swv.plot_dists((p_thr,), types, elmo_fits, n_bins=n_bins,
+                       ret_data=True, p_comp=np.greater,
+                       axs_arr=p_ax_arr)
+        p_ax_arr = np.expand_dims(ppc_axs[1, 0], (0, 1))
+        swv.plot_dists((p_thr,), types, elmo_fits, n_bins=n_bins,
+                       ret_data=True, p_comp=np.less,
+                       axs_arr=p_ax_arr)
+
+        p_ax_arr = np.expand_dims(ppc_axs[0, 1], (0, 1))
+        swv.plot_dists((p_thr,), types, wald_fits, n_bins=n_bins,
+                       ret_data=True, p_comp=np.greater,
+                       axs_arr=p_ax_arr)
+        p_ax_arr = np.expand_dims(ppc_axs[1, 1], (0, 1))
+        swv.plot_dists((p_thr,), types, wald_fits, n_bins=n_bins,
+                       ret_data=True, p_comp=np.less,
+                       axs_arr=p_ax_arr)
+
+        
+        
 class EphysIntroFigure(SwapErrorFigure):
 
     def __init__(self, fig_key='ephys', colors=colors, **kwargs):

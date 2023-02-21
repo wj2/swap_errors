@@ -520,6 +520,19 @@ def _plot_simplex(pts, ax, line_grey_col=(.6, .6, .6)):
     ax.plot([-1, 1], [-1, -1], color=line_grey_col)
     ax.set_aspect('equal')
 
+def plot_cumulative_simplex_1d(o_dict, ax=None, fwid=3,
+                               model_key='other', simplex_key='p_err',
+                               type_ind=0, ref_ind=1, **kwargs):
+    if ax is None:
+        f, ax = plt.subplots(figsize=(fwid, fwid))
+    samps_all = []
+    for k, (fd, _) in o_dict.items():
+        samps_k = np.concatenate(fd[model_key].posterior[simplex_key])
+        if len(samps_k.shape) > 2:
+            samps_k = samps_k[:, type_ind]
+        samps_all.extend(1 - samps_k[:, ref_ind])
+    ax.hist(samps_all, **kwargs)
+    
 def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
                           model_key='other', simplex_key='p_guess_err',
                           type_order=('retro', 'pro'),
@@ -1575,7 +1588,7 @@ def save_all_dists(loaded_data, p_thrs=(0, .2, .3, .4, .5),
 def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                n_bins=25, bin_bounds=(-1, 2), file_templ='{}-histograms-pthr{}',
                mistakes=('spatial', 'cue'), ret_data=True, p_comp=np.greater,
-               new_joint=False, **kwargs):
+               new_joint=False, axs_arr=None, **kwargs):
     figsize = (fwid*len(mistakes)*mult, fwid)
     if color_dict is None:
         spatial_color = np.array([36, 123, 160])/256
@@ -1586,9 +1599,12 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
     figs = []
     out_data = {}
     for (i, j) in u.make_array_ind_iterator((len(p_thrs), len(types))):
-        
-        f, axs = plt.subplots(1, len(mistakes), figsize=figsize,
-                              sharey=True, squeeze=False)
+        if axs_arr is None:
+            f, axs = plt.subplots(1, len(mistakes), figsize=figsize,
+                                  sharey=True, squeeze=False)
+        else:
+            axs = axs_arr[i, j]
+            f = None
         axs = axs[0]
         trl_type = types[j]
         p_thr = p_thrs[i]
@@ -1615,11 +1631,12 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                 l2 = mistake
             axs[k].set_xticklabels([l1, l2], rotation=45)
 
-        f.savefig(file_templ.format(trl_type, p_thr) + '.svg', 
-                  bbox_inches='tight', transparent=True)
-        f.savefig(file_templ.format(trl_type, p_thr) + '.pdf',
-                  bbox_inches='tight', transparent=True)
-        figs.append(f)
+        if f is not None:
+            f.savefig(file_templ.format(trl_type, p_thr) + '.svg', 
+                      bbox_inches='tight', transparent=True)
+            f.savefig(file_templ.format(trl_type, p_thr) + '.pdf',
+                      bbox_inches='tight', transparent=True)
+            figs.append(f)
     if ret_data:
         out = (figs, out_data)
     else:
