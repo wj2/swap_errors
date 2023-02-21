@@ -367,7 +367,73 @@ class SingleUnitFigure(SwapErrorFigure):
         axs[1, 1].view_init(50, 30)
 
 
-class RetroSwapFigure(SwapErrorFigure):
+class ModelBasedFigure(SwapErrorFigure):
+
+    def get_model_dict(self, ri, period):
+        if self.data.get((ri, period)) is None:
+            self.data[(ri, period)] = self._get_model_dict(ri, period)
+        return self.data[(ri, period)]
+        
+    def _get_model_dict(self, ri, period):
+        n_colors = self.params.get('n_colors')
+        spline_order = self.params.get('spline_order')
+        session_split = self.params.getint('session_split')
+        total_sessions = self.params.getint('total_sessions')
+        fp = self.params.get('model_fit_folder')
+        templ = self.params.get('model_fit_template')
+
+        e_name = self.params.get('Elmo_name')
+        w_name = self.params.get('Waldorf_name')
+
+        elmo_sessions = range(session_split)
+        elmo_fits = swa.load_o_fits(ri, sess_inds=elmo_sessions, load_data=True, 
+                                    n_colors=n_colors, period=period,
+                                    fit_templ=templ, folder=fp)
+        
+        wald_sessions = range(session_split, total_sessions)
+        wald_fits = swa.load_o_fits(ri, sess_inds=wald_sessions, load_data=True, 
+                                    n_colors=n_colors, period=period,
+                                    fit_templ=templ, folder=fp)
+        full_dict = {
+            (e_name, period, 'joint'):elmo_fits,
+            (w_name, period, 'joint'):wald_fits,
+        }
+        return full_dict, elmo_fits, wald_fits
+        
+    def get_d1_fits(self):
+        ri = self.params.get('d1_runind')
+        period = 'CUE2_ON'
+        out = self.get_model_dict(ri, period)
+        return out
+
+    def get_d2_fits(self):
+        ri = self.params.get('d2_runind')
+        period = 'WHEEL_ON'
+        out = self.get_model_dict(ri, period)
+        return out
+
+    def plot_ppc_groups(self, types, mistakes, axs, *m_dicts):
+        p_thr = self.params.getfloat('model_plot_pthr')
+        n_bins = self.params.getint('model_plot_n_bins')
+
+        for i, md in enumerate(m_dicts):
+            i_beg = i*len(mistakes)
+            i_end = (i + 1)*len(mistakes)
+            p_ax_arr = np.expand_dims(axs[0, i_beg:i_end],
+                                      (0, 1))
+            swv.plot_dists((p_thr,), types, md, n_bins=n_bins,
+                           mistakes=mistakes,
+                           ret_data=True, p_comp=np.greater,
+                           axs_arr=p_ax_arr)
+            p_ax_arr = np.expand_dims(axs[1, i_beg:i_end],
+                                      (0, 1))
+            swv.plot_dists((p_thr,), types, md, n_bins=n_bins,
+                           mistakes=mistakes,
+                           ret_data=True, p_comp=np.less,
+                           axs_arr=p_ax_arr)
+
+        
+class RetroSwapFigure(ModelBasedFigure):
 
     def __init__(self, fig_key='retro_swap', colors=colors, **kwargs):
         fsize = (6, 7)
@@ -403,64 +469,6 @@ class RetroSwapFigure(SwapErrorFigure):
         gss['panel_d1'] = (d1_ppc_axs, d1_post_axs, d1_sess_ax)
         
         self.gss = gss
-
-    def get_model_dict(self, ri, period):
-        if self.data.get((ri, period)) is None:
-            self.data[(ri, period)] = self._get_model_dict(ri, period)
-        return self.data[(ri, period)]
-        
-    def _get_model_dict(self, ri, period):
-        n_colors = self.params.get('n_colors')
-        spline_order = self.params.get('spline_order')
-        session_split = self.params.getint('session_split')
-        total_sessions = self.params.getint('total_sessions')
-        fp = self.params.get('model_fit_folder')
-        templ = self.params.get('model_fit_template')
-
-        e_name = self.params.get('Elmo_name')
-        w_name = self.params.get('Waldorf_name')
-
-        elmo_sessions = range(session_split)
-        elmo_fits = swa.load_o_fits(ri, sess_inds=elmo_sessions, load_data=True, 
-                                    n_colors=n_colors, period=period,
-                                    fit_templ=templ, folder=fp)
-        
-        wald_sessions = range(session_split, total_sessions)
-        wald_fits = swa.load_o_fits(ri, sess_inds=wald_sessions, load_data=True, 
-                                    n_colors=n_colors, period=period,
-                                    fit_templ=templ, folder=fp)
-        full_dict = {
-            (e_name, period, 'joint'):elmo_fits,
-            (w_name, period, 'joint'):wald_fits,
-        }
-        return full_dict, elmo_fits, wald_fits
-
-        
-    def get_d1_fits(self):
-        ri = self.params.get('d1_runind')
-        period = 'CUE2_ON'
-        out = self.get_model_dict(ri, period)
-        return out        
-
-    def plot_ppc_groups(self, types, mistakes, axs, *m_dicts):
-        p_thr = self.params.getfloat('model_plot_pthr')
-        n_bins = self.params.getint('model_plot_n_bins')
-
-        for i, md in enumerate(m_dicts):
-            i_beg = i*len(mistakes)
-            i_end = (i + 1)*len(mistakes)
-            p_ax_arr = np.expand_dims(axs[0, i_beg:i_end],
-                                      (0, 1))
-            swv.plot_dists((p_thr,), types, md, n_bins=n_bins,
-                           mistakes=mistakes,
-                           ret_data=True, p_comp=np.greater,
-                           axs_arr=p_ax_arr)
-            p_ax_arr = np.expand_dims(axs[1, i_beg:i_end],
-                                      (0, 1))
-            swv.plot_dists((p_thr,), types, md, n_bins=n_bins,
-                           mistakes=mistakes,
-                           ret_data=True, p_comp=np.less,
-                           axs_arr=p_ax_arr)
     
     def panel_d1(self):
         key = 'panel_d1'
@@ -477,7 +485,23 @@ class RetroSwapFigure(SwapErrorFigure):
         mistakes = ('misbind',)
         self.plot_ppc_groups(types, mistakes, ppc_axs,
                              elmo_fits, wald_fits)
-        
+
+    def panel_d2(self):
+        key = 'panel_d2'
+        ppc_axs, posterior_axs, sess_ax = self.gss[key]
+        sess_ax = sess_ax[0, 0]
+
+        full_dict, elmo_fits, wald_fits = self.get_d2_fits()
+        swv.plot_cumulative_simplex(elmo_fits, ax=posterior_axs[0])
+        swv.plot_cumulative_simplex(wald_fits, ax=posterior_axs[1])
+
+        swv.plot_rates(elmo_fits, wald_fits, ax=sess_ax, ref_ind=2)
+
+        types = ('retro',)
+        mistakes = ('spatial', 'cue', 'spatial-cue',)
+        self.plot_ppc_groups(types, mistakes, ppc_axs,
+                             elmo_fits, wald_fits)
+
 
         
         

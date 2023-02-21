@@ -12,6 +12,7 @@ import arviz as az
 import itertools as it
 import seaborn as sns
 import functools as ft
+import ternary
 
 import general.plotting as gpl
 import general.utility as u
@@ -543,6 +544,23 @@ def _plot_simplex(pts, ax, line_grey_col=(.6, .6, .6)):
     ax.plot([-1, 1], [-1, -1], color=line_grey_col)
     ax.set_aspect('equal')
 
+    
+def plot_cumulative_simplex(o_dict, ax=None, fwid=3,
+                            model_key='other', simplex_key='p_err',
+                            type_ind=0, **kwargs):
+    if ax is None:
+        f, ax = ternary.figure()
+    else:
+        ax = ternary.TernaryAxesSubplot(ax=ax)
+    
+    samps_all = []
+    for k, (fd, _) in o_dict.items():
+        samps_k = np.concatenate(fd[model_key].posterior[simplex_key])
+        if len(samps_k.shape) > 2:
+            samps_k = samps_k[:, type_ind]
+        samps_all.extend(samps_k)
+    ax.heatmap(samps_all, **kwargs)    
+    
 def plot_cumulative_simplex_1d(o_dict, ax=None, fwid=3,
                                model_key='other', simplex_key='p_err',
                                type_ind=0, ref_ind=1, **kwargs):
