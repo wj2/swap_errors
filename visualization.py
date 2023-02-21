@@ -558,7 +558,7 @@ def plot_cumulative_simplex(o_dict, ax=None, fwid=3,
         if len(samps_k.shape) > 2:
             samps_k = samps_k[:, type_ind]
         samps_all.extend(samps_k)
-    ax.heatmap(np.array(samps_all), **kwargs)    
+    gpl.simplefy(np.array(samps_all), ax=ax, **kwargs)
     
 def plot_cumulative_simplex_1d(o_dict, ax=None, fwid=3,
                                model_key='other', simplex_key='p_err',
