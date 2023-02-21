@@ -207,6 +207,9 @@ def compute_vecs(fit_az, data, col_keys=('C_u', 'C_l'),
     
 def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                                      col_keys=('C_u', 'C_l'),
+                                     col_rads_keys=('up_col_rads',
+                                                    'down_col_rads'),
+                                     col_guess_rad_key='resp_rads',
                                      col_key_guess='C_resp',
                                      cent1_keys=((('mu_d_u', 'mu_l'),
                                                   'intercept_down'),
@@ -223,11 +226,13 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
                                      do_correction=False,
                                      type_key='type',
                                      trl_filt=None,
-                                     col_thr=.1,
+                                     col_thr=np.pi/2,
                                      new_joint=False,
                                      p_comp=np.greater,
                                      use_resp_color=False):
     cols = np.stack(list(data[ck] for ck in col_keys), axis=0)
+    cols_rads = np.stack(list(data[ck] for ck in col_rads_keys), axis=0)
+    
     pp = np.concatenate(fit_az.posterior_predictive[eh_key].to_numpy(),
                         axis=0)
     if use_cues:
@@ -251,9 +256,20 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
     true_arr = []
     pred_arr = []
     p_vals = []
-    if col_thr is not None:
-        col_dist = np.sum((cols[0]*cols[1]), axis=1)
-        col_mask = col_dist < col_thr
+    if col_thr is not None and not use_resp_color:
+        col_dist = np.abs(u.normalize_periodic_range(cols_rads[0]
+                                                     - cols_rads[1]))
+        col_mask = col_dist > col_thr
+        mask = np.logical_and(mask, col_mask)
+    elif col_thr is not None and use_resp_color:
+        targ_col = np.zeros(len(cols_rads[0]))
+        targ_col[cues == 0] = cols_rads[1][cues == 0]
+        targ_col[cues == 1] = cols_rads[0][cues == 1]
+        
+        guess_col = data[col_guess_rad_key]
+        col_dist = np.abs(u.normalize_periodic_range(targ_col
+                                                     - guess_col))
+        col_mask = col_dist > col_thr
         mask = np.logical_and(mask, col_mask)
 
     for i, cue in enumerate(u_cues):
@@ -265,21 +281,29 @@ def get_normalized_centroid_distance(fit_az, data, eh_key='err_hat',
             use_ind = None
         if use_resp_color:
             alt_cols = np.zeros_like(cols)
+            alt_cols_rads = np.zeros_like(cols_rads)
             c_g = data[col_key_guess]
+            c_g_rads = data[col_guess_rad_key]
             if cue == 0:
                 alt_cols[0] = cols[0]
                 alt_cols[1] = c_g
+                alt_cols_rads[0] = cols_rads[0]
+                alt_cols_rads[1] = c_g_rads
             else:
                 alt_cols[0] = c_g
                 alt_cols[1] = cols[1]
+                alt_cols_rads[0] = c_g_rads
+                alt_cols_rads[1] = cols_rads[1]
         else:
             alt_cols = cols
+            alt_cols_rads = cols_rads
         mu1 = _get_key_mu(fit_az.posterior, cols, cent1_keys[cue][0],
                           mask=cue_mask, inter_key=cent1_keys[cue][1],
                           use_ind=use_ind, mean=True)
         mu2 = _get_key_mu(fit_az.posterior, alt_cols, cent2_keys[cue][0],
                           mask=cue_mask, inter_key=cent2_keys[cue][1],
                           use_ind=use_ind, mean=True)
+
         
         v_len = np.sqrt(np.sum((mu2 - mu1)**2, axis=1))
         v_len[v_len < eps] = 1
@@ -1443,12 +1467,19 @@ def single_neuron_color(data, tbeg, tend, twindow, tstep,
             outs[(k1, k2, k3)] = val
     return outs, xs
 
+_sd_keys = ('T', 'K', 'N', 'y', 'cue', 'C_u', 'C_l', 'C_resp',
+            'p', 'type', 'is_joint')
 def generate_fake_data_from_model(model, stan_data, cu='C_u',
-                                  cl='C_l', use_t=True):
-    use_type = 'type' in stan_data.keys()
+                                  cl='C_l', use_t=True,
+                                  make_new_dict=True,
+                                  keep_keys=_sd_keys,
+                                  **kwargs):
+    use_type = len(np.unique(stan_data['type'])) > 1
     y_new = np.zeros_like(stan_data['y'])
+    mp = stan_data['model_path']
     for i, cu_i in enumerate(stan_data[cu]):
-        cl_i = stan_data[cl][i]
+        cl_i = np.expand_dims(stan_data[cl][i], 0)
+        cu_i = np.expand_dims(cu_i, 0)
         if use_type:
             t_i = stan_data['type'][i] - 1
             mu_u = model.posterior['mu_u_type'][:, :, t_i]
@@ -1458,13 +1489,22 @@ def generate_fake_data_from_model(model, stan_data, cu='C_u',
             mu_l = model.posterior['mu_l']
         mu_u = np.mean(mu_u, axis=(0, 1))
         mu_l = np.mean(mu_l, axis=(0, 1))
-        r_mean = mu_u @ cu_i + mu_l @ cl_i
-        
+        r_mean = (np.array(np.sum(mu_u * cu_i, axis=1))
+                  + np.array(np.sum(mu_l * cl_i, axis=1)))
+
         std = np.sqrt(np.mean(model.posterior['vars'], axis=(0, 1)))
         if use_t:
             nu = np.mean(model.posterior['nu'], axis=(0, 1))
-        y_new[i] = sts.norm(r_mean, std).rvs(1)
-    return y_new
+        y_new[i] = sts.norm(r_mean, std).rvs()
+    if make_new_dict:
+        
+        new_dict = {k:v for k,v in stan_data.items()
+                    if k in keep_keys}
+        new_dict['y'] = y_new
+        new_dict.update(kwargs)
+    else:
+        new_dict = y_new
+    return new_dict, mp
 
 def make_lm_coefficients(*cols, cues=None, spline_knots=4,
                          spline_degree=2, standardize_splines=True,
