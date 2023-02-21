@@ -385,15 +385,19 @@ class RetroSwapFigure(SwapErrorFigure):
         ppc_grids = pu.make_mxn_gridspec(self.gs, 2, 2,
                                         0, 33, 50, 100,
                                         2, 2)
-        d1_ppc_axs = self.get_axs(ppc_grids)
+        d1_ppc_axs = self.get_axs(ppc_grids,
+                                  sharex='all',
+                                  sharey='all')
 
         post_grids = pu.make_mxn_gridspec(self.gs, 1, 2,
-                                        33, 50, 0, 50,
-                                        2, 2)
-        d1_post_axs = self.get_axs(post_grids)
+                                          33, 50, 0, 50,
+                                          2, 4,)
+        d1_post_axs = self.get_axs(post_grids, squeeze=True,
+                                   sharex='all',
+                                   sharey='all')
 
         avg_grids = pu.make_mxn_gridspec(self.gs, 1, 1,
-                                        33, 50, 50, 100,
+                                        40, 50, 60, 100,
                                         2, 2)
         d1_sess_ax = self.get_axs(avg_grids)
         gss['panel_d1'] = (d1_ppc_axs, d1_post_axs, d1_sess_ax)
@@ -437,10 +441,31 @@ class RetroSwapFigure(SwapErrorFigure):
         period = 'CUE2_ON'
         out = self.get_model_dict(ri, period)
         return out        
-        
+
+    def plot_ppc_groups(self, types, mistakes, axs, *m_dicts):
+        p_thr = self.params.getfloat('model_plot_pthr')
+        n_bins = self.params.getint('model_plot_n_bins')
+
+        for i, md in enumerate(m_dicts):
+            i_beg = i*len(mistakes)
+            i_end = (i + 1)*len(mistakes)
+            p_ax_arr = np.expand_dims(axs[0, i_beg:i_end],
+                                      (0, 1))
+            swv.plot_dists((p_thr,), types, md, n_bins=n_bins,
+                           mistakes=mistakes,
+                           ret_data=True, p_comp=np.greater,
+                           axs_arr=p_ax_arr)
+            p_ax_arr = np.expand_dims(axs[1, i_beg:i_end],
+                                      (0, 1))
+            swv.plot_dists((p_thr,), types, md, n_bins=n_bins,
+                           mistakes=mistakes,
+                           ret_data=True, p_comp=np.less,
+                           axs_arr=p_ax_arr)
+    
     def panel_d1(self):
         key = 'panel_d1'
         ppc_axs, posterior_axs, sess_ax = self.gss[key]
+        sess_ax = sess_ax[0, 0]
 
         full_dict, elmo_fits, wald_fits = self.get_d1_fits()
         swv.plot_cumulative_simplex_1d(elmo_fits, ax=posterior_axs[0])
@@ -448,29 +473,11 @@ class RetroSwapFigure(SwapErrorFigure):
 
         swv.plot_rates(elmo_fits, wald_fits, ax=sess_ax)
 
-        p_thr = self.params.getfloat('model_plot_pthr')
-        n_bins = self.params.getint('model_plot_n_bins')
-
         types = (None,)
         mistakes = ('misbind',)
-
-        p_ax_arr = np.expand_dims(ppc_axs[0, 0], (0, 1))
-        swv.plot_dists((p_thr,), types, elmo_fits, n_bins=n_bins,
-                       ret_data=True, p_comp=np.greater,
-                       axs_arr=p_ax_arr)
-        p_ax_arr = np.expand_dims(ppc_axs[1, 0], (0, 1))
-        swv.plot_dists((p_thr,), types, elmo_fits, n_bins=n_bins,
-                       ret_data=True, p_comp=np.less,
-                       axs_arr=p_ax_arr)
-
-        p_ax_arr = np.expand_dims(ppc_axs[0, 1], (0, 1))
-        swv.plot_dists((p_thr,), types, wald_fits, n_bins=n_bins,
-                       ret_data=True, p_comp=np.greater,
-                       axs_arr=p_ax_arr)
-        p_ax_arr = np.expand_dims(ppc_axs[1, 1], (0, 1))
-        swv.plot_dists((p_thr,), types, wald_fits, n_bins=n_bins,
-                       ret_data=True, p_comp=np.less,
-                       axs_arr=p_ax_arr)
+        self.plot_ppc_groups(types, mistakes, ppc_axs,
+                             elmo_fits, wald_fits)
+        
 
         
         

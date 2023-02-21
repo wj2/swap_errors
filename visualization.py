@@ -632,6 +632,7 @@ def plot_rates(*o_dicts, simplex_key='p_err', ref_ind=1, ax=None,
                                     color=color)
             color = l[0].get_color()
     gpl.add_hlines(0, ax)
+    gpl.add_hlines(1, ax)
             
         
 def plot_all_simplices(o_dict, axs_dict=None, fwid=3,
@@ -1676,19 +1677,28 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
         if axs_arr is None:
             f, axs = plt.subplots(1, len(mistakes), figsize=figsize,
                                   sharey=True, squeeze=False)
+            axs = axs[0]
         else:
             axs = axs_arr[i, j]
             f = None
-        axs = axs[0]
         trl_type = types[j]
         p_thr = p_thrs[i]
 
         for k, mistake in enumerate(mistakes):
             _, w_dat = plot_session_swap_distr_collection(
-                *args, n_bins=n_bins, p_thresh=p_thr, colors=color_dict,
-                bin_bounds=bin_bounds, axs=axs[k:k+1], trl_filt=trl_type,
-                mistake=mistake, p_comp=p_comp, new_joint=new_joint,
-                cue_time=cue_time, only_keys=only_keys)
+                *args,
+                n_bins=n_bins,
+                p_thresh=p_thr,
+                colors=color_dict,
+                bin_bounds=bin_bounds,
+                axs=axs[k:k+1],
+                trl_filt=trl_type,
+                mistake=mistake,
+                p_comp=p_comp,
+                new_joint=new_joint,
+                cue_time=cue_time,
+                only_keys=only_keys
+            )
 
             out_data[(mistake, trl_type, p_thr)] = w_dat
             gpl.clean_plot(axs[k], k)
