@@ -12,7 +12,6 @@ import arviz as az
 import itertools as it
 import seaborn as sns
 import functools as ft
-import ternary
 
 import general.plotting as gpl
 import general.utility as u
@@ -69,6 +68,24 @@ def plot_trial_lls(m1, m2, axs=None, use_types=None, model_key='hybrid',
         mean_diffs.append(np.mean(all_diffs))
     ax_mean.hist(mean_diffs)
     gpl.add_vlines(np.mean(mean_diffs), ax_mean)
+
+def plot_cue_decoding(rate_dict, color=None, axs=None, n_boots=100,
+                      x_cent=0):
+    if axs is None:
+        f, axs = plt.subplots(1, 2)
+    diffs = []
+    for (k, (c_err, s_err)) in rate_dict.items():
+        c_err = np.expand_dims(c_err, 1)
+        s_err = np.expand_dims(s_err, 1)
+        l = gpl.plot_trace_werr(c_err, s_err, ax=axs[0], points=True,
+                                error_func=gpl.std, color=color)
+        diffs.append(np.mean(s_err) - np.mean(c_err))
+        color = l[0].get_color()
+
+    mu_diff = u.bootstrap_list(np.array(diffs), np.nanmean, n_boots)
+    gpl.violinplot([mu_diff], [x_cent], color=(color,), ax=axs[1],
+                   showextrema=False, showmedians=True)
+    return axs
 
 def plot_model_probs(*args, plot_keys=('swap_prob', 'guess_prob'), ax=None,
                      sep=.5, comb_func=np.median, colors=None, sub_x=-1,
@@ -546,17 +563,16 @@ def _plot_simplex(pts, ax, line_grey_col=(.6, .6, .6)):
     
 def plot_cumulative_simplex(o_dict, ax=None, fwid=3,
                             model_key='other', simplex_key='p_err',
-                            type_ind=0, **kwargs):
+                            plot_type='retro', **kwargs):
     if ax is None:
-        f, ax = ternary.figure()
-    else:
-        ax = ternary.TernaryAxesSubplot(ax=ax)
+        f, ax = plt.subplots()
     
     samps_all = []
-    for k, (fd, _) in o_dict.items():
+    for k, (fd, data) in o_dict.items():
         samps_k = np.concatenate(fd[model_key].posterior[simplex_key])
         if len(samps_k.shape) > 2:
-            samps_k = samps_k[:, type_ind]
+            ind = swaux.get_type_ind(plot_type, data)
+            samps_k = samps_k[:, ind]
         samps_all.extend(samps_k)
     gpl.simplefy(np.array(samps_all), ax=ax, **kwargs)
     
@@ -571,7 +587,8 @@ def plot_cumulative_simplex_1d(o_dict, ax=None, fwid=3,
         if len(samps_k.shape) > 2:
             samps_k = samps_k[:, type_ind]
         samps_all.extend(1 - samps_k[:, ref_ind])
-    ax.hist(samps_all, **kwargs)
+    ax.hist(samps_all, density=True, **kwargs)
+    gpl.clean_plot(ax, 0)
     
 def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
                           model_key='other', simplex_key='p_guess_err',
@@ -627,7 +644,7 @@ def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
         gpl.add_hlines(0, axs_k[1, 0])
 
 def plot_rates(*o_dicts, simplex_key='p_err', ref_ind=1, ax=None,
-               colors=None, lw=20, task_ind=0):
+               colors=None, lw=1.5, task_type='retro', diff=0):
     if colors is None:
         colors = (None,)*len(o_dicts)
     if ax is None:
@@ -638,13 +655,14 @@ def plot_rates(*o_dicts, simplex_key='p_err', ref_ind=1, ax=None,
             fit = fit['other']
             simpl = np.concatenate(fit.posterior[simplex_key])
             if len(simpl.shape) > 2:
-                simpl = simpl[:, task_ind]
+                ind = swaux.get_type_ind(task_type, data)
+                simpl = simpl[:, ind]
             pts = 1 - simpl[:, ref_ind]
-            # trls = prob*pts[:, 0:1]*len(data['p'])
-            l = gpl.plot_trace_werr(sess_ind,
+            l = gpl.plot_trace_werr(sess_ind + diff,
                                     np.expand_dims(pts, 1),
                                     ax=ax,
                                     conf95=True,
+                                    fill=False,
                                     elinewidth=lw,
                                     color=color)
             color = l[0].get_color()
@@ -1680,7 +1698,8 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                n_bins=25, bin_bounds=(-1, 2), file_templ='{}-histograms-pthr{}',
                mistakes=('spatial', 'cue'), ret_data=True, p_comp=np.greater,
                new_joint=False, cue_time=False, only_keys=None,
-               axs_arr=None, **kwargs):
+               axs_arr=None, legend=True, color=None,
+               precomputed_data=None, **kwargs):
     figsize = (fwid*len(mistakes)*mult, fwid)
     if color_dict is None:
         spatial_color = np.array([36, 123, 160])/256
@@ -1702,6 +1721,11 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
         p_thr = p_thrs[i]
 
         for k, mistake in enumerate(mistakes):
+            new_key = (mistake, trl_type, p_thr)
+            if precomputed_data is not None:
+                precomputed_data = precomputed_data[new_key]
+            if k > 0:
+                legend = False
             _, w_dat = plot_session_swap_distr_collection(
                 *args,
                 n_bins=n_bins,
@@ -1714,10 +1738,13 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                 p_comp=p_comp,
                 new_joint=new_joint,
                 cue_time=cue_time,
-                only_keys=only_keys
+                only_keys=only_keys,
+                legend=legend,
+                color=color,
+                precomputed_data=precomputed_data,
             )
 
-            out_data[(mistake, trl_type, p_thr)] = w_dat
+            out_data[new_key] = w_dat
             gpl.clean_plot(axs[k], k)
             if k == 0:
                 axs[k].set_ylabel(r'density | $p_{swp} > ' + '{}$'.format(p_thr))
@@ -1784,7 +1811,11 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                                        ret_data=True, colors=None,
                                        mistake='spatial', new_joint=False,
                                        cue_time=False,
-                                       only_keys=None, **kwargs):
+                                       only_keys=None,
+                                       legend=True,
+                                       color=None,
+                                       precomputed_data=None,
+                                       **kwargs):
     if colors is None:
         colors = {}
     if axs is None:
@@ -1836,33 +1867,44 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
     else:
         raise IOError('unrecognized mistake type')
     cent_keys.update(kwargs)
-    for (sn, (mdict, data)) in session_dict.items():
-        if only_keys is None or sn in only_keys:
-            for (k, faz) in mdict.items():
-                out = swan.get_normalized_centroid_distance(faz, data, p_ind=p_ind,
-                                                            new_joint=new_joint,
-                                                            **cent_keys)
-                true, pred, ps = out
-                true_k = true_d.get(k, [])
-                true_k.append(true)
-                true_d[k] = true_k
-                pred_k = pred_d.get(k, [])
-                pred_k.append(pred)
-                pred_d[k] = pred_k
-                ps_k = ps_d.get(k, [])
-                ps_k.append(ps[:, p_ind])
-                ps_d[k] = ps_k
+    if precomputed_data is None:
+        for (sn, (mdict, data)) in session_dict.items():
+            if only_keys is None or sn in only_keys:
+                for (k, faz) in mdict.items():
+                    out = swan.get_normalized_centroid_distance(
+                        faz,
+                        data,
+                        p_ind=p_ind,
+                        new_joint=new_joint,
+                        **cent_keys)
+                    true, pred, ps = out
+                    true_k = true_d.get(k, [])
+                    true_k.append(true)
+                    true_d[k] = true_k
+                    pred_k = pred_d.get(k, [])
+                    pred_k.append(pred)
+                    pred_d[k] = pred_k
+                    ps_k = ps_d.get(k, [])
+                    ps_k.append(ps[:, p_ind])
+                    ps_d[k] = ps_k
+    else:
+        true_d = precomputed_data            
     if bin_bounds is not None:
         bins = np.linspace(*bin_bounds, n_bins)
     else:
         bins = n_bins
     out_data = {}
     for i, (k, td) in enumerate(true_d.items()):
-        td_full = np.concatenate(td, axis=0)
-        pd_full = np.concatenate(pred_d[k], axis=0)
-        ps_full = np.concatenate(ps_d[k], axis=0)
-        color = colors.get(k)
-        _, bins, _ = axs[i].hist(td_full, bins=bins, color=color,
+        if precomputed_data is None:
+            td_full = np.concatenate(td, axis=0)
+            pd_full = np.concatenate(pred_d[k], axis=0)
+            ps_full = np.concatenate(ps_d[k], axis=0)
+        else:
+            td_full, pd_full, ps_full = precomputed_data[k]
+        use_color = colors.get(k)
+        if use_color is None:
+            use_color = color
+        _, bins, _ = axs[i].hist(td_full, bins=bins, color=use_color,
                                     density=True, label='observed')
         axs[i].hist(pd_full, bins=bins, histtype='step', color='k',
                     linestyle='dashed',
@@ -1871,7 +1913,8 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
         axs[i].set_ylabel(k)
         if ret_data:
             out_data[k] = (td_full, pd_full, ps_full)
-    axs[i].legend(frameon=False)
+    if legend and i == 0:
+        axs[i].legend(frameon=False)
     if ret_data:
         out = axs, out_data
     else:
