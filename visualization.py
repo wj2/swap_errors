@@ -548,9 +548,7 @@ def plot_cumulative_simplex(o_dict, ax=None, fwid=3,
                             model_key='other', simplex_key='p_err',
                             type_ind=0, **kwargs):
     if ax is None:
-        f, ax = ternary.figure()
-    else:
-        ax = ternary.TernaryAxesSubplot(ax=ax)
+        f, ax = plt.subplots()
     
     samps_all = []
     for k, (fd, _) in o_dict.items():
