@@ -24,6 +24,57 @@ import general.decoders as gd
 import swap_errors.auxiliary as swa
 
 
+def cue_decoding(data, corr_thr, swap_thr, activity='y', cue='cue', p='p',
+                 corr_ind=0, swap_ind=1, model=skc.LinearSVC,
+                 type_target='retro', type_field='type',
+                 max_iter=5000, n_folds=100, test_frac=.1):
+    _, type_int = swa.get_type_ind(type_target, data, return_type=True)
+    mask = data[type_field] == type_int
+    x = data[activity][mask]
+    y = data[cue][mask]
+    corr_mask = data[p][mask][:, corr_ind] > corr_thr
+    swap_mask = data[p][mask][:, swap_ind] > swap_thr
+
+    x_corr, y_corr = x[corr_mask], y[corr_mask]
+    splitter = skms.ShuffleSplit(n_folds, test_size=test_frac)
+    out = skms.cross_validate(model(max_iter=max_iter),
+                              x_corr, y_corr,
+                              return_estimator=True,
+                              cv=splitter)
+    x_swap, y_swap = x[swap_mask], y[swap_mask]
+    dec_swap = np.zeros(len(out['test_score']))
+    if x_swap.shape[0] == 0:
+        dec_swap[:] = np.nan
+    else:
+        for i, est in enumerate(out['estimator']):
+            dec_swap[i] = est.score(x_swap, y_swap)
+    return out['test_score'], dec_swap
+
+def cue_decoding_swaps(fit_dict, corr_thr, swap_thr, **kwargs):
+    out_dict = {}
+    for k, (_, data) in fit_dict.items():
+        out_dict[k] = cue_decoding(data, corr_thr, swap_thr, **kwargs)
+    return out_dict
+
+def compare_params(d1, d2, param='p_err', use_type='retro',
+                   d1_p_ind=1, d2_p_ind=2):
+    diff_distr = {}
+    ps = {}
+    for k, (fit_d1, _) in d1.items():
+        fit_d2, data_d2 = d2[k]
+        fit_d1 = fit_d1['other']
+        fit_d2 = fit_d2['other']
+        type_ind = swa.get_type_ind(use_type, data_d2)
+        prob_d1 = np.concatenate(fit_d1.posterior[param])
+        prob_d2 = np.concatenate(fit_d2.posterior[param])[:, type_ind]
+        prob_d1 = 1 - prob_d1[:, d1_p_ind]
+        prob_d2 = 1 - prob_d2[:, d2_p_ind]
+        diff = prob_d2 - prob_d1
+        p = diff < 0
+        diff_distr[k] = diff
+        ps[k] = p
+    return diff_distr, ps
+
 def spline_decoding(data, activity='y', col_keys=('C_u',), cv=20,
                     cv_type=skms.LeaveOneOut,
                     model=sklm.Ridge):
