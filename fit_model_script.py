@@ -26,10 +26,11 @@ def create_parser():
                     '{num_colors}_colors/sess_{sess_ind}/{period}_diode/'
                     '-0.5-0.0-0.5_0.5/'
                     'pca_0.95_before/impute_{use_impute}'
-                    '/spline{spline_order}_knots/all/'
+                    '/spline{spline_order}_knots/{use_regions}/'
                     '{trl_type}/stan_data.pkl')
     parser.add_argument('--use_trl_types', default=('retro', 'pro'),
                         type=str, nargs='+')
+    parser.add_argument('--use_regions', default='all')
     parser.add_argument('--no_imputation', default=False, action='store_true')
     parser.add_argument('--spline_order', default=1, type=int)
     parser.add_argument('--use_joint_data', default=False, action='store_true')
@@ -44,6 +45,7 @@ def create_parser():
     parser.add_argument('--fit_delay1', default=False, action='store_true')
     parser.add_argument('--prior_alpha', default=1, type=float)
     parser.add_argument('--prior_std', default=10, type=float)
+    parser.add_argument('--use_manual', default=False, action='store_true')
     return parser
 
 default_add_keys = ('y', 'C_u', 'C_l', 'cue', 'p', 'C_resp')
@@ -91,6 +93,14 @@ if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
     data_path_templ = args.data_path
+    if args.use_manual:
+        data_path_templ = ('/burg/theory/users/ma3811/assignment_errors/manual/'
+                           '{num_colors}_colors/sess_{sess_ind}/{period}_diode/'
+                           '-0.5-0.0-0.5_0.5/'
+                           'pca_0.95_before/impute_{use_impute}'
+                           '/spline{spline_order}_knots/all/'
+                           '{trl_type}/stan_data.pkl')
+
     use_impute = not args.no_imputation
     if args.fit_delay1:
         args.period = 'CUE2_ON'
@@ -102,7 +112,8 @@ if __name__ == '__main__':
                                            period=args.period,
                                            trl_type='joint',
                                            use_impute=use_impute,
-                                           spline_order=args.spline_order)
+                                           spline_order=args.spline_order,
+                                           use_regions=args.use_regions)
         data = pickle.load(open(data_path, 'rb'))
         data['C_resp'] = data['resp_spl']
         extra_data = {}
@@ -114,7 +125,8 @@ if __name__ == '__main__':
                                                period=args.period,
                                                trl_type=utt,
                                                use_impute=use_impute,
-                                               spline_order=args.spline_order)
+                                               spline_order=args.spline_order,
+                                               use_regions=args.use_regions)
             data_i = pickle.load(open(data_path, 'rb'))
             data_i['C_resp'] = data_i['resp_spl']
             data_unmerged[utt] = data_i

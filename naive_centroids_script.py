@@ -26,6 +26,8 @@ def create_parser():
     parser.add_argument('--shuffle_nulls', default=False, action='store_true')
     parser.add_argument('--use_guesses', default=False, action='store_true')
     parser.add_argument('--no_regions', default=False, action='store_true')
+    parser.add_argument('--use_manual', default=False, action='store_true')
+    parser.add_argument('--no_imputation', default=False, action='store_true')
     return parser
 
 decider_dict = {
@@ -61,7 +63,10 @@ if __name__ == '__main__':
         swap_decider = swap_decider_pl
     args.date = datetime.now()
     if not args.local_test and args.file_templ_d1 is None:
-        file_templ_d1 = swaux.cluster_naive_d1_path_templ
+        if args.use_manual:
+            file_templ_d1 = swaux.cluster_naive_d1_manual_path_templ
+        else:
+            file_templ_d1 = swaux.cluster_naive_d1_path_templ
         if args.no_regions:
             form_opts_d1 = swaux.cluster_naive_d1_format_options_noregions
         else:
@@ -71,6 +76,9 @@ if __name__ == '__main__':
         form_opts_d1 = {'test_type':(14,)}
     else:
         file_templ_d1, form_opts_d1 = pickle.load(open(args.file_templ_d1, 'rb'))
+
+    if args.no_imputation:
+        file_templ_d1 = file_templ_d1.replace('impute_True', 'impute_False')
 
     sessions_d1 = swaux.load_files_ma_folders(file_templ_d1, **form_opts_d1)
     out_d1_cu = {}
@@ -93,7 +101,10 @@ if __name__ == '__main__':
         out_d1_cl[k] = out_cl
         
     if not args.local_test and args.file_templ_d2 is None:
-        file_templ_d2 = swaux.cluster_naive_d2_path_templ
+        if args.use_manual:
+            file_templ_d2 = swaux.cluster_naive_d2_manual_path_templ
+        else:
+            file_templ_d2 = swaux.cluster_naive_d2_path_templ
         if args.no_regions:
             form_opts_d2 = swaux.cluster_naive_d2_format_options_noregions
         else:
@@ -104,6 +115,10 @@ if __name__ == '__main__':
         form_opts_d2 = {'test_type':(9,)}
     else:
         file_templ_d2, form_opts_d2 = pickle.load(open(args.file_templ_d2, 'rb'))
+        
+    if args.no_imputation:
+        file_templ_d2 = file_templ_d2.replace('impute_True', 'impute_False')
+
 
     sessions_d2 = swaux.load_files_ma_folders(file_templ_d2, **form_opts_d2)
     out_d2 = {}
