@@ -69,12 +69,44 @@ def plot_trial_lls(m1, m2, axs=None, use_types=None, model_key='hybrid',
     ax_mean.hist(mean_diffs)
     gpl.add_vlines(np.mean(mean_diffs), ax_mean)
 
-def plot_cue_decoding(rate_dict, color=None, axs=None, n_boots=100,
+def plot_decoding_comparison(d1_rates, d2_rates, axs=None, color=None,
+                             spread=.05, lw=1, elinewidth=2,
+                             corr_thr=.6, swap_thr=.3, buff=.4):
+    if axs is None:
+        f, axs = plt.subplots(1, 2)
+    rng = np.random.default_rng()
+
+    for k, (d1_corr, d1_swap) in d1_rates.items():
+        d2_corr, d2_swap = d2_rates[k]
+        corr_line = np.stack((d1_corr, d2_corr), axis=1)
+        swap_line = np.stack((d1_swap, d2_swap), axis=1)
+        off = rng.normal(0, spread)
+        
+        gpl.plot_trace_werr([off, 1 + off], corr_line, fill=False,
+                            errorbar=True, ax=axs[0],
+                            color=color, error_func=gpl.std, lw=lw,
+                            elinewidth=elinewidth)
+        gpl.plot_trace_werr([off, 1 + off], swap_line, fill=False,
+                            errorbar=True, ax=axs[1],
+                            color=color, lw=lw,
+                            error_func=gpl.std,
+                            elinewidth=elinewidth)
+    axs[0].set_ylabel('decoding performance\np(corr) > {}'.format(corr_thr))
+    axs[1].set_ylabel('decoding performance\np(swap) > {}'.format(swap_thr))
+    axs[0].set_xticks([0, 1])
+    axs[0].set_xticklabels(['delay 1', 'delay 2'])
+    axs[0].set_xlim([-buff, 1 + buff])
+    axs[1].set_xlim([-buff, 1 + buff])
+    gpl.clean_plot_bottom(axs[0], keeplabels=True)
+    gpl.clean_plot_bottom(axs[1], keeplabels=True)
+    
+def plot_cue_decoding(rate_dict, color=None, axs=None, n_boots=1000,
                       x_cent=0):
     if axs is None:
         f, axs = plt.subplots(1, 2)
     diffs = []
-    for (k, (c_err, s_err)) in rate_dict.items():
+    for (k, err_tuple) in rate_dict.items():
+        c_err, s_err = err_tuple[:2]
         c_err = np.expand_dims(c_err, 1)
         s_err = np.expand_dims(s_err, 1)
         l = gpl.plot_trace_werr(c_err, s_err, ax=axs[0], points=True,
@@ -83,6 +115,7 @@ def plot_cue_decoding(rate_dict, color=None, axs=None, n_boots=100,
         color = l[0].get_color()
 
     mu_diff = u.bootstrap_list(np.array(diffs), np.nanmean, n_boots)
+    print(np.mean(mu_diff < 0))
     gpl.violinplot([mu_diff], [x_cent], color=(color,), ax=axs[1],
                    showextrema=False, showmedians=True)
     return axs
@@ -563,32 +596,60 @@ def _plot_simplex(pts, ax, line_grey_col=(.6, .6, .6)):
     
 def plot_cumulative_simplex(o_dict, ax=None, fwid=3,
                             model_key='other', simplex_key='p_err',
-                            plot_type='retro', **kwargs):
+                            plot_type='retro',
+                            session_avg=True, n_boots=1000,
+                            color=None,
+                            **kwargs):
     if ax is None:
         f, ax = plt.subplots()
     
     samps_all = []
+    session_means = []
     for k, (fd, data) in o_dict.items():
         samps_k = np.concatenate(fd[model_key].posterior[simplex_key])
         if len(samps_k.shape) > 2:
             ind = swaux.get_type_ind(plot_type, data)
             samps_k = samps_k[:, ind]
         samps_all.extend(samps_k)
+        session_means.append(np.mean(samps_k, axis=0))
     gpl.simplefy(np.array(samps_all), ax=ax, **kwargs)
+    if session_avg:    
+        avg_conf = u.bootstrap_array(np.array(session_means),
+                                     np.mean, n=n_boots)
+        gpl.simplefy(avg_conf, ax=ax, how='contours',
+                     color=color)
+
     
 def plot_cumulative_simplex_1d(o_dict, ax=None, fwid=3,
                                model_key='other', simplex_key='p_err',
-                               type_ind=0, ref_ind=1, **kwargs):
+                               ref_ind=1,
+                               plot_type='retro',
+                               session_avg=True, n_boots=1000,
+                               **kwargs):
     if ax is None:
         f, ax = plt.subplots(figsize=(fwid, fwid))
     samps_all = []
-    for k, (fd, _) in o_dict.items():
+    session_means = []
+    for k, (fd, data) in o_dict.items():
         samps_k = np.concatenate(fd[model_key].posterior[simplex_key])
         if len(samps_k.shape) > 2:
+            type_ind = swaux.get_type_ind(plot_type, data)
             samps_k = samps_k[:, type_ind]
         samps_all.extend(1 - samps_k[:, ref_ind])
+        session_means.append(np.mean(1 - samps_k[:, ref_ind], axis=0))
     ax.hist(samps_all, density=True, **kwargs)
     gpl.clean_plot(ax, 0)
+    if session_avg:
+        
+        avg_conf = u.bootstrap_list(np.array(session_means),
+                                    np.mean, n=n_boots)
+        y_val = ax.get_ylim()[-1]
+        gpl.plot_trace_werr(np.expand_dims(avg_conf, 1),
+                            [y_val],
+                            conf95=True, ax=ax,
+                            elinewidth=3,
+                            fill=False,
+                            **kwargs)
     
 def plot_all_simplices_1d(o_dict, axs_dict=None, fwid=3,
                           model_key='other', simplex_key='p_guess_err',
@@ -1723,7 +1784,9 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
         for k, mistake in enumerate(mistakes):
             new_key = (mistake, trl_type, p_thr)
             if precomputed_data is not None:
-                precomputed_data = precomputed_data[new_key]
+                use_data = precomputed_data[new_key]
+            else:
+                use_data = None
             if k > 0:
                 legend = False
             _, w_dat = plot_session_swap_distr_collection(
@@ -1741,7 +1804,7 @@ def plot_dists(p_thrs, types, *args, fwid=3, mult=1.5, color_dict=None,
                 only_keys=only_keys,
                 legend=legend,
                 color=color,
-                precomputed_data=precomputed_data,
+                precomputed_data=use_data,
             )
 
             out_data[new_key] = w_dat
@@ -1807,7 +1870,9 @@ def plot_proj_p_scatter(td, p, ax=None, bounds=(-1, 2), color=None,
     return ax
 
 def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
-                                       fwid=3, p_ind=1, bin_bounds=None,
+                                       fwid=3, default_p_ind=1,
+                                       bin_bounds=None,
+                                       p_ind=None,
                                        ret_data=True, colors=None,
                                        mistake='spatial', new_joint=False,
                                        cue_time=False,
@@ -1850,7 +1915,7 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                                      (('mu_u', 'mu_d_l'), 'i_up_type')),
                          cent2_keys=((('mu_d_u', 'mu_l'), 'i_down_type'),
                                      (('mu_u', 'mu_d_l'), 'i_up_type')))
-        p_ind = 2
+        default_p_ind = 2
         cent_keys['use_resp_color']  = True
     elif mistake == 'guess' and cue_time:
         cent_keys = dict(cent1_keys=((('mu_u', 'mu_l'), None),
@@ -1858,7 +1923,7 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
                          cent2_keys=((('mu_u', 'mu_l'), None),
                                      (('mu_u', 'mu_l'), None)))
         cent_keys['use_cues'] = True
-        p_ind = 2
+        default_p_ind = 2
         cent_keys['use_resp_color']  = True
     elif mistake == 'misbind':
         cent_keys = dict(cent1_keys=((('mu_u', 'mu_l'), None),),
@@ -1866,6 +1931,8 @@ def plot_session_swap_distr_collection(session_dict, axs=None, n_bins=20,
         cent_keys['use_cues'] = False
     else:
         raise IOError('unrecognized mistake type')
+    if p_ind is None:
+        p_ind = default_p_ind
     cent_keys.update(kwargs)
     if precomputed_data is None:
         for (sn, (mdict, data)) in session_dict.items():

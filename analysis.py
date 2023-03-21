@@ -19,17 +19,89 @@ import quantities as pq
 
 import general.data_io as dio
 import general.neural_analysis as na
+import general.stan_utility as su
 import general.utility as u
 import general.decoders as gd
 import swap_errors.auxiliary as swa
 
 
+def average_simplices(o_dict, plot_type='retro', simplex_key='p_err',
+                      model_path='swap_errors/dirich_avg.pkl',
+                      model_key='other',
+                      **kwargs):
+    samps_all = []
+    for k, (fd, data) in o_dict.items():
+        samps_k = np.concatenate(fd[model_key].posterior[simplex_key])
+        if len(samps_k.shape) > 2:
+            ind = swa.get_type_ind(plot_type, data)
+            samps_k = samps_k[:, ind]
+        
+        samps_all.append(samps_k)
+    samps = np.stack(samps_all, axis=1)
+    T, N, D = samps.shape
+    stan_dict = dict(samps=samps, T=T, N=N, D=D)
+    out = su.fit_model(stan_dict, model_path, arviz_convert=False,
+                       **kwargs)
+    return out
+
+def number_decoding(data, corr_thr, swap_thr, activity='y', p='p',
+                    corr_ind=0, swap_ind=1, model=skc.SVC,
+                    single_str='single', type_str='retro',
+                    type_field='type',
+                    pre=True, n_folds=100, test_frac=.1,
+                    shuffle=False):
+    if pre:
+        model = na.make_model_pipeline(model, pca=.999, class_weight='balanced')
+    else:
+        model = model(max_iter=max_iter)
+    _, single_int = swa.get_type_ind(single_str, data, return_type=True)
+    _, type_int = swa.get_type_ind(type_str, data, return_type=True)
+
+    single_mask = data[type_field] == single_int
+    double_mask = data[type_field] == type_int
+    corr_mask = data[p][:, corr_ind] > corr_thr
+    swap_mask = data[p][:, swap_ind] > swap_thr
+
+    double_tr_mask = np.logical_and(double_mask, corr_mask)
+    double_te_mask = np.logical_and(double_mask, swap_mask)
+
+    x_tr, y_tr = na.make_data_labels(data[activity][double_tr_mask],
+                                     data[activity][single_mask],)
+    x_swap, y_swap = na.make_data_labels(data[activity][double_te_mask])
+
+    # splitter = skms.ShuffleSplit(n_folds, test_size=test_frac)
+    splitter = na.BalancedShuffleSplit(n_folds, test_size=test_frac)
+    if shuffle:
+        rng = np.random.default_rng()
+        rng.shuffle(y_tr)
+    out = skms.cross_validate(model,
+                              x_tr, y_tr,
+                              return_estimator=True,
+                              cv=splitter)
+    dec_swap = np.zeros(len(out['test_score']))
+    if x_swap.shape[0] == 0:
+        dec_swap[:] = np.nan
+    else:
+        for i, est in enumerate(out['estimator']):
+            dec_swap[i] = est.score(x_swap, y_swap)
+    chance_level = np.mean(y_tr)
+    chance_level = max(chance_level, 1 - chance_level)
+    return out['test_score'], dec_swap, chance_level
+    
+
 def cue_decoding(data, corr_thr, swap_thr, activity='y', cue='cue', p='p',
                  corr_ind=0, swap_ind=1, model=skc.LinearSVC,
-                 type_target='retro', type_field='type',
+                 type_str='retro', type_field='type', pre=True, 
                  max_iter=5000, n_folds=100, test_frac=.1):
-    _, type_int = swa.get_type_ind(type_target, data, return_type=True)
-    mask = data[type_field] == type_int
+    if pre:
+        model = na.make_model_pipeline(model, pca=.999, max_iter=max_iter)
+    else:
+        model = model(max_iter=max_iter)
+    if data['is_joint'] == 1:
+        _, type_int = swa.get_type_ind(type_str, data, return_type=True)
+        mask = data[type_field] == type_int
+    else:
+        mask = np.ones(len(data[type_field]), dtype=bool)
     x = data[activity][mask]
     y = data[cue][mask]
     corr_mask = data[p][mask][:, corr_ind] > corr_thr
@@ -37,7 +109,7 @@ def cue_decoding(data, corr_thr, swap_thr, activity='y', cue='cue', p='p',
 
     x_corr, y_corr = x[corr_mask], y[corr_mask]
     splitter = skms.ShuffleSplit(n_folds, test_size=test_frac)
-    out = skms.cross_validate(model(max_iter=max_iter),
+    out = skms.cross_validate(model,
                               x_corr, y_corr,
                               return_estimator=True,
                               cv=splitter)
@@ -50,11 +122,19 @@ def cue_decoding(data, corr_thr, swap_thr, activity='y', cue='cue', p='p',
             dec_swap[i] = est.score(x_swap, y_swap)
     return out['test_score'], dec_swap
 
-def cue_decoding_swaps(fit_dict, corr_thr, swap_thr, **kwargs):
+def _session_decoding_analysis(fit_dict, corr_thr, swap_thr, func,
+                               **kwargs):
     out_dict = {}
-    for k, (_, data) in fit_dict.items():
-        out_dict[k] = cue_decoding(data, corr_thr, swap_thr, **kwargs)
+    for k, (f, data) in fit_dict.items():
+        out_dict[k] = func(data, corr_thr, swap_thr, **kwargs)
     return out_dict
+
+def cue_decoding_swaps(*args, **kwargs):
+    return _session_decoding_analysis(*args, cue_decoding, **kwargs)
+
+def number_decoding_swaps(*args, **kwargs):
+    return _session_decoding_analysis(*args,  number_decoding, **kwargs)
+    
 
 def compare_params(d1, d2, param='p_err', use_type='retro',
                    d1_p_ind=1, d2_p_ind=2):

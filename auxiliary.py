@@ -155,6 +155,14 @@ cluster_naive_d1_path_templ = (
     '/burg/theory/users/ma3811/assignment_errors/5_colors/'
     'sess_{}/CUE2_ON_diode/-0.5-0.0-0.5_0.5/pca_0.95_before/'
     'impute_True/spline1_knots/{}/{}/stan_data.pkl')
+cluster_naive_d1_manual_path_templ = (
+    '/burg/theory/users/ma3811/assignment_errors/manual/5_colors/'
+    'sess_{}/CUE2_ON_diode/-0.5-0.0-0.5_0.5/pca_0.95_before/'
+    'impute_True/spline1_knots/{}/{}/stan_data.pkl')
+cluster_naive_d1_pro_path_templ = (
+    '/burg/theory/users/ma3811/assignment_errors/{manual}{n_colors}_colors/'
+    'sess_{sess_num}/SAMPLES_ON_diode/{start}-{end}-{diff}_{diff}/pca_0.95_before/'
+    'impute_{impute}/spline{spline_order}_knots/{region}/{trl_type}/stan_data.pkl')
 cluster_naive_d1_format_options = {
     'sessions':range(0, 23),
     'region':('all', 'frontal', 'posterior'),
@@ -169,6 +177,10 @@ cluster_naive_d2_path_templ = (
     '/burg/theory/users/ma3811/assignment_errors/5_colors/'
     'sess_{}/WHEEL_ON_diode/-0.5-0.0-0.5_0.5/pca_0.95_before/'
     'impute_True/spline1_knots/{}/{}/stan_data.pkl')
+cluster_naive_d2_manual_path_templ = (
+    '/burg/theory/users/ma3811/assignment_errors/manual/5_colors/'
+    'sess_{}/WHEEL_ON_diode/-0.5-0.0-0.5_0.5/pca_0.95_before/'
+    'impute_True/spline1_knots/{}/{}/stan_data.pkl')
 cluster_naive_d2_format_options = {
     'sessions':range(0, 23),
     'region':('all', 'frontal', 'posterior'),
@@ -177,6 +189,32 @@ cluster_naive_d2_format_options_noregions = {
     'sessions':range(0, 23),
     'region':('all',),
     'trl_type':('retro', 'pro')}
+
+def load_pro_d1_stan_data(n_colors=5, spline_order=1, region='all',
+                          trl_type='pro', session_range=None,
+                          templ=cluster_naive_d1_pro_path_templ,
+                          use_manual=True,
+                          impute=True,
+                          start=-0.2, end=.3,
+                          **kwargs):
+    if use_manual:
+        manual = 'manual/'
+    else:
+        manual = ''
+    if session_range is None:
+        session_range = range(0, 23)
+    diff = end - start
+    out_dict = {}
+    for sr in session_range:
+        path = templ.format(n_colors=n_colors, spline_order=spline_order,
+                            region=region, trl_type=trl_type,
+                            sess_num=sr, start=start, end=end,
+                            diff=diff, manual=manual,
+                            impute=impute,
+                            **kwargs)
+        sd = pickle.load(open(path, 'rb'))
+        out_dict[sr] = (None, sd)
+    return out_dict
 
 def load_files_ma_folders(file_template, **format_options):
     format_options = c.OrderedDict(format_options)
