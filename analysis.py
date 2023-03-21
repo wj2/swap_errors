@@ -769,12 +769,12 @@ def compute_sweep_ncs(sweep_keys, run_ind,
                       folder='swap_errors/naive_centroids/',
                       use_d1s=('d1_cl', 'd1_cu'),
                       d2_key='d2', cond_types=('pro', 'retro'),
-                      monkey_ranges=None, regions='all'):
+                      monkey_ranges=None, regions='all', guess=False):
     if monkey_ranges is None:
         monkey_ranges = dict(elmo_range=range(13),
                              waldorf_range=range(13, 24),
                              comb_range=range(24))
-    nc_df = swa.load_nc_sweep(folder, run_ind)
+    nc_df = swa.load_nc_sweep(folder, run_ind, guess=guess)
     ax_vals = []
     for sk in sweep_keys:
         if list(nc_df[sk])[0] is None:
