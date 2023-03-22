@@ -418,19 +418,20 @@ class ModelBasedFigure(SwapErrorFigure):
 
     def _panel_decoding(self, e_fits, w_fits, dec_ax, diff_ax, key=None,
                         refit=False, type_str='retro',
-                        corr_ind=0, swap_ind=1):
+                        corr_ind=0, swap_ind=1,
+                        func=swan.cue_decoding_swaps):
         corr_thr = self.params.getfloat('corr_thr')
         swap_thr = self.params.getfloat('swap_thr')
 
         if self.data.get(key) is None or refit:
-            e_rates = swan.cue_decoding_swaps(e_fits, corr_thr, swap_thr,
-                                              type_str=type_str,
-                                              corr_ind=corr_ind,
-                                              swap_ind=swap_ind)
-            w_rates = swan.cue_decoding_swaps(w_fits, corr_thr, swap_thr,
-                                              type_str=type_str,
-                                              corr_ind=corr_ind,
-                                              swap_ind=swap_ind)
+            e_rates = func(e_fits, corr_thr, swap_thr,
+                           type_str=type_str,
+                           corr_ind=corr_ind,
+                           swap_ind=swap_ind)
+            w_rates = func(w_fits, corr_thr, swap_thr,
+                           type_str=type_str,
+                           corr_ind=corr_ind,
+                           swap_ind=swap_ind)
             self.data[key] = (e_rates, w_rates)
         e_rates, w_rates = self.data[key]
         
@@ -523,8 +524,7 @@ class ModelBasedFigure(SwapErrorFigure):
         corr_color = self.params.getcolor('correct_color')
         swap_color = self.params.getcolor('swap_color')
 
-        corr_thr = self.params.getfloat('corr_thr')
-        swap_thr = self.params.getfloat('swap_thr')
+        swap_thr = self.params.getfloat('ppc_thr')
 
         out_data = {}
         max_ys = []
@@ -564,25 +564,29 @@ class ModelBasedFigure(SwapErrorFigure):
                 color=swap_color,
                 precomputed_data=swap_precomp,
                 cue_time=cue_time,
+                simple_label=True,
+                legend_label='p(swap) > {}'.format(swap_thr),
             )
 
             corr_ax_arr = np.expand_dims(axs[corr_ind, i_beg:i_end],
                                       (0, 1))
             _, corr_data = swv.plot_dists(
-                (corr_thr,),
+                (swap_thr,),
                 types,
                 md,
                 n_bins=n_bins,
                 mistakes=mistakes,
                 ret_data=True,
-                p_comp=np.greater,
-                p_ind=0,
+                p_comp=np.less,
                 axs_arr=corr_ax_arr,
                 new_joint=new_joint,
-                legend=False,
+                legend=True,
+                pred_label=False,
                 color=corr_color, 
                 precomputed_data=corr_precomp,
                 cue_time=cue_time,
+                simple_label=True,
+                legend_label='p(swap) < {}'.format(swap_thr),
             )
             out_data[i] = (swap_data, corr_data)
             if plot_inverted:
@@ -602,6 +606,7 @@ class ModelBasedFigure(SwapErrorFigure):
                 axs[ind].set_ylim([max_y, 0])
             else:        
                 axs[ind].set_ylim([0, max_y])
+                
 
         return out_data
 
@@ -790,7 +795,7 @@ class ProSwapFigure(ModelBasedFigure):
 class GuessFigure(ModelBasedFigure):
 
     def __init__(self, fig_key='guess', colors=colors, **kwargs):
-        fsize = (8.5, 6)
+        fsize = (8.5, 5)
         cf = u.ConfigParserColor()
         cf.read(config_path)
         
@@ -802,68 +807,54 @@ class GuessFigure(ModelBasedFigure):
     def make_gss(self):
         gss = {}
 
-        lb = 50
+        lb = 45
         wb = 50
         gap = 10
-        ppc_wid = 12
+        post_wid = 12
+        scatt_wid = 15
+        diff_wid = 8
         
         # delay 1
-        ppc_grids = pu.make_mxn_gridspec(self.gs, 4, 1,
-                                        0, lb, 20, 20+ppc_wid,
-                                        2, 2)
-        d1_ppc_axs = self.get_axs(ppc_grids,)
-
-        post_grids = pu.make_mxn_gridspec(self.gs, 2, 1,
-                                          5, lb - 10, 0, 10,
-                                          8, 4,)
-        d1_post_axs = self.get_axs(post_grids, squeeze=True,
+        post_grids = pu.make_mxn_gridspec(self.gs, 2, 2,
+                                          0, lb,
+                                          40 + post_wid -(post_wid*2 + 5),
+                                          40+post_wid, 
+                                          8, 5,)
+        d1d2_post_axs = self.get_axs(post_grids, squeeze=True,
                                    sharey='all')
 
+        gss['panel_retro_d1'] = d1d2_post_axs[:, 0]
         
-        gss['panel_retro_d1'] = (d1_ppc_axs, d1_post_axs)
+        scatter_grid = self.gs[0:lb, 65:65+scatt_wid]
+        diff_grid = self.gs[0:lb, 100-diff_wid:]
+        dec_axs = self.get_axs((scatter_grid, diff_grid,),
+                                    squeeze=True)
+        gss['panel_retro_d2'] = (d1d2_post_axs[:, 1], dec_axs)
+                                 
 
-        # delay 2
-        ppc_grids = pu.make_mxn_gridspec(self.gs, 4, 1,
-                                        0, lb, wb+ 20, wb + 20+ppc_wid,
-                                        2, 2)
-        d2_ppc_axs = self.get_axs(ppc_grids,)
-
-        post_grids = pu.make_mxn_gridspec(self.gs, 2, 1,
-                                          5, lb - 10, wb, wb + 10,
-                                          8, 4,)
-        d2_post_axs = self.get_axs(post_grids, squeeze=True,
-                                   sharey='all')
-
-        
-        gss['panel_retro_d2'] = (d2_ppc_axs, d2_post_axs)
-
-
-
-        scatter_grid = self.gs[lb + gap:100, 0:20]
-        diff_grid = self.gs[lb + gap:100, 25:35]
+        scatter_grid = self.gs[lb + gap:100, 0:scatt_wid]
+        diff_grid = self.gs[lb + gap:100, 34-diff_wid:34]
         dec_axs = self.get_axs((scatter_grid, diff_grid,),
                                     squeeze=True)
         gss['panel_pro_d1'] = dec_axs
         
-        # delay 2
-        ppc_grids = pu.make_mxn_gridspec(self.gs, 4, 1,
-                                        lb + gap, 100, wb+ 20, wb + 20+ppc_wid,
-                                        2, 2)
-        d2_ppc_axs = self.get_axs(ppc_grids,)
-
         post_grids = pu.make_mxn_gridspec(self.gs, 2, 1,
-                                          lb + gap, 90, wb, wb + 10,
-                                          8, 4,)
+                                          lb + gap, 100, 40, 40+post_wid,
+                                          8, 5,)
         d2_post_axs = self.get_axs(post_grids, squeeze=True,
                                    sharey='all')
 
-        gss['panel_pro_d2'] = (d2_ppc_axs, d2_post_axs)
+        scatter_grid = self.gs[lb + gap:100, 65:65+scatt_wid]
+        diff_grid = self.gs[lb + gap:100, 100-diff_wid:]
+        dec_axs = self.get_axs((scatter_grid, diff_grid,),
+                                    squeeze=True)
+        gss['panel_pro_d2'] = (d2_post_axs, dec_axs)
         
         self.gss = gss
 
     def panel_retro_d1(self, recompute=False):
         key = 'panel_retro_d1'
-        ppc_axs, posterior_axs = self.gss[key]
+        posterior_axs = self.gss[key]
 
         e_d1_color = self.params.getcolor('elmo_color')
         w_d1_color = self.params.getcolor('waldorf_color')
@@ -882,30 +873,28 @@ class GuessFigure(ModelBasedFigure):
         posterior_axs[1].set_ylabel('density')
         posterior_axs[1].set_xlabel('p(guess)')
 
-        types = (None,)
-        mistakes = ('guess',)
-        if recompute:
-            precomp = None
-        else:
-            precomp = self.data.get(key)
-        out = self.plot_ppc_groups(types, mistakes, ppc_axs,
-                                   elmo_fits, wald_fits,
-                                   precomputed_data=precomp,
-                                   cue_time=True)
-        self.data[key] = out
-        self.data['d1_retro_ppc_pts'] = out
+        # types = (None,)
+        # mistakes = ('guess',)
+        # if recompute:
+        #     precomp = None
+        # else:
+        #     precomp = self.data.get(key)
+        # out = self.plot_ppc_groups(types, mistakes, ppc_axs,
+        #                            elmo_fits, wald_fits,
+        #                            precomputed_data=precomp,
+        #                            cue_time=True)
+        # self.data[key] = out
+        # self.data['d1_retro_ppc_pts'] = out
 
         
-    def panel_retro_d2(self, recompute=False):
+    def panel_retro_d2(self, recompute=False, refit=False):
         key = 'panel_retro_d2'
-        ppc_axs, posterior_axs = self.gss[key]
+        posterior_axs, dec_axs = self.gss[key]
 
         e_d1_color = self.params.getcolor('elmo_color')
         w_d1_color = self.params.getcolor('waldorf_color')
         
-        full_dict, elmo_fits, wald_fits = self.get_d2_fits(
-            runind_name='d2_retro_runind'
-        )
+        full_dict, elmo_fits, wald_fits = self.get_d2_fits()
         swv.plot_cumulative_simplex_1d(elmo_fits, ax=posterior_axs[0],
                                        color=e_d1_color,
                                        simplex_key='p_guess_err',
@@ -917,18 +906,11 @@ class GuessFigure(ModelBasedFigure):
         posterior_axs[1].set_ylabel('density')
         posterior_axs[1].set_xlabel('p(guess)')
 
-        types = ('retro',)
-        mistakes = ('guess',)
-        if recompute:
-            precomp = None
-        else:
-            precomp = self.data.get(key)
-        out = self.plot_ppc_groups(types, mistakes, ppc_axs,
-                                   elmo_fits, wald_fits,
-                                   precomputed_data=precomp,
-                                   cue_time=True)
-        self.data[key] = out
-        self.data['d2_retro_ppc_pts'] = out
+        
+        self._panel_decoding(elmo_fits, wald_fits, *dec_axs, key=key,
+                             type_str='retro', swap_ind=2, refit=refit)
+        dec_axs[1].set_yticks([0, -.2, -.4])
+
         
     def panel_pro_d1(self, refit=False):
         key = 'panel_pro_d1'
@@ -940,16 +922,14 @@ class GuessFigure(ModelBasedFigure):
                              type_str='pro', swap_ind=2, refit=refit)
         diff_ax.set_yticks([0, -.2, -.4])
         
-    def panel_pro_d2(self, recompute=False):
+    def panel_pro_d2(self, recompute=False, refit=False):
         key = 'panel_pro_d2'
-        ppc_axs, posterior_axs = self.gss[key]
+        posterior_axs, dec_axs = self.gss[key]
 
         e_d1_color = self.params.getcolor('elmo_color')
         w_d1_color = self.params.getcolor('waldorf_color')
         
-        full_dict, elmo_fits, wald_fits = self.get_d2_fits(
-            runind_name='d2_retro_runind'
-        )
+        full_dict, elmo_fits, wald_fits = self.get_d2_fits()
         swv.plot_cumulative_simplex_1d(elmo_fits, ax=posterior_axs[0],
                                        color=e_d1_color, plot_type='pro',
                                        simplex_key='p_guess_err',
@@ -961,20 +941,10 @@ class GuessFigure(ModelBasedFigure):
         posterior_axs[1].set_ylabel('density')
         posterior_axs[1].set_xlabel('p(guess)')
 
-        types = ('pro',)
-        mistakes = ('guess',)
-        if recompute:
-            precomp = None
-        else:
-            precomp = self.data.get(key)
-        out = self.plot_ppc_groups(types, mistakes, ppc_axs,
-                                   elmo_fits, wald_fits,
-                                   precomputed_data=precomp,
-                                   
-                                   cue_time=True)
-        self.data[key] = out
-        self.data['d2_retro_ppc_pts'] = out
-
+        self._panel_decoding(elmo_fits, wald_fits, *dec_axs, key=key,
+                             type_str='pro', swap_ind=2, refit=refit)
+        dec_axs[1].set_yticks([0, -.2, -.4])
+        
         
 class RetroSwapFigure(ModelBasedFigure):
 
@@ -1013,7 +983,8 @@ class RetroSwapFigure(ModelBasedFigure):
         sess_bars_grid = self.gs[lb + gap:100, 0:20]
         sess_diff_grid = self.gs[lb + gap:100, 28:35]
         sess_ax, sess_diff_ax = self.get_axs((sess_bars_grid, sess_diff_grid,),
-                                             squeeze=True)
+                                             squeeze=True,
+                                             sharey='all')
         gss['panel_d1'] = (d1_ppc_axs, d1_post_axs, sess_ax)
 
         # delay 2
@@ -1069,18 +1040,26 @@ class RetroSwapFigure(ModelBasedFigure):
         _, e_d2_fits, w_d2_fits = self.get_d2_fits()
 
         sess_ax.set_xlabel('sessions')
-        sess_ax.set_ylabel('inferred swap rate')
-        sess_diff_ax.set_ylabel('swap rate difference\n(delay 2 - delay 1)')
+        sess_diff_ax.set_ylabel('average difference')
+        sess_ax.set_ylabel('swap rate difference\n(delay 2 - delay 1)')
         sess_diff_ax.set_xticks([0, 1])
         sess_diff_ax.set_xticklabels(['E', 'W'])
         
-        swv.plot_rates(e_d1_fits, w_d1_fits, ax=sess_ax,
-                       colors=(e_d1_color, w_d1_color),
-                       diff=-.1)
-        swv.plot_rates(e_d2_fits, w_d2_fits, ax=sess_ax, ref_ind=2,
-                       colors=(e_d2_color, w_d2_color),
-                       diff=.1)
+        # swv.plot_rates(e_d1_fits, w_d1_fits, ax=sess_ax,
+        #                colors=(e_d1_color, w_d1_color),
+        #                diff=-.1)
+        # swv.plot_rates(e_d2_fits, w_d2_fits, ax=sess_ax, ref_ind=2,
+        #                colors=(e_d2_color, w_d2_color),
+        #                diff=.1)
 
+        swv.plot_rate_differences(e_d1_fits, e_d2_fits,
+                                  ax=sess_ax, color=e_color)
+        swv.plot_rate_differences(w_d1_fits, w_d2_fits,
+                                  ax=sess_ax, color=w_color)
+        gpl.clean_plot(sess_ax, 0)
+        gpl.add_hlines(0, sess_ax)
+        gpl.clean_plot_bottom(sess_ax, keeplabels=True)
+        gpl.clean_plot_bottom(sess_diff_ax, keeplabels=True)
         
         e_diffs, e_ps = swan.compare_params(e_d1_fits, e_d2_fits)
         w_diffs, w_ps = swan.compare_params(w_d1_fits, w_d2_fits)
@@ -1186,6 +1165,75 @@ class RetroSwapFigure(ModelBasedFigure):
         self.data[key] = out
         self.data['d1_ppc_pts'] = out
 
+class ForgettingFigure(ModelBasedFigure):
+
+    def __init__(self, fig_key='forget', colors=colors, **kwargs):
+        fsize = (6, 2)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+        
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        self.exp_data = None
+        super().__init__(fsize, params, colors=colors, **kwargs)
+    
+    def make_gss(self):
+        gss = {}
+
+        lb = 60
+        gap = 10
+
+        scatter_wid = 25
+        diff_wid = 8
+        gap = 10
+        
+        # retro
+        scatter_grid = self.gs[:, 0:scatter_wid]
+        diff_grid = self.gs[:, scatter_wid+gap:scatter_wid+gap+diff_wid]
+        dec_axs = self.get_axs((scatter_grid, diff_grid,),
+                                    squeeze=True)
+        gss['panel_retro'] = dec_axs
+
+        # pro
+        scatter_grid = self.gs[:, 55:55+scatter_wid]
+        diff_grid = self.gs[:, 55+scatter_wid+gap:55+scatter_wid+gap+diff_wid]
+        dec_axs = self.get_axs((scatter_grid, diff_grid,),
+                                    squeeze=True)
+        gss['panel_pro'] = dec_axs
+
+        self.gss = gss
+
+    def panel_retro(self, refit=False):
+        key = 'panel_retro'
+        axs = self.gss[key]
+
+        corr_thr = self.params.getfloat('corr_thr')
+        swap_thr = self.params.getfloat('swap_thr')
+
+        e_color = self.monkey_colors['Elmo']
+        w_color = self.monkey_colors['Waldorf']
+
+        _, e_fits, w_fits = self.get_d2_fits()
+        self._panel_decoding(e_fits, w_fits, *axs, key=key,
+                             refit=refit, type_str='retro',
+                             func=swan.number_decoding_swaps)
+        axs[1].set_yticks([0, .1])
+
+    def panel_pro(self, refit=False):
+        key = 'panel_pro'
+        axs = self.gss[key]
+
+        corr_thr = self.params.getfloat('corr_thr')
+        swap_thr = self.params.getfloat('swap_thr')
+
+        e_color = self.monkey_colors['Elmo']
+        w_color = self.monkey_colors['Waldorf']
+
+        _, e_fits, w_fits = self.get_d2_fits()
+        self._panel_decoding(e_fits, w_fits, *axs, key=key,
+                             refit=refit, type_str='pro',
+                             func=swan.number_decoding_swaps)
+        axs[1].set_yticks([0, .1])
         
 class EphysIntroFigure(SwapErrorFigure):
 
