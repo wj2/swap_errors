@@ -104,9 +104,14 @@ def load_o_fits(run_ind, n_colors=5, sess_inds=range(23),
     return out_dict
     
 
-def load_x_sweep(folder, run_ind, template):
+def load_x_sweep(folder, run_ind, template, guess=False):
     fls = os.listdir(folder)
-    template = template.format(run_ind=run_ind)
+    if guess:
+        g_str = 'guess_'
+    else:
+        g_str = ''
+    template = template.format(run_ind=run_ind, guess=g_str)
+        
     x_list = []
     for fl in fls:
         m = re.match(template, fl)
@@ -118,10 +123,11 @@ def load_x_sweep(folder, run_ind, template):
             x_list.append(out_fl)
     return pd.DataFrame(x_list)
 
-nc_sweep_pattern = 'nc_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+\.pkl'
+nc_sweep_pattern = 'nc_{guess}(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+\.pkl'
 def load_nc_sweep(folder, run_ind,
-                  template=nc_sweep_pattern):
-    return load_x_sweep(folder, run_ind, template)
+                  template=nc_sweep_pattern,
+                  **kwargs):
+    return load_x_sweep(folder, run_ind, template, **kwargs)
     
 fs_sweep_pattern = ('[fst]+_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+'
                     '\.pkl')
