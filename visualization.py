@@ -1921,7 +1921,23 @@ def visualize_model_collection_views(
             **kwarg_combs[i],
         )
     return f, axs
-
+    
+def plot_rate_differences(d1, d2, param='p_err', use_type='retro',
+                          d1_p_ind=1, d2_p_ind=2, ax=None, color=None):
+    if ax is None:
+        f, ax = plt.subplots(1, 1)
+    for k, (fit_d1, _) in d1.items():
+        fit_d2, data_d2 = d2[k]
+        fit_d1 = fit_d1['other']
+        fit_d2 = fit_d2['other']
+        type_ind = swaux.get_type_ind(use_type, data_d2)
+        prob_d1 = np.concatenate(fit_d1.posterior[param])
+        prob_d2 = np.concatenate(fit_d2.posterior[param])[:, type_ind]
+        prob_d1 = 1 - prob_d1[:, d1_p_ind]
+        prob_d2 = 1 - prob_d2[:, d2_p_ind]
+        diff = prob_d2 - prob_d1
+        gpl.violinplot([diff], [k], color=[color], ax=ax, showmedians=True,
+                       showextrema=False)
 
 def _compute_common_dimred(
     mdict,
@@ -2141,6 +2157,9 @@ def plot_dists(
     legend=True,
     color=None,
     precomputed_data=None,
+    pred_label=True,
+    simple_label=False,
+    legend_label='observed',
     **kwargs,
 ):
     figsize = (fwid * len(mistakes) * mult, fwid)
@@ -2188,12 +2207,18 @@ def plot_dists(
                 legend=legend,
                 color=color,
                 precomputed_data=use_data,
+                pred_label=pred_label,
+                legend_label=legend_label,
             )
 
             out_data[new_key] = w_dat
             gpl.clean_plot(axs[k], k)
             if k == 0:
-                axs[k].set_ylabel(r"density | $p_{swp} > " + "{}$".format(p_thr))
+                if simple_label:
+                    axs[k].set_ylabel('density')
+                else:
+                    l = r'density | $p_{swp} > ' + '{}$'.format(p_thr)
+                    axs[k].set_ylabel(l)
             else:
                 axs[k].set_ylabel("")
             axs[k].set_xlabel("prototype distance (au)")
@@ -2273,15 +2298,21 @@ def plot_session_swap_distr_collection(
     p_ind=None,
     ret_data=True,
     colors=None,
-    mistake="spatial",
+    mistake='spatial',
     new_joint=False,
     cue_time=False,
     only_keys=None,
     legend=True,
     color=None,
     precomputed_data=None,
-    **kwargs,
+    legend_label='observed',
+    pred_label=True,
+    **kwargs
 ):
+    if pred_label:
+        pred_label = 'predicted'
+    else:
+        pred_label = ''
     if colors is None:
         colors = {}
     if axs is None:
@@ -2394,18 +2425,11 @@ def plot_session_swap_distr_collection(
         use_color = colors.get(k)
         if use_color is None:
             use_color = color
-        _, bins, _ = axs[i].hist(
-            td_full, bins=bins, color=use_color, density=True, label="observed"
-        )
-        axs[i].hist(
-            pd_full,
-            bins=bins,
-            histtype="step",
-            color="k",
-            linestyle="dashed",
-            density=True,
-            label="predicted",
-        )
+        _, bins, _ = axs[i].hist(td_full, bins=bins, color=use_color,
+                                    density=True, label=legend_label)
+        axs[i].hist(pd_full, bins=bins, histtype='step', color='k',
+                    linestyle='dashed',
+                    density=True, label=pred_label)
         gpl.add_vlines([0, 1], axs[i])
         axs[i].set_ylabel(k)
         if ret_data:
