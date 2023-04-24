@@ -2426,7 +2426,7 @@ def plot_session_swap_distr_collection(
         if use_color is None:
             use_color = color
         _, bins, _ = axs[i].hist(td_full, bins=bins, color=use_color,
-                                    density=True, label=legend_label)
+                                 density=True, label=legend_label)
         axs[i].hist(pd_full, bins=bins, histtype='step', color='k',
                     linestyle='dashed',
                     density=True, label=pred_label)

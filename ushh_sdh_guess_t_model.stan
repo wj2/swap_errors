@@ -105,11 +105,17 @@ model {
     mu_d_pr[:,k] ~ normal(0, prior_std);
   }
 
-  pr_var_c ~ inv_gamma(2,1);
-  pr_var_d ~ inv_gamma(2,1);
-  pr_var_c_ul ~ inv_gamma(2,1);
-  pr_var_d_ul ~ inv_gamma(2,1);
-
+  // MAYBE SOMETHING TO SIMPLIFY HERE
+  // pr_var_c ~ inv_gamma(2,1);
+  // pr_var_d ~ inv_gamma(2,1);
+  pr_var_c ~ normal(0, prior_std);
+  pr_var_d ~ normal(0, prior_std);
+  
+  // pr_var_c_ul ~ inv_gamma(2,1);
+  // pr_var_d_ul ~ inv_gamma(2,1);
+  pr_var_c_ul ~ normal(0, prior_std);
+  pr_var_d_ul ~ normal(0, prior_std);
+  
   for (k in 1:K){
     mu_u[:,k] ~ normal(mu_c_pr[:,k], pr_var_c);
     mu_l[:,k] ~ normal(mu_c_pr[:,k], pr_var_c);
@@ -129,6 +135,7 @@ model {
   intercept_down ~ normal(0, prior_std);
   pr_var_i_up ~ inv_gamma(2,1);
   pr_var_i_down ~ inv_gamma(2,1);
+  
   for (i in 1:3) {
     i_up_type[i] ~ normal(intercept_up, pr_var_i_up);
     i_down_type[i] ~ normal(intercept_down, pr_var_i_down);
