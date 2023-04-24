@@ -133,9 +133,13 @@ model {
   }
   intercept_up ~ normal(0, prior_std);
   intercept_down ~ normal(0, prior_std);
-  pr_var_i_up ~ inv_gamma(2,1);
-  pr_var_i_down ~ inv_gamma(2,1);
+
+  // pr_var_i_up ~ inv_gamma(2,1);
+  // pr_var_i_down ~ inv_gamma(2,1);
+  pr_var_i_up ~ normal(0, prior_std);
+  pr_var_i_down ~ normal(0, prior_std);
   
+
   for (i in 1:3) {
     i_up_type[i] ~ normal(intercept_up, pr_var_i_up);
     i_down_type[i] ~ normal(intercept_down, pr_var_i_down);
