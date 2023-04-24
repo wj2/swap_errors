@@ -460,7 +460,10 @@ class ModelBasedFigure(SwapErrorFigure):
             names[swap_ind],
             swap_thr,
         ))
-        diff_ax.set_ylabel(r'$\Delta$' +' performance\n(swap - corr)')
+        diff_ax.set_ylabel(
+            r'$\Delta$' + ' performance\n({} - {})'.format(names[swap_ind],
+                                                           names[corr_ind])
+        )
         diff_ax.set_yticks([0, -.1])
 
     def get_monkey_d1d2_colors(self):

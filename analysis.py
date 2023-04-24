@@ -438,9 +438,8 @@ def get_normalized_centroid_distance(
     else:
         mask = np.ones(len(data[p_key]), dtype=bool)
     if trl_filt is not None:
-        ind, ti = swa.get_type_ind(trl_filt, data, return_type=True)
+        _, ti = swa.get_type_ind(trl_filt, data, return_type=True)
         mask = np.logical_and(mask, data[type_key] == ti)
-        use_ind = ind
     true_arr = []
     pred_arr = []
     p_vals = []
@@ -461,10 +460,10 @@ def get_normalized_centroid_distance(
     for i, cue in enumerate(u_cues):
         cue_mask = np.logical_and(mask, cues == cue)
         p_vals.append(data[p_key][cue_mask])
-        # if new_joint:
-        #     use_ind = data[type_key]
-        # else:
-        #     use_ind = None
+        if new_joint:
+            use_ind = data[type_key]
+        else:
+            use_ind = None
         if use_resp_color:
             alt_cols = np.zeros_like(cols)
             alt_cols_rads = np.zeros_like(cols_rads)
