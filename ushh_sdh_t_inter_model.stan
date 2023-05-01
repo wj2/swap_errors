@@ -34,6 +34,8 @@ data {
   vector[3] p[T]; // probabilities
   int<lower=1,upper=3> type[T]; // pro or retro tria ... must be all 0 if is_joint = False
   int<lower=0,upper=1> is_joint; // whether to use two separate simplices
+  real<lower=0> prior_alpha;
+  real<lower=0> prior_std;
 }
 
 transformed data {
@@ -94,8 +96,8 @@ model {
 
   // prior
   for (k in 1:K){
-    mu_c_pr[:,k] ~ normal(0, 5);
-    mu_d_pr[:,k] ~ normal(0, 5);
+    mu_c_pr[:,k] ~ normal(0, prior_std);
+    mu_d_pr[:,k] ~ normal(0, prior_std);
   }
 
   pr_var_c ~ inv_gamma(2,1);
@@ -118,8 +120,8 @@ model {
       }
     }
   }
-  intercept_up ~ normal(0, 5);
-  intercept_down ~ normal(0, 5);
+  intercept_up ~ normal(0, prior_std);
+  intercept_down ~ normal(0, prior_std);
   pr_var_i_up ~ inv_gamma(2,1);
   pr_var_i_down ~ inv_gamma(2,1);
   for (i in 1:3) {
@@ -131,7 +133,7 @@ model {
   nu ~ gamma(2, .1);
 
   for (t in 1:size(p_err)){
-    p_err[t] ~ dirichlet(rep_vector(1.5,3));
+    p_err[t] ~ dirichlet(rep_vector(prior_alpha,3));
   }
 
   // likelihood
