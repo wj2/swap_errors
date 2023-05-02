@@ -1428,7 +1428,7 @@ def _pseudo_split_generator(pop_dict, n_groups=100):
         y_tr, l_tr = _subsample_categories(y_tr, l_tr, min_tr_c0, min_tr_c1, rng)
         y_sw, l_sw = _subsample_categories(y_sw, l_sw, min_sw_c0, min_sw_c1, rng)
         yield {'training': (np.concatenate(y_tr, axis=1), l_tr),
-               'test': (np.concatenate(y_te, axis=1), l_te),
+               'test': (np.concatenate(y_te, axis=1), l_te[0]),
                'swap': (np.concatenate(y_sw, axis=1), l_sw)}
 
 
@@ -1450,6 +1450,7 @@ def color_pseudopop(
     col_diff=_col_diff_rad,
     n_reps=1000,
     model=skc.SVC,
+    min_swaps=1,
 ):
     pop_dict = {}
     for k, data_dict in session_dict.items():
@@ -1463,7 +1464,7 @@ def color_pseudopop(
         y = data_dict[activity_key]
 
         cv_gen = cv()
-        
+
         targ_col_swap = c_t[swap_inds]
         y_swap = y[swap_inds]
         for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
@@ -1472,7 +1473,7 @@ def color_pseudopop(
             tr_targ_cols = c_t[corr_tr]
             targ_col = c_t[corr_te]
             dist_col = c_d[corr_te]
-            if col_diff(targ_col, dist_col) > col_thr:
+            if col_diff(targ_col, dist_col) > col_thr and len(swap_inds) >= min_swaps:
                 labels_tr = (col_diff(tr_targ_cols, targ_col)
                              < col_diff(tr_targ_cols, dist_col))
                 labels_te = np.array([True])
