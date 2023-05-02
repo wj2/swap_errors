@@ -1428,7 +1428,7 @@ def _pseudo_split_generator(pop_dict, n_groups=100):
         y_tr, l_tr = _subsample_categories(y_tr, l_tr, min_tr_c0, min_tr_c1, rng)
         y_sw, l_sw = _subsample_categories(y_sw, l_sw, min_sw_c0, min_sw_c1, rng)
         yield {'training': (np.concatenate(y_tr, axis=1), l_tr),
-               'test': (np.concatenate(y_te, axis=1), l_te),
+               'test': (np.concatenate(y_te, axis=1), l_te[0]),
                'swap': (np.concatenate(y_sw, axis=1), l_sw)}
 
 
@@ -1450,6 +1450,7 @@ def color_pseudopop(
     col_diff=_col_diff_rad,
     n_reps=1000,
     model=skc.SVC,
+    min_swaps=1,
 ):
     pop_dict = {}
     for k, data_dict in session_dict.items():
@@ -1481,12 +1482,14 @@ def color_pseudopop(
 
                 labels_swap = (col_diff(targ_col_swap, targ_col)
                                < col_diff(targ_col_swap, dist_col))
-                set_list = pop_dict.get(k, [])
-                data_split = {'training': (y_tr, labels_tr),
-                              'test': (y_te, labels_te),
-                              'swap': (y_swap, labels_swap)}
-                set_list.append(data_split)
-                pop_dict[k] = set_list
+                if (np.sum(labels_swap) >= min_swaps
+                    and np.sum(~labels_swap) >= min_swaps):
+                    set_list = pop_dict.get(k, [])
+                    data_split = {'training': (y_tr, labels_tr),
+                                  'test': (y_te, labels_te),
+                                  'swap': (y_swap, labels_swap)}
+                    set_list.append(data_split)
+                    pop_dict[k] = set_list
     corr_score = np.zeros(n_reps)
     swap_score = np.zeros(n_reps)
     for i, data_split in enumerate(_pseudo_split_generator(pop_dict, n_groups=n_reps)):
