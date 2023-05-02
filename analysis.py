@@ -1482,12 +1482,14 @@ def color_pseudopop(
 
                 labels_swap = (col_diff(targ_col_swap, targ_col)
                                < col_diff(targ_col_swap, dist_col))
-                set_list = pop_dict.get(k, [])
-                data_split = {'training': (y_tr, labels_tr),
-                              'test': (y_te, labels_te),
-                              'swap': (y_swap, labels_swap)}
-                set_list.append(data_split)
-                pop_dict[k] = set_list
+                if (np.sum(labels_swap) >= min_swaps
+                    and np.sum(~labels_swap) >= min_swaps):
+                    set_list = pop_dict.get(k, [])
+                    data_split = {'training': (y_tr, labels_tr),
+                                  'test': (y_te, labels_te),
+                                  'swap': (y_swap, labels_swap)}
+                    set_list.append(data_split)
+                    pop_dict[k] = set_list
     corr_score = np.zeros(n_reps)
     swap_score = np.zeros(n_reps)
     for i, data_split in enumerate(_pseudo_split_generator(pop_dict, n_groups=n_reps)):
