@@ -1381,6 +1381,122 @@ def _compute_trl_c_dist(
     return out
 
 
+def _subsample_categories(y_list, l_list, min_c0, min_c1, rng):
+    y_all = []
+    for i, y in enumerate(y_list):
+        l_ = l_list[i]
+        c0_inds = rng.choice(np.where(l_ == 0)[0], int(min_c0), replace=False)
+        c1_inds = rng.choice(np.where(l_ == 1)[0], int(min_c1), replace=False)
+        y_new = np.concatenate((y[c0_inds], y[c1_inds]), axis=0)
+        l_new = np.concatenate((l_[c0_inds], l_[c1_inds]), axis=0)
+        y_all.append(y_new)
+    return y_all, l_new
+
+
+def _pseudo_split_generator(pop_dict, n_groups=100):
+    rng = np.random.default_rng()
+    for i in range(n_groups):
+        y_tr = []
+        l_tr = []
+        y_te = []
+        l_te = []
+        y_sw = []
+        l_sw = []
+        min_tr_c0 = np.inf
+        min_tr_c1 = np.inf
+        min_sw_c0 = np.inf
+        min_sw_c1 = np.inf
+        for k, data_list in pop_dict.items():
+            ind = rng.choice(len(data_list))
+            y_tr_k, l_tr_k = data_list[ind]['training']
+            min_tr_c1 = np.min([np.sum(l_tr_k), min_tr_c1])
+            min_tr_c0 = np.min([np.sum(~l_tr_k), min_tr_c0])
+
+            y_te_k, l_te_k = data_list[ind]['test']
+
+            y_sw_k, l_sw_k = data_list[ind]['swap']
+            min_sw_c1 = np.min([np.sum(l_sw_k), min_sw_c1])
+            min_sw_c0 = np.min([np.sum(~l_sw_k), min_sw_c0])
+
+            y_tr.append(y_tr_k)
+            l_tr.append(l_tr_k)
+            y_te.append(y_te_k)
+            l_te.append(l_te_k)
+            y_sw.append(y_sw_k)
+            l_sw.append(l_sw_k)
+
+        y_tr, l_tr = _subsample_categories(y_tr, l_tr, min_tr_c0, min_tr_c1, rng)
+        y_sw, l_sw = _subsample_categories(y_sw, l_sw, min_sw_c0, min_sw_c1, rng)
+        yield {'training': (np.concatenate(y_tr, axis=1), l_tr),
+               'test': (np.concatenate(y_te, axis=1), l_te),
+               'swap': (np.concatenate(y_sw, axis=1), l_sw)}
+
+
+def color_pseudopop(
+    session_dict,
+    cu_key='up_col_rads',
+    cl_key='down_col_rads',
+    use_cue=True,
+    flip_cue=False,
+    no_cue_targ="up_col_rads",
+    no_cue_dist="down_col_rads",
+    convert_splines=True,
+    tp_key='p',
+    activity_key="y",
+    swap_decider=guess_argmax,
+    corr_decider=corr_argmax,
+    col_thr=np.pi / 4,
+    cv=skms.LeaveOneOut,
+    col_diff=_col_diff_rad,
+    n_reps=1000,
+    model=skc.SVC,
+):
+    pop_dict = {}
+    for k, data_dict in session_dict.items():
+        c_t, c_d = _organize_colors(data_dict, cu_key=cu_key, cl_key=cl_key,
+                                    use_cue=use_cue, flip_cue_centroids=flip_cue,
+                                    no_cue_targ=no_cue_targ, no_cue_dist=no_cue_dist,
+                                    convert_splines=convert_splines)
+        corr_inds, swap_inds = _get_corr_swap_inds(
+            data_dict[tp_key], corr_decider, swap_decider
+        )
+        y = data_dict[activity_key]
+
+        cv_gen = cv()
+        
+        targ_col_swap = c_t[swap_inds]
+        y_swap = y[swap_inds]
+        for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
+            corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
+
+            tr_targ_cols = c_t[corr_tr]
+            targ_col = c_t[corr_te]
+            dist_col = c_d[corr_te]
+            if col_diff(targ_col, dist_col) > col_thr:
+                labels_tr = (col_diff(tr_targ_cols, targ_col)
+                             < col_diff(tr_targ_cols, dist_col))
+                labels_te = np.array([True])
+                y_tr = y[train_inds]
+                y_te = y[test_inds]
+
+                labels_swap = (col_diff(targ_col_swap, targ_col)
+                               < col_diff(targ_col_swap, dist_col))
+                set_list = pop_dict.get(k, [])
+                data_split = {'training': (y_tr, labels_tr),
+                              'test': (y_te, labels_te),
+                              'swap': (y_swap, labels_swap)}
+                set_list.append(data_split)
+                pop_dict[k] = set_list
+    corr_score = np.zeros(n_reps)
+    swap_score = np.zeros(n_reps)
+    for i, data_split in enumerate(_pseudo_split_generator(pop_dict, n_groups=n_reps)):
+        m = model()
+        m.fit(*data_split['training'])
+        corr_score[i] = m.score(*data_split['test'])
+        swap_score[i] = m.score(*data_split['swap'])
+    return corr_score, swap_score
+
+
 def naive_centroids(*args, shuffle_nulls=False, shuffle_swaps=False, **kwargs):
     if shuffle_nulls or shuffle_swaps:
         out = naive_centroids_shuffle(
@@ -1431,29 +1547,32 @@ def naive_guessing(
     shuffle_nulls=False,
     shuffle_swaps=False,
 ):
-    rng = np.random.default_rng()
-    if flip_cue:
-        no_cue_targ = "down_col_rads"
-        no_cue_dist = "resp_rads"
-    if not use_cue:
-        c_t = np.zeros_like(data_dict[no_cue_targ])
-        c_d = np.zeros_like(data_dict[no_cue_dist])
-        c_t[:] = data_dict[no_cue_targ][:]
-        c_d[:] = data_dict[no_cue_dist][:]
-    else:
-        c_t = np.zeros_like(data_dict[cu_key])
-        c_d = np.zeros_like(data_dict[cl_key])
+    c_t, c_d = _organize_colors(data_dict, cu_key=cu_key, cl_key=cl_key,
+                                use_cue=use_cue, flip_cue_guess=flip_cue,
+                                no_cue_targ=no_cue_targ, no_cue_dist=no_cue_dist,
+                                convert_splines=convert_splines)
+    # if flip_cue:
+    #     no_cue_targ = "down_col_rads"
+    #     no_cue_dist = "resp_rads"
+    # if not use_cue:
+    #     c_t = np.zeros_like(data_dict[no_cue_targ])
+    #     c_d = np.zeros_like(data_dict[no_cue_dist])
+    #     c_t[:] = data_dict[no_cue_targ][:]
+    #     c_d[:] = data_dict[no_cue_dist][:]
+    # else:
+    #     c_t = np.zeros_like(data_dict[cu_key])
+    #     c_d = np.zeros_like(data_dict[cl_key])
 
-        c1_mask = data_dict[cue_key] == 1
-        c0_mask = data_dict[cue_key] == 0
+    #     c1_mask = data_dict[cue_key] == 1
+    #     c0_mask = data_dict[cue_key] == 0
 
-        c_t[c1_mask] = data_dict[cu_key][c1_mask]
-        c_t[c0_mask] = data_dict[cl_key][c0_mask]
+    #     c_t[c1_mask] = data_dict[cu_key][c1_mask]
+    #     c_t[c0_mask] = data_dict[cl_key][c0_mask]
 
-        c_d[c1_mask] = data_dict[guess_key][c1_mask]
-        c_d[c0_mask] = data_dict[guess_key][c0_mask]
-    if len(c_t.shape) > 1 and convert_splines:
-        c_t, c_d = convert_spline_to_rad(c_t, c_d)
+    #     c_d[c1_mask] = data_dict[guess_key][c1_mask]
+    #     c_d[c0_mask] = data_dict[guess_key][c0_mask]
+    # if len(c_t.shape) > 1 and convert_splines:
+    #     c_t, c_d = convert_spline_to_rad(c_t, c_d)
 
     corr_inds, guess_inds = _get_corr_swap_inds(
         data_dict[tp_key], corr_decider, swap_decider
@@ -1471,6 +1590,38 @@ def naive_guessing(
         tp_key=tp_key,
         cv=cv,
     )
+
+
+def _organize_colors(data_dict, cu_key="up_col_rads", cl_key="down_col_rads",
+                     cue_key="cue", no_cue_targ="up_col_rads",
+                     no_cue_dist="down_col_rads", convert_splines=True,
+                     use_cue=True, flip_cue_centroids=False, flip_cue_guess=False):
+    if flip_cue_centroids:
+        no_cue_targ = "down_col_rads"
+        no_cue_dist = "up_col_rads"
+    elif flip_cue_guess:
+        no_cue_targ = "down_col_rads"
+        no_cue_dist = "resp_rads"
+    if not use_cue:
+        c_t = np.zeros_like(data_dict[no_cue_targ])
+        c_d = np.zeros_like(data_dict[no_cue_dist])
+        c_t[:] = data_dict[no_cue_targ][:]
+        c_d[:] = data_dict[no_cue_dist][:]
+    else:
+        c_t = np.zeros_like(data_dict[cu_key])
+        c_d = np.zeros_like(data_dict[cl_key])
+
+        c1_mask = data_dict[cue_key] == 1
+        c0_mask = data_dict[cue_key] == 0
+
+        c_t[c1_mask] = data_dict[cu_key][c1_mask]
+        c_t[c0_mask] = data_dict[cl_key][c0_mask]
+
+        c_d[c1_mask] = data_dict[cl_key][c1_mask]
+        c_d[c0_mask] = data_dict[cu_key][c0_mask]
+    if len(c_t.shape) > 1 and convert_splines:
+        c_t, c_d = convert_spline_to_rad(c_t, c_d)
+    return c_t, c_d
 
 
 def _naive_centroids_inner(
@@ -1493,29 +1644,32 @@ def _naive_centroids_inner(
     shuffle_nulls=False,
     shuffle_swaps=False,
 ):
-    rng = np.random.default_rng()
-    if flip_cue:
-        no_cue_targ = "down_col_rads"
-        no_cue_dist = "up_col_rads"
-    if not use_cue:
-        c_t = np.zeros_like(data_dict[no_cue_targ])
-        c_d = np.zeros_like(data_dict[no_cue_dist])
-        c_t[:] = data_dict[no_cue_targ][:]
-        c_d[:] = data_dict[no_cue_dist][:]
-    else:
-        c_t = np.zeros_like(data_dict[cu_key])
-        c_d = np.zeros_like(data_dict[cl_key])
+    c_t, c_d = _organize_colors(data_dict, cu_key=cu_key, cl_key=cl_key,
+                                use_cue=use_cue, flip_cue_centroids=flip_cue,
+                                no_cue_targ=no_cue_targ, no_cue_dist=no_cue_dist,
+                                convert_splines=convert_splines)
+    # if flip_cue:
+    #     no_cue_targ = "down_col_rads"
+    #     no_cue_dist = "up_col_rads"
+    # if not use_cue:
+    #     c_t = np.zeros_like(data_dict[no_cue_targ])
+    #     c_d = np.zeros_like(data_dict[no_cue_dist])
+    #     c_t[:] = data_dict[no_cue_targ][:]
+    #     c_d[:] = data_dict[no_cue_dist][:]
+    # else:
+    #     c_t = np.zeros_like(data_dict[cu_key])
+    #     c_d = np.zeros_like(data_dict[cl_key])
 
-        c1_mask = data_dict[cue_key] == 1
-        c0_mask = data_dict[cue_key] == 0
+    #     c1_mask = data_dict[cue_key] == 1
+    #     c0_mask = data_dict[cue_key] == 0
 
-        c_t[c1_mask] = data_dict[cu_key][c1_mask]
-        c_t[c0_mask] = data_dict[cl_key][c0_mask]
+    #     c_t[c1_mask] = data_dict[cu_key][c1_mask]
+    #     c_t[c0_mask] = data_dict[cl_key][c0_mask]
 
-        c_d[c1_mask] = data_dict[cl_key][c1_mask]
-        c_d[c0_mask] = data_dict[cu_key][c0_mask]
-    if len(c_t.shape) > 1 and convert_splines:
-        c_t, c_d = convert_spline_to_rad(c_t, c_d)
+    #     c_d[c1_mask] = data_dict[cl_key][c1_mask]
+    #     c_d[c0_mask] = data_dict[cu_key][c0_mask]
+    # if len(c_t.shape) > 1 and convert_splines:
+    #     c_t, c_d = convert_spline_to_rad(c_t, c_d)
 
     corr_inds, swap_inds = _get_corr_swap_inds(
         data_dict[tp_key], corr_decider, swap_decider
