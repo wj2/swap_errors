@@ -89,30 +89,17 @@ if __name__ == "__main__":
         file_templ_d1 = file_templ_d1.replace("impute_True", "impute_False")
 
     sessions_d1 = swaux.load_files_ma_folders(file_templ_d1, **form_opts_d1)
-    out_d1_cu = {}
-    out_d1_cl = {}
-    for k, d_dict in sessions_d1.items():
-        out_cu = centroid_func(
-            d_dict,
-            use_cue=False,
-            swap_decider=swap_decider,
-            corr_decider=corr_decider,
-            col_thr=args.avg_dist,
-            shuffle_nulls=args.shuffle_nulls,
-            shuffle_swaps=args.shuffle_swaps,
-        )
-        out_d1_cu[k] = out_cu
-        out_cl = centroid_func(
-            d_dict,
-            use_cue=False,
-            flip_cue=True,
-            swap_decider=swap_decider,
-            corr_decider=corr_decider,
-            col_thr=args.avg_dist,
-            shuffle_nulls=args.shuffle_nulls,
-            shuffle_swaps=args.shuffle_swaps,
-        )
-        out_d1_cl[k] = out_cl
+    out_d1_cu = swan.color_pseudopop(sessions_d1, use_cue=False,
+                                     swap_decider=swap_decider,
+                                     corr_decider=corr_decider,
+                                     col_thr=args.avg_dist)
+    out_d1_cl = swan.color_pseudopop(sessions_d1, use_cue=False,
+                                     flip_cue=True,
+                                     swap_decider=swap_decider,
+                                     corr_decider=corr_decider,
+                                     col_thr=args.avg_dist)
+    print(np.mean(out_d1_cl[0]), np.mean(out_d1_cl[1]))
+    print(np.mean(out_d1_cu[0]), np.mean(out_d1_cu[1]))
 
     if not args.local_test and args.file_templ_d2 is None:
         if args.use_manual:
@@ -134,17 +121,12 @@ if __name__ == "__main__":
         file_templ_d2 = file_templ_d2.replace("impute_True", "impute_False")
 
     sessions_d2 = swaux.load_files_ma_folders(file_templ_d2, **form_opts_d2)
-    out_d2 = {}
-    for k, d_dict in sessions_d2.items():
-        out = centroid_func(
-            d_dict,
-            swap_decider=swap_decider,
-            corr_decider=corr_decider,
-            col_thr=args.avg_dist,
-            shuffle_nulls=args.shuffle_nulls,
-            shuffle_swaps=args.shuffle_swaps,
-        )
-        out_d2[k] = out
+    print(sessions_d2.keys())
+    out_d2 = swan.color_pseudopop(sessions_d2,
+                                  swap_decider=swap_decider,
+                                  corr_decider=corr_decider,
+                                  col_thr=args.avg_dist)
+    print(np.mean(out_d2[0]), np.mean(out_d2[1]))
 
     out_dict = {"args": args, "d1_cu": out_d1_cu, "d1_cl": out_d1_cl, "d2": out_d2}
     fname = args.output_file.format(args.date)

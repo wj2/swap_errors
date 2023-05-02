@@ -271,29 +271,48 @@ def plot_naive_centroid(
     c_color=(0.1, 0.6, 0.1),
     s_color=(0.6, 0.1, 0.1),
     p_thr=0.05,
+    limit_bins=None,
+    plot_pval=True,
 ):
     if ax is None:
         f, ax = plt.subplots(1, 1)
+    if len(ax) > 1:
+        ax_null = ax[0]
+        ax_swap = ax[1]
+        null_histtype = "bar"
+        swap_histtype = "bar"
+    else:
+        ax_null = ax
+        ax_swap = ax
+        null_histtype = "bar"
+        swap_histtype = "step"
     extreme = np.nanmax(np.abs((np.nanmin(nulls), np.nanmax(nulls))))
     if biggest_extreme is not None:
         extreme = min(biggest_extreme, extreme)
-    bins = np.linspace(-extreme, extreme + 1, n_bins)
-    ax.hist(nulls, bins=bins, density=True)
+    if limit_bins is None:
+        limit_bins = (-extreme, extreme + 1)
+    bins = np.linspace(*limit_bins, n_bins)
+    ax_null.hist(nulls, bins=bins, density=True, histtype=null_histtype,
+                 color=c_color)
     if len(swaps.shape) > 1:
         swaps = np.mean(swaps, axis=0)
-    ax.hist(swaps, density=True, bins=bins, histtype="step")
-    gpl.add_vlines([0, 1], ax)
+    ax_swap.hist(swaps, density=True, bins=bins, histtype=swap_histtype,
+                 color=s_color)
+    gpl.add_vlines([0, 1], ax_null)
+    gpl.add_vlines([0, 1], ax_swap)
     m_null = np.nanmedian(nulls)
     m_swaps = np.nanmedian(swaps)
 
-    gpl.add_vlines(m_null, ax, color=c_color, alpha=0.5)
-    gpl.add_vlines(m_swaps, ax, color=s_color, alpha=0.5)
+    gpl.add_vlines(m_null, ax_null, color=c_color, alpha=0.5)
+    gpl.add_vlines(m_swaps, ax_swap, color=s_color, alpha=0.5)
     utest = sts.mannwhitneyu(swaps, nulls, alternative="greater", nan_policy="omit")
-    y_low, y_up = ax.get_ylim()
-    if utest.pvalue < p_thr:
-        ax.plot([m_swaps], [y_up - y_up * 0.1], "*", ms=5, color=s_color)
-
-    return ax
+    diffs = u.bootstrap_diff(swaps, nulls, np.nanmedian)
+    info = (diffs, utest)
+    y_low, y_up = ax_null.get_ylim()
+    if utest.pvalue < p_thr and plot_pval:
+        ax_null.plot([m_swaps], [y_up - y_up * 0.1], "*", ms=5, color=s_color)
+    
+    return ax, info
 
 
 def plot_nc_sweep(
@@ -336,10 +355,13 @@ def plot_naive_centroid_dict_indiv(*dicts, axs=None, fwid=3, **kwargs):
             figsize=(fwid * plot_dims[1], fwid * plot_dims[0]),
             squeeze=False,
         )
+    info_dicts = []
     for i, dict_i in enumerate(dicts):
+        info_dicts.append({})
         for j, (k, (null, swaps)) in enumerate(dict_i.items()):
-            ax_ji = plot_naive_centroid(null, swaps, ax=axs[j, i], **kwargs)
-    return axs
+            ax_ji, info = plot_naive_centroid(null, swaps, ax=axs[j, ..., i], **kwargs)
+            info_dicts[i][k] = info
+    return axs, info_dicts
 
 
 def merge_session_dicts(*dicts):
@@ -700,6 +722,8 @@ def plot_all_nc_dict(
     fwid=3,
     biggest_extreme=2,
     regions="all",
+    plot_inverted=False,
+    **kwargs,
 ):
     if session_dict is None:
         session_dict = dict(
@@ -716,8 +740,14 @@ def plot_all_nc_dict(
             sharex=True,
             sharey=True,
         )
+    if len(axs.shape) == 2:
+        axs = np.expand_dims(axs, 1)
+    axs = np.expand_dims(axs, 1)
+    max_ys = []
+
     titles = list(use_d1s) + list(" ".join((d2_key, ct)) for ct in cond_types)
-    list(ax.set_title(titles[i]) for i, ax in enumerate(axs[0]))
+    list(ax[0, 0].set_title(titles[i]) for i, ax in enumerate(axs[0].T))
+    info_groups = {}
     for i, (r_key, use_range) in enumerate(session_dict.items()):
         use_dis = swan.filter_nc_dis(
             centroid_dict,
@@ -727,12 +757,49 @@ def plot_all_nc_dict(
             regions=regions,
             d2_key=d2_key,
         )
-        axs_i = plot_naive_centroid_dict_comb(
-            *use_dis, biggest_extreme=biggest_extreme, axs=axs[i : i + 1]
+        _, info_dicts = plot_naive_centroid_dict_comb(
+            *use_dis, biggest_extreme=biggest_extreme, axs=axs[i],
+            **kwargs,
         )
-        axs[i, 0].set_ylabel(r_key)
-    return axs
 
+        info_groups[r_key] = info_dicts
+        axs[i, 0, 0, 0].set_ylabel(r_key)
+        if plot_inverted:
+            for ind in u.make_array_ind_iterator(axs[i, 0, 1].shape):
+                max_ys.append(axs[i, 0, 1][ind].get_ylim()[-1])
+                axs[i, 0, 1][ind].invert_yaxis()
+            for ind in u.make_array_ind_iterator(axs[i, 0, 0].shape):
+                max_ys.append(axs[i, 0, 0][ind].get_ylim()[-1])
+    if plot_inverted:
+        max_y = np.max(max_ys)
+        for ind in u.make_array_ind_iterator(axs.shape):
+            axs[ind].set_xlabel("")
+            if ind[-1] < (axs.shape[-1] - 1):
+                gpl.clean_plot_bottom(axs[ind])
+            else:
+                gpl.clean_plot_bottom(axs[ind], keeplabels=True)
+            if axs[ind].yaxis_inverted():
+                axs[ind].set_ylim([max_y, 0])
+            else:
+                axs[ind].set_ylim([0, max_y])
+            gpl.clean_plot(axs[ind], ind[0])
+
+    return axs, info_groups
+
+
+def plot_nc_diffs(info_groups, diff_axs, colors=None, plot_key='comb'):
+    if colors is None:
+        colors = {}
+    for i, (k, l) in enumerate(info_groups.items()):
+        m_color = colors.get(k)
+        for j, d in enumerate(l):
+            ax = diff_axs[j]
+            diffs, test = d[plot_key]
+            gpl.violinplot([diffs], [i], color=[m_color], ax=ax)
+    for ax in diff_axs:
+        gpl.clean_plot(ax, 0)
+        gpl.add_hlines(0, ax)
+            
 
 def _plot_simplex(pts, ax, line_grey_col=(0.6, 0.6, 0.6)):
     pts_x = pts[:, 1] - pts[:, 0]
