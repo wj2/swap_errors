@@ -59,8 +59,13 @@ if __name__ == "__main__":
 
     corr_decider_pl, swap_decider_pl = decider_dict[decider_str]
     if args.decider_arg is not None:
-        corr_decider = lambda x: corr_decider_pl(x, args.decider_arg)
-        swap_decider = lambda x: swap_decider_pl(x, args.decider_arg)
+
+        def corr_decider(x):
+            return corr_decider_pl(x, args.decider_arg)
+
+        def swap_decider(x):
+            return swap_decider_pl(x, args.decider_arg)
+
     else:
         corr_decider = corr_decider_pl
         swap_decider = swap_decider_pl

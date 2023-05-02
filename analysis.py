@@ -868,7 +868,7 @@ def _plurality_decider(ps, ind, prob=1 / 3):
 
 
 def _diff_decider(ps, ind_pos, ind_sub, diff=0):
-    mask = ps[:, ind_pos] - ind_sub[:, ind_sub] > diff
+    mask = (ps[:, ind_pos] - ind_sub[:, ind_sub]) > diff
     return mask
 
 
