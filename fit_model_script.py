@@ -55,7 +55,7 @@ def create_parser():
     parser.add_argument("--prior_alpha", default=1, type=float)
     parser.add_argument("--prior_std", default=10, type=float)
     parser.add_argument("--use_manual", default=False, action="store_true")
-    parser.add_argument("--use_time", default=(-0.5, 0, 0.5), nargs=3, type=float)
+    parser.add_argument("--use_time", default="-0.5-0.0-0.5_0.5", type=str)
     return parser
 
 
@@ -133,9 +133,10 @@ if __name__ == "__main__":
         args.period = "SAMPLES_ON"
         args.use_trl_types = ("retro",)
         args.model_path = "swap_errors/ushh_d1_t_model.pkl"
-        args.use_time = (0, 0.5, 0.5)
+        args.use_time = "0-0.5-0.5_0.5"
     start, end, step = args.use_time
-    time = "{:.1f}_{:.1f}_{:.1f}".format(start, end, step)
+    time = args.use_time
+    # "{:.1f}_{:.1f}_{:.1f}".format(start, end, step)
     if args.use_joint_data:
         data_path = data_path_templ.format(
             num_colors=args.num_colors,
