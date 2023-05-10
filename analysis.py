@@ -1493,8 +1493,9 @@ def color_pseudopop(
     corr_score = np.zeros(n_reps)
     swap_score = np.zeros(n_reps)
     for i, data_split in enumerate(_pseudo_split_generator(pop_dict, n_groups=n_reps)):
-        m = model()
+        m = na.make_model_pipeline(model=model, pca=.95)
         m.fit(*data_split['training'])
+        
         corr_score[i] = m.score(*data_split['test'])
         swap_score[i] = m.score(*data_split['swap'])
     return corr_score, swap_score

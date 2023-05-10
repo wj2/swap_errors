@@ -30,6 +30,8 @@ def create_parser():
     parser.add_argument("--no_regions", default=False, action="store_true")
     parser.add_argument("--use_manual", default=False, action="store_true")
     parser.add_argument("--no_imputation", default=False, action="store_true")
+    parser.add_argument("--pro_only", default=False, action="store_true")
+    parser.add_argument("--retro_only", default=False, action="store_true")
     return parser
 
 
@@ -120,7 +122,13 @@ if __name__ == "__main__":
     if args.no_imputation:
         file_templ_d2 = file_templ_d2.replace("impute_True", "impute_False")
 
+    if args.pro_only:
+        form_opts_d2['trl_type'] = ('pro',)
+    if args.retro_only:
+        form_opts_d2['trl_type'] = ('retro',)
+        
     sessions_d2 = swaux.load_files_ma_folders(file_templ_d2, **form_opts_d2)
+    print(form_opts_d2)
     print(sessions_d2.keys())
     out_d2 = swan.color_pseudopop(sessions_d2,
                                   swap_decider=swap_decider,
