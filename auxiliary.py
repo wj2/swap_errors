@@ -41,6 +41,23 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
 
 o_fit_templ = 'fit_spline{n_colors}_sess{sess_ind}_{period}_{run_ind}{ext}'
 o_fp = '../results/swap_errors/fits/'
+naive_template = '[0-9\-_:\.]*\.pkl'
+
+
+def load_naive_results(nc_run, folder='swap_errors/naive_centroids/',
+                       templ=naive_template):
+    path = os.path.join(folder, nc_run)
+    if not os.path.isfile(path):
+        template = nc_run + naive_template
+        fls = os.listdir(folder)
+        matches = list(fl for fl in fls if re.match(template, fl) is not None)
+        if len(matches) > 0:
+            path = os.path.join(folder, matches[0])
+        else:
+            raise IOError('no matching file found')
+    c_dict = pickle.load(open(path, 'rb'))
+    return c_dict
+
 
 def get_type_ind(type_, data, use_default=None, return_type=False):
     if use_default is None:
