@@ -11,6 +11,7 @@ import sklearn.linear_model as sklm
 import sklearn.preprocessing as skp
 import sklearn.pipeline as sklpipe
 import scipy.stats as sts
+import scipy.optimize as sopt
 import itertools as it
 import statsmodels.stats.weightstats as smw
 import elephant as el
@@ -1398,12 +1399,16 @@ def _pseudo_split_generator(pop_dict, n_groups=100):
     for i in range(n_groups):
         y_tr = []
         l_tr = []
+
         y_te = []
         l_te = []
+
         y_sw = []
         l_sw = []
+        
         min_tr_c0 = np.inf
         min_tr_c1 = np.inf
+
         min_sw_c0 = np.inf
         min_sw_c1 = np.inf
         for k, data_list in pop_dict.items():
@@ -1473,7 +1478,7 @@ def color_pseudopop(
             tr_targ_cols = c_t[corr_tr]
             targ_col = c_t[corr_te]
             dist_col = c_d[corr_te]
-            if col_diff(targ_col, dist_col) > col_thr and len(swap_inds) >= min_swaps:
+            if col_diff(targ_col, dist_col) > col_thr and len(swap_inds):
                 labels_tr = (col_diff(tr_targ_cols, targ_col)
                              < col_diff(tr_targ_cols, dist_col))
                 labels_te = np.array([True])
@@ -1598,7 +1603,8 @@ def naive_guessing(
 def _organize_colors(data_dict, cu_key="up_col_rads", cl_key="down_col_rads",
                      cue_key="cue", no_cue_targ="up_col_rads",
                      no_cue_dist="down_col_rads", convert_splines=True,
-                     use_cue=True, flip_cue_centroids=False, flip_cue_guess=False):
+                     use_cue=True, flip_cue_centroids=False, flip_cue_guess=False,
+                     use_guess=True, guess_key="resp_rads"):
     if flip_cue_centroids:
         no_cue_targ = "down_col_rads"
         no_cue_dist = "up_col_rads"
@@ -1620,8 +1626,12 @@ def _organize_colors(data_dict, cu_key="up_col_rads", cl_key="down_col_rads",
         c_t[c1_mask] = data_dict[cu_key][c1_mask]
         c_t[c0_mask] = data_dict[cl_key][c0_mask]
 
-        c_d[c1_mask] = data_dict[cl_key][c1_mask]
-        c_d[c0_mask] = data_dict[cu_key][c0_mask]
+        if use_guess:
+            c_d[c1_mask] = data_dict[cl_key][c1_mask]
+            c_d[c0_mask] = data_dict[cu_key][c0_mask]
+        else:
+            c_d[c1_mask] = data_dict[guess_key][c1_mask]
+            c_d[c0_mask] = data_dict[guess_key][c0_mask]
     if len(c_t.shape) > 1 and convert_splines:
         c_t, c_d = convert_spline_to_rad(c_t, c_d)
     return c_t, c_d
@@ -1807,6 +1817,43 @@ def compute_dists(
 
     return out_dists, vec_dists
 
+
+def compute_similarity_curve(resps, cols, similarity_metric=u.cosine_similarity):
+    n = len(resps)
+    dists = np.zeros(n**2)
+    corrs = np.zeros(n**2)
+    for ind, (i, j) in enumerate(it.product(range(n), repeat=2)):
+        tr_i = resps[i]
+        tr_j = resps[j]
+        corrs[ind] = similarity_metric(tr_i, tr_j)
+        dists[ind] = u.normalize_periodic_range(cols[i] - cols[j])
+        
+        if i == j:
+            corrs[ind] = np.nan
+            dists[ind] = np.nan
+    return dists, corrs
+
+
+def norm_distr_func(x, sig):
+    return np.exp(-x**2/(2*sig**2))
+
+
+def fit_similarity_dispersion(dists, corrs):
+    norm_dists = dists/np.nanmax(dists)
+    
+    def _min_func(sig):
+        c_hat = norm_distr_func(norm_dists, sig)
+        loss = np.nansum((corrs - c_hat)**2)
+        return loss
+
+    res = sopt.minimize(_min_func, .1, bounds=((0, None),))
+    return res
+
+
+def fit_tcc_dprime(resps, targs, cols, **kwargs):
+    errs = u.normalize_periodic_range(targs - cols)
+    return errs
+    
 
 def get_color_means(
     data,

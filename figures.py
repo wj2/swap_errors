@@ -1375,7 +1375,7 @@ class NaiveSwapFigure(SwapErrorFigure):
         null_color = self.params.getcolor('correct_color')
         swap_color = self.params.getcolor('swap_color')
 
-        c_dict = pickle.load(open(os.path.join(folder, nc_run), 'rb'))
+        c_dict = swa.load_naive_results(nc_run, folder)
 
         dr_axs = np.reshape(dist_axs, (int(dist_axs.shape[0]/2), 2, -1))
         dr_axs = np.swapaxes(dr_axs, 0, 2)
