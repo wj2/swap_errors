@@ -24,8 +24,8 @@ data {
   vector[K] C_resp[T]; // 
   int<lower=0,upper=1> cue[T]; // upper or lower indicator
   vector[3] p[T]; // probabilities
-  real<lower=0> guess_prior[2];
-  real<lower=0> swap_prior[2];
+  vector<lower=0>[2] guess_prior;
+  vector<lower=0>[2] swap_prior;
   real<lower=0> prior_std;
   real<lower=0> prior_g_alpha;
   real<lower=0> prior_g_beta;
