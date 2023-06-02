@@ -134,6 +134,7 @@ if __name__ == "__main__":
         args.use_trl_types = ("retro",)
         args.model_path = "swap_errors/ushh_d1_t_model.pkl"
         args.use_time = "0-0.5-0.5_0.5"
+        args.fit_delay1 = True
     # start, end, step = args.use_time
     time = args.use_time
     # "{:.1f}_{:.1f}_{:.1f}".format(start, end, step)
