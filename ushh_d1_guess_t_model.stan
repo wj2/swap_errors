@@ -24,7 +24,8 @@ data {
   vector[K] C_resp[T]; // 
   int<lower=0,upper=1> cue[T]; // upper or lower indicator
   vector[3] p[T]; // probabilities
-  real<lower=0> prior_alpha;
+  real<lower=0> guess_prior[2];
+  real<lower=0> swap_prior[2];
   real<lower=0> prior_std;
   real<lower=0> prior_g_alpha;
   real<lower=0> prior_g_beta;
@@ -72,8 +73,8 @@ model {
   vars_raw ~ inv_gamma(2, 1);
   nu ~ gamma(prior_g_alpha, prior_g_beta);
 
-  p_err ~ dirichlet(rep_vector(prior_alpha, 2));
-  p_guess_err ~ dirichlet(rep_vector(prior_alpha, 2));
+  p_err ~ dirichlet(swap_prior);
+  p_guess_err ~ dirichlet(guess_prior);
 
   // likelihood
   for (n in 1:T) {
