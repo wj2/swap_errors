@@ -57,7 +57,7 @@ def create_parser():
 
     parser.add_argument("--prior_alpha", default=1, type=float)
     parser.add_argument("--prior_std", default=10, type=float)
-    parser.add_argument("--prior_gamma_alpha", default=2, type=float)
+    parser.add_argument("--prior_gamma_alpha", default=1, type=float)
     parser.add_argument("--prior_gamma_beta", default=.5, type=float)
 
     return parser
