@@ -196,7 +196,7 @@ if __name__ == "__main__":
     data["prior_std"] = args.prior_std
     data["prior_g_alpha"] = args.prior_gamma_alpha
     data["prior_g_beta"] = args.prior_gamma_beta
-    
+
     fit, fit_az, diag = su.fit_model(data, model_path, iter=n_iter, chains=n_chains)
     out_name = args.output_name.format(
         num_colors=args.num_colors,
