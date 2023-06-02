@@ -560,6 +560,8 @@ class ModelBasedFigure(SwapErrorFigure):
     def get_d1_fits(self, runind_name="d1_runind"):
         ri = self.params.get(runind_name)
         period = "CUE2_ON"
+        # SWITCH BACK
+        period = "SAMPLES_ON"
         out = self.get_model_dict(ri, period)
         return out
 
