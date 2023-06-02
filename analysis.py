@@ -3,6 +3,7 @@ import pickle
 import pystan as ps
 import arviz as az
 import scipy.spatial.distance as spsd
+import scipy.special as spsp
 import sklearn.manifold as skm
 import sklearn.neighbors as skn
 import sklearn.model_selection as skms
@@ -22,7 +23,9 @@ import general.neural_analysis as na
 import general.stan_utility as su
 import general.utility as u
 import general.decoders as gd
+import general.plotting as gpl
 import swap_errors.auxiliary as swa
+import rsatoolbox as rsa
 
 
 def average_simplices(
@@ -1819,6 +1822,36 @@ def compute_dists(
     return out_dists, vec_dists
 
 
+def _resample_equal_conds(resps, conds, rng=None):
+    if rng is None:
+        rng = np.random.default_rng()
+
+    u_conds, counts = np.unique(conds, return_counts=True)
+    sample_count = np.min(counts)
+
+    resps_sampled, conds_sampled = [], []
+    for uc in u_conds:
+        inds_all = np.where(conds == uc)[0]
+        inds_use = rng.choice(inds_all, sample_count, replace=False)
+        resps_sampled.append(resps[inds_use])
+        conds_sampled.append(conds[inds_use])
+    resps_use = np.concatenate(resps_sampled, axis=0)
+    conds_use = np.concatenate(conds_sampled, axis=0)
+    return resps_use, conds_use
+
+
+def rdm_similarity(resps, cols, n_bins=8):
+    bins = np.linspace(0, np.pi*2, n_bins + 1)
+    bin_cents = bins[:-1] + np.diff(bins)[0]/2
+    conds = np.digitize(cols, bins)
+    resps, conds = _resample_equal_conds(resps, conds)
+    data = rsa.data.Dataset(resps, obs_descriptors={'stimulus': conds})
+    rdm = rsa.rdm.calc_rdm(data, descriptor='stimulus', noise=None,
+                           method='crossnobis')
+    mat = rdm.get_matrices()[0]
+    return bin_cents, mat
+
+
 def compute_similarity_curve(resps, cols, similarity_metric=u.cosine_similarity):
     n = len(resps)
     dists = np.zeros(n**2)
@@ -1828,32 +1861,94 @@ def compute_similarity_curve(resps, cols, similarity_metric=u.cosine_similarity)
         tr_j = resps[j]
         corrs[ind] = similarity_metric(tr_i, tr_j)
         dists[ind] = u.normalize_periodic_range(cols[i] - cols[j])
-        
+
         if i == j:
             corrs[ind] = np.nan
             dists[ind] = np.nan
     return dists, corrs
 
 
-def norm_distr_func(x, sig):
-    return np.exp(-x**2/(2*sig**2))
+def norm_distr_func(x, sig, norm=False):
+    c_hat = np.exp(-x**2/(2*sig**2))
+    if norm:
+        c_hat_zeroed = c_hat - np.nanmin(c_hat)
+        c_hat = c_hat_zeroed/np.nanmax(c_hat_zeroed)
+    return c_hat
 
 
-def fit_similarity_dispersion(dists, corrs):
-    norm_dists = dists/np.nanmax(dists)
-    
+def fit_similarity_dispersion(dists, corrs, return_func=True, **kwargs):
+    d_cents, c_cents = gpl.digitize_vars(dists, corrs, ret_all_y=False, **kwargs)
+    c_zeroed = c_cents - np.nanmin(c_cents)
+    norm_cs = c_zeroed/np.nanmax(c_zeroed)
+
     def _min_func(sig):
-        c_hat = norm_distr_func(norm_dists, sig)
-        loss = np.nansum((corrs - c_hat)**2)
+        c_hat = norm_distr_func(d_cents, sig, norm=True)
+
+        loss = np.nansum((norm_cs - c_hat)**2)
         return loss
 
     res = sopt.minimize(_min_func, .1, bounds=((0, None),))
-    return res
+    out = res.x
+    if return_func:
+        out = (res.x, (norm_cs, d_cents, norm_distr_func(d_cents, res.x, norm=True)))
+    return out
 
 
-def fit_tcc_dprime(resps, targs, cols, **kwargs):
-    errs = u.normalize_periodic_range(targs - cols)
-    return errs
+def simulate_emp_errs(sig, min_dp=.2, max_dp=2, n_dp=10, n_pts=100,
+                      n_samps=10000, norm=True):
+    func_dists = np.linspace(-np.pi, np.pi, n_pts)
+    sim_func = norm_distr_func(func_dists, sig, norm=norm)
+
+    frozen_noise = sts.norm(0, 1).rvs((n_samps, n_pts))
+
+    def _min_func(dprime):
+        inds = np.argmax(np.expand_dims(sim_func*dprime, 0) + frozen_noise,
+                         axis=1)
+        errs = func_dists[inds]
+        return errs
+
+    dprimes = np.linspace(min_dp, max_dp, n_dp)
+    errs_ds = np.stack(list(_min_func(dp) for dp in dprimes), axis=0)
+    # sopt.minimize(_min_func, .1, bounds=((0, None),))
+    return errs_ds
+
+def dprime_sig_sweep(emp_errs, min_dp=.2, max_dp=3, n_dp=25,
+                     min_sigma=.1, max_sigma=5, n_sigma=20,
+                     n_bins=10):
+    sigmas = np.linspace(min_sigma, max_sigma, n_sigma)
+    dps = np.linspace(min_dp, max_dp, n_dp)
+    hist_bins = np.linspace(-np.pi, np.pi, n_bins)
+    err_hist, _ = np.histogram(emp_errs, bins=hist_bins, density=True)
+    kls = np.zeros((n_sigma, n_dp))
+    for i, sig in enumerate(sigmas):
+        samps = simulate_emp_errs(sig, min_dp=min_dp, max_dp=max_dp, n_dp=n_dp)
+        for j, samp in enumerate(samps):
+            samp_hist, _ = np.histogram(samp, bins=hist_bins, density=True)
+            kls[i, j] = np.sum(spsp.kl_div(err_hist, samp_hist))
+    return sigmas, dps, kls
+
+def fit_tcc_dprime(resps, targs, cols, n_pts=100, n_samps=10000, **kwargs):
+    emp_errs = u.normalize_periodic_range(targs - cols)
+    dists, corrs = compute_similarity_curve(resps, targs)
+    sig = fit_similarity_dispersion(dists, corrs)
+    print(sig)
+    sig += 1
+
+    func_dists = np.linspace(-np.pi, np.pi, n_pts)
+    sim_func = norm_distr_func(func_dists, sig)
+
+    frozen_noise = sts.norm(0, 1).rvs((n_samps, n_pts))
+
+    def _min_func(dprime):
+        inds = np.argmax(np.expand_dims(sim_func*dprime, 0) + frozen_noise,
+                         axis=1)
+        errs = func_dists[inds]
+        return errs
+
+    dprimes = np.linspace(.1, 2, 10)
+    errs_ds = np.stack(list(_min_func(dp) for dp in dprimes), axis=0)
+    # sopt.minimize(_min_func, .1, bounds=((0, None),))
+    return emp_errs, errs_ds
     
 
 def get_color_means(
@@ -1942,6 +2037,93 @@ def get_color_means(
     out_means = (targ_means_all, dist_means_all)
     out = out_dists, out_means, xs
     return out
+
+
+def make_color_pseudopops(
+    data,
+    tbeg,
+    tend,
+    time_key='WHEEL_ON_diode',
+    color_key='LABthetaTarget',
+    error_key='err',
+    trl_type='retro',
+    swap_prob_key='swap_prob',
+    n_col_bins=8,
+    trl_ax=3,
+    filter_swap_prob=None,
+    **kwargs,
+):
+    if trl_type == 'retro':
+        data = retro_mask(data)
+    elif trl_type == 'pro':
+        data = pro_mask(data)
+    elif trl_type == 'single':
+        data = single_mask(data)
+    else:
+        raise IOError('trl_type {} is not recognized'.format(trl_type))
+    if filter_swap_prob is not None:
+        data = data.mask(data[swap_prob_key] < filter_swap_prob)
+    col_bins = np.linspace(0, np.pi*2, n_col_bins + 1)
+    bin_cents = col_bins[:-1] + np.diff(col_bins)[0]/2
+    errs = np.concatenate(data[error_key])
+    masks = []
+    for i, cb_beg in enumerate(col_bins[:-1]):
+        cb_end = col_bins[i + 1]
+        mask_low_i = data[color_key] >= cb_beg
+        if i + 1 == len(col_bins):
+            mask_i = mask_low_i
+        else:
+            mask_high_i = data[color_key] < cb_end
+            mask_i = mask_low_i.rs_and(mask_high_i)
+
+        masks.append(mask_i)
+
+    xs, pops_pseudo = data.make_pseudo_pops(
+        tend - tbeg,
+        tbeg,
+        tend,
+        tend - tbeg,
+        *masks,
+        tzfs=(time_key,)*n_col_bins,
+        shuffle_trials=False,
+        **kwargs,
+    )
+    t_cent = (tbeg + tend)/2
+    t_ind = np.argmin((xs - t_cent)**2)
+    cols_all = []
+    for i, pp in enumerate(pops_pseudo):
+        cols_all.append(bin_cents[i]*np.ones(pp.shape[trl_ax]))
+    cols_all = np.concatenate(cols_all)
+
+    resps_t = list(pp[..., t_ind] for pp in pops_pseudo)
+    resps_all = np.concatenate(resps_t, axis=trl_ax)
+    resps_all = np.swapaxes(np.squeeze(resps_all), 1, 2)
+
+    return cols_all, resps_all, errs
+
+
+def _preprocess_dist_pop(pop, norm=True, pre_pca=.99, **kwargs):
+    pipe = na.make_model_pipeline(norm=norm, pca=pre_pca, **kwargs)
+    pop_pre = pipe.fit_transform(pop)
+    return pop_pre
+
+
+def estimate_distance_decay(bin_cents, pops, similarity_metric=u.cosine_similarity,
+                            pre_pca=.99):
+    sigs = np.zeros(len(pops))
+    cents_u = np.unique(bin_cents)
+    n_bins = len(cents_u)
+    funcs = np.zeros((len(pops), n_bins))
+    fits = np.zeros_like(funcs)
+    for i, pop in enumerate(pops):
+        pop_i_pre = _preprocess_dist_pop(pops[i], norm=True, pre_pca=pre_pca)
+        dists, corrs = compute_similarity_curve(pop_i_pre, bin_cents)
+        sigs[i], func = fit_similarity_dispersion(dists, corrs, n_bins=n_bins,
+                                                  return_func=True)
+        funcs[i] = func[0]
+        cents = func[1]
+        fits[i] = func[2]
+    return sigs, (funcs, cents, fits)
 
 
 def decode_color(
@@ -2243,6 +2425,13 @@ def retro_mask(data):
     bhv_retro = bhv_retro.rs_and(data["StopCondition"] > -2)
     data_retro = data.mask(bhv_retro)
     return data_retro
+
+
+def single_mask(data):
+    bhv_single = (data["is_one_sample_displayed"] == 1)
+    bhv_single = bhv_single.rs_and(data["StopCondition"] > -2)
+    data_single = data.mask(bhv_single)
+    return data_single
 
 
 def pro_mask(data):
