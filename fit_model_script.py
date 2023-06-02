@@ -52,10 +52,14 @@ def create_parser():
     parser.add_argument("--fit_guesses", default=False, action="store_true")
     parser.add_argument("--fit_delay1", default=False, action="store_true")
     parser.add_argument("--fit_samples", default=False, action="store_true")
-    parser.add_argument("--prior_alpha", default=1, type=float)
-    parser.add_argument("--prior_std", default=10, type=float)
     parser.add_argument("--use_manual", default=False, action="store_true")
     parser.add_argument("--use_time", default="-0.5-0.0-0.5_0.5", type=str)
+
+    parser.add_argument("--prior_alpha", default=1, type=float)
+    parser.add_argument("--prior_std", default=10, type=float)
+    parser.add_argument("--prior_gamma_alpha", default=2, type=float)
+    parser.add_argument("--prior_gamma_beta", default=.5, type=float)
+
     return parser
 
 
@@ -190,6 +194,9 @@ if __name__ == "__main__":
     print(model_path)
     data["prior_alpha"] = args.prior_alpha
     data["prior_std"] = args.prior_std
+    data["prior_g_alpha"] = args.prior_gamma_alpha
+    data["prior_g_beta"] = args.prior_gamma_beta
+    
     fit, fit_az, diag = su.fit_model(data, model_path, iter=n_iter, chains=n_chains)
     out_name = args.output_name.format(
         num_colors=args.num_colors,

@@ -26,6 +26,8 @@ data {
   vector[3] p[T]; // probabilities
   real<lower=0> prior_alpha;
   real<lower=0> prior_std;
+  real<lower=0> prior_g_alpha;
+  real<lower=0> prior_g_beta;
 }
 
 transformed data {
@@ -68,7 +70,7 @@ model {
   }
   
   vars_raw ~ inv_gamma(2, 1);
-  nu ~ gamma(2, .1);
+  nu ~ gamma(prior_g_alpha, prior_g_beta);
 
   p_err ~ dirichlet(rep_vector(prior_alpha, 2));
   p_guess_err ~ dirichlet(rep_vector(prior_alpha, 2));
