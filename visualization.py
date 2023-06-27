@@ -2355,6 +2355,71 @@ def plot_proj_p_scatter(
     return ax
 
 
+def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
+               swap_color='red', mat_inds=None):
+    if axs is None:
+        f, axs = plt.subplots(1, len(out_dict), figsize=(fwid*len(out_dict), fwid),
+                              sharey=True, squeeze=False)
+    if mat_inds is None:
+        mat_inds = (mat_ind,)*len(out_dict)
+    for i, (k, out) in enumerate(out_dict.items()):
+        (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = out
+
+        nc_plot = list(
+            np.squeeze(np.mean(nc_indiv_i, axis=0)) for nc_indiv_i in nc_indiv
+        )
+        nc_plot = np.stack(nc_plot, axis=2)
+        gpl.plot_trace_werr(xs, nc_plot[mat_inds[i]], ax=axs[0, i], color=null_color,
+                            error_func=gpl.std)
+        gpl.plot_trace_werr(xs, sc_comb[mat_inds[i]], ax=axs[0, i], color=swap_color)
+
+        gpl.add_hlines(0, axs[0, i], color=null_color, plot_outline=True)
+        gpl.add_hlines(1, axs[0, i], color=swap_color, plot_outline=True)
+        gpl.add_hlines(.5, axs[0, i], linestyle='dashed')
+        gpl.clean_plot(axs[0, i], i)
+    return axs
+
+
+default_error_labels = ('misbinding', 'color\nselection', 'color\nselection')
+
+
+def plot_lm_hists(out_dict, mat_ind=(0, 1), x_pts=(.25, 0, -.25), axs=None, fwid=3,
+                  null_color='green', swap_color='red', eps=1e-5, n_bins=20,
+                  bin_bounds=(-1, 2), error_labels=default_error_labels, mat_inds=None):
+    if axs is None:
+        f, axs = plt.subplots(2, len(out_dict), figsize=(fwid*len(out_dict), 2*fwid),
+                              sharex='all')
+    if mat_inds is None:
+        mat_inds = (mat_ind,)*len(out_dict)
+    
+    bins = np.linspace(*bin_bounds, n_bins + 1)
+    for i, (k, out) in enumerate(out_dict.items()):
+        (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = out
+        t_diffs = np.abs(xs - x_pts[i])
+        time_ind = np.argmin(t_diffs)
+        if np.min(t_diffs) > eps:
+            s = ('time difference not exactly zero, closest is time point {} '
+                 'for target {}')
+            print(s.format(xs[time_ind], x_pts[i]))
+        nc_plot = nc_comb[mat_inds[i]][:, time_ind]
+        sc_plot = sc_comb[mat_inds[i]][:, time_ind]
+        axs[0, i].hist(nc_plot, bins=bins, color=null_color, density=True)
+        axs[1, i].hist(sc_plot, bins=bins, color=swap_color, density=True)
+        gpl.add_vlines(0, axs[0, i], color=null_color, plot_outline=True)
+        gpl.add_vlines(1, axs[0, i], color=swap_color, plot_outline=True)
+        gpl.add_vlines(0, axs[1, i], color=null_color, plot_outline=True)
+        gpl.add_vlines(1, axs[1, i], color=swap_color, plot_outline=True)
+        gpl.clean_plot_bottom(axs[0, i])
+        axs[1, i].set_xticks([0, 1])
+        gpl.clean_plot(axs[0, i], 0)
+        gpl.clean_plot(axs[1, i], 0)
+        axs[1, i].set_xticklabels(['correct', error_labels[i]], rotation=45)
+        gpl.clean_plot_bottom(axs[1, i], keeplabels=True)
+        axs[1, i].invert_yaxis()
+        gpl.make_yaxis_scale_bar(axs[0, i], magnitude=.2, double=False, label='density')
+        gpl.make_yaxis_scale_bar(axs[1, i], magnitude=.2, double=False, label='density')
+        
+
 def plot_session_swap_distr_collection(
     session_dict,
     axs=None,
