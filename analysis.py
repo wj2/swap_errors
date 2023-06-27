@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pickle
 import pystan as ps
@@ -1172,12 +1173,20 @@ def combine_forgetting(
 
 
 def _get_corr_swap_inds(
-    ps, corr_decider, swap_decider, and_corr_mask=None, and_swap_mask=None
+    ps,
+    corr_decider,
+    swap_decider,
+    and_corr_mask=None,
+    and_swap_mask=None,
+    and_mask=None,
 ):
     corr_mask = corr_decider(ps)
     swap_mask = swap_decider(ps)
     common_mask = np.logical_and(corr_mask, swap_mask)
     corr_mask[common_mask] = False
+    if and_mask is not None:
+        corr_mask = np.logical_and(corr_mask, and_mask)
+        swap_mask = np.logical_and(swap_mask, and_mask)
     if and_corr_mask is not None:
         corr_mask = np.logical_and(corr_mask, and_corr_mask)
     swap_mask[common_mask] = False
@@ -1371,7 +1380,7 @@ def _compute_trl_c_dist(
         swap_vec = swap_cent - null_cent
         sv_len = np.sqrt(np.sum(swap_vec**2))
         sv_u = np.expand_dims(u.make_unit_vector(swap_vec), 0)
-
+        
         test_activity = y[corr_te]
         dist = np.dot(sv_u, (test_activity - null_cent).T) / sv_len
     else:
@@ -1772,6 +1781,424 @@ def _compute_centroid_dists(
     cents_all = ((null_cent, swap_cent), (s_null_cent, s_swap_cent))
     ps = (null_ps, swap_ps)
     return null_dists, swap_dists, cents_all, ps
+
+
+def _project_preds(preds, samps, use_center=False):
+    """
+    Parameters
+    ----------
+    preds : list of array, T x N
+        where T is the number of trials and N is the number of dimensions and the list
+    samps : array, T x N
+        where T and N are the same as above
+    """
+    n_preds = len(preds)
+    out = np.zeros((n_preds, n_preds, len(samps)))
+    for (i, j) in it.product(range(n_preds), repeat=2):
+        if i != j:
+            p_i, p_j = preds[i], preds[j]
+            swap_vec = p_j - p_i
+            sv_len = np.sqrt(np.sum(swap_vec**2, axis=1))
+            swap_vec_u = u.make_unit_vector(swap_vec, squeeze=False)
+            if use_center:
+                sub_c = np.mean([p_i, p_j], axis=0)
+            else:
+                sub_c = p_i
+            dist = swap_vec_u * (samps - sub_c)
+            dist = np.sum(dist, axis=1) / sv_len
+
+            out[i, j] = dist
+    return out
+
+
+def _fit_lm_tc_model(tr_pair, null_pairs, swap_pairs, model=sklm.Ridge,
+                  pre_pipe=None):
+    tr_coeffs, tr_y = tr_pair
+
+    n_ts = tr_y.shape[-1]
+
+    n_te_combs = len(null_pairs[0])
+    n_te_trls = null_pairs[1].shape[0]
+    null_proj = np.zeros((n_te_combs, n_te_combs, n_te_trls, n_ts))
+
+    n_swap_combs = len(swap_pairs[0])
+    n_swap_trls = swap_pairs[1].shape[0]
+    swap_proj = np.zeros((n_swap_combs, n_swap_combs, n_swap_trls, n_ts))
+
+    for i in range(n_ts):
+        tr_y_i = tr_y[..., i]
+        null_pairs_i = (null_pairs[0], null_pairs[1][..., i])
+        swap_pairs_i = (swap_pairs[0], swap_pairs[1][..., i])
+
+        if pre_pipe is not None:
+            tr_y_i = pre_pipe.fit_transform(tr_y_i)
+            null_pairs_i = (null_pairs_i[0], pre_pipe.transform(null_pairs_i[1]))
+            swap_pairs_i = (swap_pairs_i[0], pre_pipe.transform(swap_pairs_i[1]))
+        m = model()
+        m.fit(tr_coeffs, tr_y_i)
+
+        null_preds = list(
+            m.predict(ap) for ap in null_pairs_i[0]
+        )
+        null_proj[..., i] = _project_preds(null_preds, null_pairs_i[1])
+        swap_preds = list(
+            m.predict(ap) for ap in swap_pairs_i[0]
+        )
+        swap_proj[..., i] = _project_preds(swap_preds, swap_pairs_i[1])
+    return null_proj, swap_proj
+
+
+retro_sequences = {
+    'color presentation': (-.75, 1, 'SAMPLES_ON_diode', False, True),
+    'cue presentation': (-.5, .8, 'CUE2_ON_diode', True, True,),
+    'wheel presentation': (-1, 0, 'WHEEL_ON_diode', True, True),
+}
+pro_sequences = {
+    'color presentation': (-.5, 1.5, 'SAMPLES_ON_diode', True, True),
+    'cue presentation': (-.5, .5, 'CUE1_ON_diode', True, False,),
+    'wheel presentation': (-1, 0, 'WHEEL_ON_diode', True, True),
+}
+
+
+def make_lm_tc_pops(
+    data,
+    use_pro=False,
+    winsize=.5,
+    tstep=.05,
+    pro_sequences=pro_sequences,
+    retro_sequences=retro_sequences,
+    upper_key='upper_color',
+    lower_key='lower_color',
+    cue_key='IsUpperSample',
+    p_keys=('corr_prob', 'swap_prob', 'guess_prob'),
+    **kwargs,
+):
+    if use_pro:
+        data = pro_mask(data)
+        sequence = pro_sequences
+    else:
+        data = retro_mask(data)
+        sequence = retro_sequences
+    pop_dict = {}
+    for k, (tbeg, tend, tzf, cue_on, color_on) in sequence.items():
+        spks, xs = data.get_populations(
+            winsize,
+            tbeg,
+            tend,
+            tstep,
+            time_zero_field=tzf,
+            **kwargs,
+        )
+        uc = data[upper_key]
+        lc = data[lower_key]
+        if cue_on:
+            cue = data[cue_key]
+        else:
+            cue = (None,)*len(spks)
+        ps = data[list(p_keys)]
+        pop_dict[k] = (spks, uc, lc, ps, cue, xs)
+    return pop_dict
+
+
+def save_lm_tc_pops(
+    pop_dict,
+    add="retro",
+    out_path='swap_errors/lm_data/lmtc_{}_{}_{}.pkl',
+):
+    for k, (spks, uc, lc, probs, cue, xs) in pop_dict.items():
+        k_save = k.replace(' ', '-')
+        n_sessions = len(spks)
+        for i in range(n_sessions):
+            path = out_path.format(add, k_save, i)
+            sd = {
+                'spks': spks[i],
+                'uc': uc[i].to_numpy(),
+                'lc': lc[i].to_numpy(),
+                'ps': probs[i].to_numpy(),
+                'cues': cue[i],
+                'other': {'xs': xs, 'sequence': k},
+            }
+            pickle.dump(sd, open(path, 'wb'))
+
+
+def swap_lm_tc_frompickle(path, out_folder='.', prefix='fit_', **kwargs):
+    sd = pickle.load(open(path, 'rb'))
+    _, name = os.path.split(path)
+    out_path = os.path.join(out_folder, prefix + name)
+
+    use_keys = ('spks', 'uc', 'lc', 'ps', 'cues')
+    args = list(sd.pop(uk) for uk in use_keys)
+    spks, uc, lc, ps, cues = args
+    other_info = sd.pop('other')
+    xs = other_info['xs']
+
+    null_color, swap_color = swap_lm_tc(*args, **sd, **kwargs)
+
+    if cues is not None:
+        null_cue, swap_cue = swap_cue_tc(spks, ps, cues.to_numpy(), **kwargs)
+    else:
+        null_cue, swap_cue = np.zeros((0, 0, len(xs))), np.zeros((0, 0, len(xs)))
+
+    out_dict = {
+        'null_color': null_color,
+        'swap_color': swap_color,
+        'null_cue': null_cue,
+        'swap_cue': swap_cue,
+        'args': args,
+        'kwargs': kwargs,
+        'xs': xs,
+        'other': other_info,
+        'sd': sd,
+    }
+    pickle.dump(out_dict, open(out_path, 'wb'))
+    return out_path, out_dict
+
+
+def fit_lm_tc_all(full_pd, **kwargs):
+    outs = {}
+    for k, pd in full_pd.items():
+        outs[k] = fit_lm_tc_pop_dicts(pd)
+    return outs
+
+
+def fit_lm_tc_pop_dicts(pd, use_waldorf=False, **kwargs):
+    nulls = []
+    swaps = []
+    if use_waldorf:
+        sess_range = range(13, 23)
+    else:
+        sess_range = range(13)
+    for sess_ind in sess_range:
+        spks, uc, lc, ps, cue = list(x[sess_ind] for x in pd)[:-1]
+        xs = pd[-1]
+        uc = uc.to_numpy()
+        lc = lc.to_numpy()
+        ps = ps.to_numpy()
+
+        null_traj, swap_traj = swap_lm_tc(spks, uc, lc, ps, cues=cue, **kwargs)
+        nulls.append(null_traj)
+        swaps.append(np.mean(swap_traj, axis=0))
+
+    swaps_comb = np.concatenate(swaps, axis=2)
+    nulls_comb = np.concatenate(nulls, axis=0)
+    nulls_comb = np.squeeze(np.swapaxes(nulls_comb, 0, 3))
+
+    return (nulls_comb, swaps_comb), (nulls, swaps), xs
+
+
+def fit_cue_tc_pop_dicts(pd, use_waldorf=False, **kwargs):
+    nulls = []
+    swaps = []
+    if use_waldorf:
+        sess_range = range(13, 23)
+    else:
+        sess_range = range(13)
+    for sess_ind in sess_range:
+        spks, _, _, ps, cue = list(x[sess_ind] for x in pd)[:-1]
+        xs = pd[-1]
+        ps = ps.to_numpy()
+
+        if cue is not None:
+            null_traj, swap_traj = swap_cue_tc(spks, ps, cue.to_numpy(), **kwargs)
+        else:
+            null_traj, swap_traj = np.zeros((0, 0, len(xs))), np.zeros((0, 0, len(xs)))
+        nulls.append(null_traj)
+        swaps.append(np.mean(swap_traj, axis=0))
+
+    swaps_comb = np.concatenate(swaps, axis=0)
+    nulls_comb = np.concatenate(nulls, axis=0)
+    nulls_comb = np.squeeze(nulls_comb)
+
+    return (nulls_comb, swaps_comb), (nulls, swaps), xs
+
+
+def _fit_cue_tc_model(train_pair, null_pair, swap_pair, model=None):
+    if model is None:
+        model = skc.LinearSVC()
+    tr_cues, tr_y = train_pair
+    te_cues, te_y = null_pair
+    swap_cues, swap_y = swap_pair
+
+    null_flipper = np.sign(te_cues - .5)
+    swap_flipper = np.sign(swap_cues - .5)
+
+    n_ts = tr_y.shape[-1]
+
+    n_te_trls = null_pair[1].shape[0]
+    null_proj = np.zeros((n_te_trls, n_ts))
+
+    n_swap_trls = swap_pair[1].shape[0]
+    swap_proj = np.zeros((n_swap_trls, n_ts))
+    for i in range(n_ts):
+        model.fit(tr_y[..., i], tr_cues)
+        null_proj[:, i] = null_flipper*model.decision_function(te_y[..., i])
+        swap_proj[:, i] = swap_flipper*model.decision_function(swap_y[..., i])
+    return null_proj, swap_proj
+
+
+def swap_cue_tc(
+    y,
+    ps,
+    cues,
+    p_swap_ind=1,
+    p_corr_ind=0,
+    swap_decider=swap_argmax,
+    corr_decider=corr_argmax,
+    cv=skms.LeaveOneOut,
+    model=skc.LinearSVC,
+    norm=True,
+    pre_pca=None,
+    max_iter=2000,
+    **kwargs,
+):
+    corr_inds, swap_inds = _get_corr_swap_inds(
+        ps, corr_decider, swap_decider,
+    )
+    n_trls, n_neurs, n_ts = y.shape
+
+    null_dists = np.zeros((len(corr_inds), 1, n_ts))
+    swap_dists = np.zeros((len(corr_inds), len(swap_inds), n_ts))
+
+    model = na.make_model_pipeline(model, norm=norm, pca=pre_pca, max_iter=max_iter)
+    swap_pair = (cues[swap_inds], y[swap_inds])
+
+    if len(swap_inds) == 0:
+        null_dists[:] = np.nan
+        swap_dists[:] = np.nan
+    else:
+        cv_gen = cv()
+        for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
+            corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
+            
+            tr_labels = cues[corr_tr]
+            te_labels = cues[corr_te]
+
+            y_corr_tr = y[corr_tr]
+            y_corr_te = y[corr_te]
+
+            train_pair = (tr_labels, y_corr_tr)
+            null_pair = (te_labels, y_corr_te)
+
+            out = _fit_cue_tc_model(
+                train_pair,
+                null_pair,
+                swap_pair,
+                model=model,
+            )
+            null_dists[i] = out[0]
+            swap_dists[i] = out[1]
+    return null_dists, swap_dists
+    
+
+def swap_lm_tc(
+    y,
+    upper_col,
+    lower_col,
+    ps,
+    cues=None,
+    p_swap_ind=1,
+    p_corr_ind=0,
+    spline_order=1,
+    n_knots=5,
+    swap_decider=swap_argmax,
+    corr_decider=corr_argmax,
+    col_thr=np.pi / 4,
+    cv=skms.LeaveOneOut,
+    col_diff=_col_diff_rad,
+    model=sklm.Ridge,
+    norm=True,
+    pre_pca=None,
+):
+    """
+    Parameters
+    ----------
+    y : array N x K x T
+        Array where N is the number of trials, K is the number of neurons and T is the
+        number of time points
+    upper_col, lower_col : array, N
+        Array giving upper color
+    ps : array, N x 3
+    cues : array, N
+    """
+    if cues is not None:
+        targ_col = np.zeros_like(upper_col)
+        dist_col = np.zeros_like(upper_col)
+        targ_col[cues == 1] = upper_col[cues == 1]
+        targ_col[cues == 0] = lower_col[cues == 0]
+        dist_col[cues == 1] = lower_col[cues == 1]
+        dist_col[cues == 0] = upper_col[cues == 0]
+        upper_col = targ_col
+        lower_col = dist_col
+
+    n_trls, n_neurs, n_ts = y.shape
+    null_coeffs, spliner = make_lm_coefficients(
+        upper_col,
+        lower_col,
+        cues=cues,
+        spline_knots=n_knots,
+        spline_degree=spline_order,
+        return_spliner=True,
+    )
+
+    color_swap_coeffs = make_lm_coefficients(
+        lower_col,
+        upper_col,
+        cues=cues,
+        spline_knots=n_knots,
+        spline_degree=spline_order,
+        use_spliner=spliner,
+    )
+    alternates = (null_coeffs, color_swap_coeffs,)
+    if cues is not None:
+        cue_swap_coeffs = make_lm_coefficients(
+            lower_col,
+            upper_col,
+            cues=1 - cues,
+            spline_knots=n_knots,
+            spline_degree=spline_order,
+            use_spliner=spliner,
+        )
+        alternates = alternates + (cue_swap_coeffs,)
+
+    col_dist_mask = col_diff(lower_col, upper_col) > col_thr
+    corr_inds, swap_inds = _get_corr_swap_inds(
+        ps, corr_decider, swap_decider, and_mask=col_dist_mask,
+    )
+
+    n_alts = len(alternates)
+    null_dists = np.zeros((len(corr_inds), n_alts, n_alts, 1, n_ts))
+    swap_dists = np.zeros((len(corr_inds), n_alts, n_alts, len(swap_inds), n_ts))
+
+    y_swap_te = y[swap_inds]
+    swap_pairs = (list(a[swap_inds] for a in alternates), y_swap_te)
+
+    pipe = na.make_model_pipeline(norm=norm, pca=pre_pca)
+
+    if len(swap_inds) == 0:
+        null_dists[:] = np.nan
+        swap_dists[:] = np.nan
+    else:
+        cv_gen = cv()
+        for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
+            corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
+            tr_coeffs = null_coeffs[corr_tr]
+
+            y_corr_tr = y[corr_tr]
+            y_corr_te = y[corr_te]
+
+            train_pair = (tr_coeffs, y_corr_tr)
+            null_pairs = (list(a[corr_te] for a in alternates), y_corr_te)
+
+            out = _fit_lm_tc_model(
+                train_pair,
+                null_pairs,
+                swap_pairs,
+                model=model,
+                pre_pipe=pipe,
+            )
+            null_dists[i] = out[0]
+            swap_dists[i] = out[1]
+    return null_dists, swap_dists
 
 
 def compute_dists(
@@ -2405,7 +2832,7 @@ def make_lm_coefficients(
             all_coeffs.append(col_spl)
 
     elif cues is None:
-        raise IOError("need to provide something! neither colors nor cues " "present")
+        raise IOError("need to provide something! neither colors nor cues present")
     else:
         all_cols = np.zeros((len(cues), 0))
         all_coeffs.append(all_cols)
