@@ -59,6 +59,7 @@ def create_parser():
     parser.add_argument("--prior_std", default=10, type=float)
     parser.add_argument("--prior_gamma_alpha", default=1, type=float)
     parser.add_argument("--prior_gamma_beta", default=.5, type=float)
+    parser.add_argument("--prior_dirichlet", default=None, type=float, nargs='+')
 
     return parser
 
@@ -193,6 +194,8 @@ if __name__ == "__main__":
     ]
     print(model_path)
     data["prior_alpha"] = args.prior_alpha
+    data['swap_prior'] = (.5, 1)
+    data['guess_prior'] = (.5, 1)
     data["prior_std"] = args.prior_std
     data["prior_g_alpha"] = args.prior_gamma_alpha
     data["prior_g_beta"] = args.prior_gamma_beta

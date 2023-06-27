@@ -25,7 +25,7 @@ import general.utility as u
 import general.decoders as gd
 import general.plotting as gpl
 import swap_errors.auxiliary as swa
-import rsatoolbox as rsa
+# import rsatoolbox as rsa
 
 
 def average_simplices(
