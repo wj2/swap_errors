@@ -2355,8 +2355,14 @@ def plot_proj_p_scatter(
     return ax
 
 
+def plot_cue_tc(*args, **kwargs):
+    return plot_lm_tc(*args, use_mat_inds=False, plot_markers=False, cent=0,
+                      **kwargs)
+
+
 def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
-               swap_color='red', mat_inds=None):
+               swap_color='red', mat_inds=None, use_mat_inds=True,
+               plot_markers=True, cent=.5):
     if axs is None:
         f, axs = plt.subplots(1, len(out_dict), figsize=(fwid*len(out_dict), fwid),
                               sharey=True, squeeze=False)
@@ -2364,18 +2370,26 @@ def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
         mat_inds = (mat_ind,)*len(out_dict)
     for i, (k, out) in enumerate(out_dict.items()):
         (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = out
+        if nc_comb.shape[0] > 0:
+            print(nc_comb.shape)
+            print(nc_indiv[0].shape)
+            nc_plot = list(
+                np.squeeze(np.mean(nc_indiv_i, axis=0)) for nc_indiv_i in nc_indiv
+            )
+            if use_mat_inds:
+                nc_plot = np.stack(nc_plot, axis=2)
+                nc_plot = nc_plot[mat_inds[i]]
+                sc_comb = sc_comb[mat_inds[i]]
+            else:
+                nc_plot = np.stack(nc_plot, axis=0)
+            gpl.plot_trace_werr(xs, nc_plot, ax=axs[0, i], color=null_color,
+                                error_func=gpl.std)
+            gpl.plot_trace_werr(xs, sc_comb, ax=axs[0, i], color=swap_color)
 
-        nc_plot = list(
-            np.squeeze(np.mean(nc_indiv_i, axis=0)) for nc_indiv_i in nc_indiv
-        )
-        nc_plot = np.stack(nc_plot, axis=2)
-        gpl.plot_trace_werr(xs, nc_plot[mat_inds[i]], ax=axs[0, i], color=null_color,
-                            error_func=gpl.std)
-        gpl.plot_trace_werr(xs, sc_comb[mat_inds[i]], ax=axs[0, i], color=swap_color)
-
-        gpl.add_hlines(0, axs[0, i], color=null_color, plot_outline=True)
-        gpl.add_hlines(1, axs[0, i], color=swap_color, plot_outline=True)
-        gpl.add_hlines(.5, axs[0, i], linestyle='dashed')
+        if plot_markers:
+            gpl.add_hlines(0, axs[0, i], color=null_color, plot_outline=True)
+            gpl.add_hlines(1, axs[0, i], color=swap_color, plot_outline=True)
+        gpl.add_hlines(cent, axs[0, i], linestyle='dashed')
         gpl.clean_plot(axs[0, i], i)
     return axs
 

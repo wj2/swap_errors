@@ -1921,10 +1921,13 @@ def save_lm_tc_pops(
             pickle.dump(sd, open(path, 'wb'))
 
 
-def swap_lm_tc_frompickle(path, out_folder='.', prefix='fit_', **kwargs):
+def swap_lm_tc_frompickle(path, out_folder='.', prefix='fit_', jobid="0000",
+                          **kwargs):
     sd = pickle.load(open(path, 'rb'))
     _, name = os.path.split(path)
-    out_path = os.path.join(out_folder, prefix + name)
+    name, ext = os.path.splitext(name)
+    new_name = prefix + name + "_{}".format(jobid) + ext
+    out_path = os.path.join(out_folder, new_name)
 
     use_keys = ('spks', 'uc', 'lc', 'ps', 'cues')
     args = list(sd.pop(uk) for uk in use_keys)

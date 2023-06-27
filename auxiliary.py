@@ -29,7 +29,6 @@ wh_default_model_names = ('arviz_fit_spatial_error_hierarchical_model.pkl',
 wh_default_model_keys = ('spatial', 'cue', 'hybrid')
 
 
-
 cue_default_model_names = ('arviz_fit_null_precue_model.pkl',
                            'arviz_fit_spatial_error_precue_model.pkl',
                            'arviz_fit_hybrid_error_precue_model.pkl')
@@ -42,6 +41,83 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
 o_fit_templ = 'fit_spline{n_colors}_sess{sess_ind}_{period}_{run_ind}{ext}'
 o_fp = '../results/swap_errors/fits/'
 naive_template = '[0-9\-_:\.]*\.pkl'
+
+
+lm_template = ("fit_lmtc_(?P<trial_type>pro|retro)_"
+               "(?P<timing>color|wheel|cue)\-presentation_"
+               "(?P<session_ind>[0-9]+)\.pkl")
+
+
+def load_lm_results(runind, folder='swap_errors/lms/',
+                    templ=lm_template,):
+    fls = os.listdir(folder)
+    full_dict = {}
+    for fl in fls:
+        m = re.match(templ, fl)
+        if m is not None:
+            timing = m.group("timing")
+            trial_type = m.group("trial_type")
+            session_ind = int(m.group("session_ind"))
+            out = pickle.load(open(os.path.join(folder, fl), 'rb'))
+            null_col_fl = out["null_color"]
+            swap_col_fl = np.mean(out["swap_color"], axis=0)
+
+            null_cue_fl = out["null_cue"]
+            swap_cue_fl = np.mean(out["swap_cue"], axis=0)
+            xs = out["xs"]
+
+            if session_ind in range(13):
+                monkey = "Elmo"
+            else:
+                monkey = "Wald"
+
+            tt_dict = full_dict.get(trial_type, {})
+            tt_timing_dict = tt_dict.get(timing, {})
+
+            (null_col, swap_col), (null_cue, swap_cue), _ = tt_timing_dict.get(
+                monkey, (([], []), ([], []), None))
+            null_col.append(null_col_fl)
+            swap_col.append(swap_col_fl)
+            null_cue.append(np.squeeze(null_cue_fl))
+            swap_cue.append(swap_cue_fl)
+
+            tt_timing_dict[monkey] = ((null_col, swap_col),
+                                      (null_cue, swap_cue),
+                                      xs)
+            tt_dict[timing] = tt_timing_dict
+            full_dict[trial_type] = tt_dict
+
+    cue_dict = {}
+    color_dict = {}
+    for trial_type, tt_dict in full_dict.items():
+        for timing, monkey_dict in tt_dict.items():
+            for monkey, (colors, cues, xs) in monkey_dict.items():
+                nulls, swaps = colors
+                swaps_comb = np.concatenate(swaps, axis=2)
+                nulls_comb = np.concatenate(nulls, axis=0)
+                nulls_comb = np.squeeze(np.swapaxes(nulls_comb, 0, 3))
+                colors = (nulls_comb, swaps_comb), (nulls, swaps), xs
+                cd = color_dict.get(monkey, {})
+                cd_tt = cd.get(trial_type, {})
+                cd_tt[timing] = colors
+                cd[trial_type] = cd_tt
+                color_dict[monkey] = cd
+
+                nulls, swaps = cues
+                swaps_comb = np.concatenate(swaps, axis=0)
+                nulls_comb = np.concatenate(nulls, axis=0)
+                nulls_comb = np.squeeze(nulls_comb)
+                cues = (nulls_comb, swaps_comb), (nulls, swaps), xs
+                cd = cue_dict.get(monkey, {})
+                cd_tt = cd.get(trial_type, {})
+                cd_tt[timing] = cues
+                cd[trial_type] = cd_tt
+                cue_dict[monkey] = cd
+                
+                monkey_dict[monkey] = (colors, cues)
+            tt_dict[timing] = monkey_dict
+        full_dict[trial_type] = tt_dict
+    return full_dict, color_dict, cue_dict
 
 
 def load_naive_results(nc_run, folder='swap_errors/naive_centroids/',
@@ -68,6 +144,7 @@ def get_type_ind(type_, data, use_default=None, return_type=False):
     if return_type:
         out = (out, type_int)
     return out
+
 
 def print_error_details(fit, Rhat=True, eps=.05, divergence=True, **kwargs):
     if not Rhat:

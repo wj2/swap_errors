@@ -21,6 +21,7 @@ def create_parser():
     parser.add_argument("--num_knots", default=5, type=int)
     parser.add_argument("--use_threshold", default=None, type=float)
     parser.add_argument("--pre_pca", default=None, type=float)
+    parser.add_argument("--jobid", default="0000", type=str)
     return parser
 
 
@@ -41,5 +42,6 @@ if __name__ == "__main__":
         spline_order=args.spline_order,
         n_knots=args.num_knots,
         pre_pca=args.pre_pca,
+        jobid=args.jobid,
         **kwargs,
     )
