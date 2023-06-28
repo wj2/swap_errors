@@ -2362,17 +2362,18 @@ def plot_cue_tc(*args, **kwargs):
 
 def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
                swap_color='red', mat_inds=None, use_mat_inds=True,
-               plot_markers=True, cent=.5):
+               plot_markers=True, cent=.5, key_order=None):
+    if key_order is None:
+        key_order = out_dict.keys()
     if axs is None:
         f, axs = plt.subplots(1, len(out_dict), figsize=(fwid*len(out_dict), fwid),
                               sharey=True, squeeze=False)
     if mat_inds is None:
         mat_inds = (mat_ind,)*len(out_dict)
-    for i, (k, out) in enumerate(out_dict.items()):
+    for i, k in enumerate(key_order):
+        out = out_dict[k]
         (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = out
         if nc_comb.shape[0] > 0:
-            print(nc_comb.shape)
-            print(nc_indiv[0].shape)
             nc_plot = list(
                 np.squeeze(np.mean(nc_indiv_i, axis=0)) for nc_indiv_i in nc_indiv
             )
@@ -2389,6 +2390,7 @@ def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
         if plot_markers:
             gpl.add_hlines(0, axs[0, i], color=null_color, plot_outline=True)
             gpl.add_hlines(1, axs[0, i], color=swap_color, plot_outline=True)
+        axs[0, i].set_title(k)
         gpl.add_hlines(cent, axs[0, i], linestyle='dashed')
         gpl.clean_plot(axs[0, i], i)
     return axs
@@ -2399,15 +2401,19 @@ default_error_labels = ('misbinding', 'color\nselection', 'color\nselection')
 
 def plot_lm_hists(out_dict, mat_ind=(0, 1), x_pts=(.25, 0, -.25), axs=None, fwid=3,
                   null_color='green', swap_color='red', eps=1e-5, n_bins=20,
-                  bin_bounds=(-1, 2), error_labels=default_error_labels, mat_inds=None):
+                  bin_bounds=(-1, 2), error_labels=default_error_labels, mat_inds=None,
+                  key_order=None):
+    if key_order is None:
+        key_order = out_dict.keys()
     if axs is None:
         f, axs = plt.subplots(2, len(out_dict), figsize=(fwid*len(out_dict), 2*fwid),
                               sharex='all')
     if mat_inds is None:
         mat_inds = (mat_ind,)*len(out_dict)
-    
+
     bins = np.linspace(*bin_bounds, n_bins + 1)
-    for i, (k, out) in enumerate(out_dict.items()):
+    for i, k in enumerate(key_order):
+        out = out_dict[k]
         (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = out
         t_diffs = np.abs(xs - x_pts[i])
         time_ind = np.argmin(t_diffs)
@@ -2432,7 +2438,8 @@ def plot_lm_hists(out_dict, mat_ind=(0, 1), x_pts=(.25, 0, -.25), axs=None, fwid
         axs[1, i].invert_yaxis()
         gpl.make_yaxis_scale_bar(axs[0, i], magnitude=.2, double=False, label='density')
         gpl.make_yaxis_scale_bar(axs[1, i], magnitude=.2, double=False, label='density')
-        
+        axs[0, i].set_title(k)
+
 
 def plot_session_swap_distr_collection(
     session_dict,

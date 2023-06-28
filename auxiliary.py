@@ -45,11 +45,13 @@ naive_template = '[0-9\-_:\.]*\.pkl'
 
 lm_template = ("fit_lmtc_(?P<trial_type>pro|retro)_"
                "(?P<timing>color|wheel|cue)\-presentation_"
-               "(?P<session_ind>[0-9]+)\.pkl")
+               "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\.pkl")
 
 
-def load_lm_results(runind, folder='swap_errors/lms/',
+def load_lm_results(runinds, folder='swap_errors/lms/',
                     templ=lm_template,):
+    jobids = '|'.join(runinds)
+    templ = templ.format(jobids=jobids)
     fls = os.listdir(folder)
     full_dict = {}
     for fl in fls:

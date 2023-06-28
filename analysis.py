@@ -1812,7 +1812,7 @@ def _project_preds(preds, samps, use_center=False):
 
 
 def _fit_lm_tc_model(tr_pair, null_pairs, swap_pairs, model=sklm.Ridge,
-                  pre_pipe=None):
+                     pre_pipe=None):
     tr_coeffs, tr_y = tr_pair
 
     n_ts = tr_y.shape[-1]
@@ -1854,8 +1854,8 @@ retro_sequences = {
     'wheel presentation': (-1, 0, 'WHEEL_ON_diode', True, True),
 }
 pro_sequences = {
-    'color presentation': (-.5, 1.5, 'SAMPLES_ON_diode', True, True),
     'cue presentation': (-.5, .5, 'CUE1_ON_diode', True, False,),
+    'color presentation': (-.5, 1.5, 'SAMPLES_ON_diode', True, True),
     'wheel presentation': (-1, 0, 'WHEEL_ON_diode', True, True),
 }
 
@@ -2161,7 +2161,15 @@ def swap_lm_tc(
             spline_degree=spline_order,
             use_spliner=spliner,
         )
-        alternates = alternates + (cue_swap_coeffs,)
+        cue_swap_null_coeffs = make_lm_coefficients(
+            upper_col,
+            lower_col,
+            cues=1 - cues,
+            spline_knots=n_knots,
+            spline_degree=spline_order,
+            use_spliner=spliner,
+        )
+        alternates = alternates + (cue_swap_coeffs, cue_swap_null_coeffs)
 
     col_dist_mask = col_diff(lower_col, upper_col) > col_thr
     corr_inds, swap_inds = _get_corr_swap_inds(
