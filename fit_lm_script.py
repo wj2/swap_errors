@@ -22,6 +22,7 @@ def create_parser():
     parser.add_argument("--use_threshold", default=None, type=float)
     parser.add_argument("--pre_pca", default=None, type=float)
     parser.add_argument("--jobid", default="0000", type=str)
+    parser.add_argument("--single_color", default=False, action='store_true')
     return parser
 
 
@@ -30,7 +31,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     kwargs = {}
-    if args.use_threshold is not None:
+    if args.use_threshold is not None or args.use_threshold > 0:
         swap_decider = ft.partial(swan.swap_plurality, prob=args.use_threshold)
         kwargs["swap_decider"] = swap_decider
         corr_decider = ft.partial(swan.corr_plurality, prob=args.use_threshold)
@@ -43,5 +44,6 @@ if __name__ == "__main__":
         n_knots=args.num_knots,
         pre_pca=args.pre_pca,
         jobid=args.jobid,
+        single_color=args.single_color,
         **kwargs,
     )

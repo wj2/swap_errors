@@ -2384,8 +2384,11 @@ def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
             else:
                 nc_plot = np.stack(nc_plot, axis=0)
             gpl.plot_trace_werr(xs, nc_plot, ax=axs[0, i], color=null_color,
+                                central_tendency=np.nanmedian,
                                 error_func=gpl.std)
-            gpl.plot_trace_werr(xs, sc_comb, ax=axs[0, i], color=swap_color)
+            gpl.plot_trace_werr(xs, sc_comb, ax=axs[0, i],
+                                central_tendency=np.nanmedian,
+                                color=swap_color)
 
         if plot_markers:
             gpl.add_hlines(0, axs[0, i], color=null_color, plot_outline=True)

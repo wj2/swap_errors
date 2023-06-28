@@ -2109,6 +2109,7 @@ def swap_lm_tc(
     cv=skms.LeaveOneOut,
     col_diff=_col_diff_rad,
     model=sklm.Ridge,
+    single_color=False,
     norm=True,
     pre_pca=None,
 ):
@@ -2134,18 +2135,22 @@ def swap_lm_tc(
         lower_col = dist_col
 
     n_trls, n_neurs, n_ts = y.shape
+    null_colors = (upper_col, lower_col)
+    if single_color:
+        null_colors = null_colors[:1]
     null_coeffs, spliner = make_lm_coefficients(
-        upper_col,
-        lower_col,
+        *null_colors,
         cues=cues,
         spline_knots=n_knots,
         spline_degree=spline_order,
         return_spliner=True,
     )
 
+    swap_colors = null_colors[::-1]
+    if single_color:
+        swap_colors = swap_colors[:1]
     color_swap_coeffs = make_lm_coefficients(
-        lower_col,
-        upper_col,
+        *swap_colors,
         cues=cues,
         spline_knots=n_knots,
         spline_degree=spline_order,
@@ -2154,16 +2159,14 @@ def swap_lm_tc(
     alternates = (null_coeffs, color_swap_coeffs,)
     if cues is not None:
         cue_swap_coeffs = make_lm_coefficients(
-            lower_col,
-            upper_col,
+            *swap_colors,
             cues=1 - cues,
             spline_knots=n_knots,
             spline_degree=spline_order,
             use_spliner=spliner,
         )
         cue_swap_null_coeffs = make_lm_coefficients(
-            upper_col,
-            lower_col,
+            *null_colors,
             cues=1 - cues,
             spline_knots=n_knots,
             spline_degree=spline_order,
