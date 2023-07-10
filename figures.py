@@ -181,12 +181,38 @@ class BehaviorFigure(SwapErrorFigure):
         names = []
         monkey_colors = {}
         for m in self.monkeys:
-            models.append(m_dict[m][0].posterior)
+            model_m = m_dict[m][0].posterior
+            models.append(model_m)
             names.append(self.monkey_names[m])
             monkey_colors[self.monkey_names[m]] = self.monkey_colors[m]
+            self._save_trial_type_stats(model_m, self.monkey_names[m])
         swv.plot_model_probs(
             *models, colors=cols, ax=ax, arg_names=names, monkey_colors=monkey_colors
         )
+
+    def _save_trial_type_stats(self, m, monkey):
+        swm = m["swap_weight_mean"].to_numpy()
+        gwm = m["guess_weight_mean"].to_numpy()
+        o_sum = 1 + np.exp(swm) + np.exp(gwm)
+        swap_prob = np.concatenate(np.exp(swm) / o_sum, axis=0)
+        guess_prob = np.concatenate(np.exp(gwm) / o_sum, axis=0)
+        corr_prob = 1 - (swap_prob + guess_prob)
+        corr_int = u.conf_interval(corr_prob, withmean=True)
+        guess_int = u.conf_interval(guess_prob, withmean=True)
+        swap_int = u.conf_interval(swap_prob, withmean=True)
+        s = """{monkey}:
+        correct probability = \SIrange{{{clow:.2f}}}{{{chigh:.2f}}}{{}},
+        swap probability = \SIrange{{{slow:.2f}}}{{{shigh:.2f}}}{{}},
+        guess probability = \SIrange{{{glow:.2f}}}{{{ghigh:.2f}}}{{}}"""
+        s = s.format(monkey=monkey,
+                     clow=corr_int[1, 0],
+                     chigh=corr_int[0, 0],
+                     slow=swap_int[1, 0],
+                     shigh=swap_int[0, 0],
+                     glow=guess_int[1, 0],
+                     ghigh=guess_int[0, 0])
+        mname = monkey.replace(" ", "_")
+        self.save_stats_string(s, "trial-types_{}".format(mname))
 
     def panel_trial_simplex(self):
         key = "panel_trial_simplex"
@@ -1186,6 +1212,27 @@ class RetroSwapFigure(ModelBasedFigure):
         w_d2_color = gpl.add_color_value(w_color, col_diff)
         return (e_d1_color, e_d2_color), (w_d1_color, w_d2_color)
 
+    def _save_rate_stats(self, fits, monkey, delay, task, t_ind=True):
+        no_zero = 0
+        for k, (fit, data) in fits.items():
+            probs = np.concatenate(fit['other'].posterior["p_err"])
+            if t_ind:
+                type_ind = swa.get_type_ind(task, data)
+                probs = probs[:, type_ind]
+            interv = u.conf_interval(probs, withmean=True)
+            no_zero += np.all(interv > 0)
+        s = "{monkey}: {nz}/{tot} sessions"
+        s = s.format(monkey=monkey, nz=no_zero, tot=len(fits))
+        mname = monkey.replace(" ", "_")
+        self.save_stats_string(s, "nz-rate_{}_{}_{}".format(task, delay, mname))
+
+    def _save_rate_diff_stats(self, diff_bootstrap, monkey, task):
+        low, high = u.conf_interval(diff_bootstrap, withmean=True)[:, 0]
+        s = "{monkey}: \SIrange{{{low}}}{{{high}}}{{}}"
+        s = s.format(monkey=monkey, low=low, high=high)
+        mname = monkey.replace(" ", "_")
+        self.save_stats_string(s, "nz-rate_{}_{}".format(task, mname))
+
     def panel_rate_differences(self):
         key = "panel_rate_differences"
         sess_ax, sess_diff_ax = self.gss[key]
@@ -1213,6 +1260,10 @@ class RetroSwapFigure(ModelBasedFigure):
         #                colors=(e_d2_color, w_d2_color),
         #                diff=.1)
 
+        self._save_rate_stats(e_d1_fits, "Monkey E", "d1", "retro")
+        self._save_rate_stats(w_d1_fits, "Monkey W", "d1", "retro")
+        self._save_rate_stats(e_d2_fits, "Monkey E", "d2", "retro")
+        self._save_rate_stats(w_d2_fits, "Monkey W", "d2", "retro")
         swv.plot_rate_differences(e_d1_fits, e_d2_fits, ax=sess_ax, color=e_color)
         swv.plot_rate_differences(w_d1_fits, w_d2_fits, ax=sess_ax, color=w_color)
         gpl.clean_plot(sess_ax, 0)
@@ -1228,6 +1279,8 @@ class RetroSwapFigure(ModelBasedFigure):
         w_diffs_full = np.array(list(np.mean(v) for v in w_diffs.values()))
         w_diffs_boot = u.bootstrap_list(w_diffs_full, np.nanmean, n_boots)
 
+        self._save_rate_diff_stats(e_diffs_boot, "Monkey E", "retro")
+        self._save_rate_diff_stats(w_diffs_boot, "Monkey W", "retro")
         gpl.violinplot(
             [e_diffs_boot],
             [0],

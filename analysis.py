@@ -2091,7 +2091,96 @@ def swap_cue_tc(
             null_dists[i] = out[0]
             swap_dists[i] = out[1]
     return null_dists, swap_dists
-    
+
+
+def lm_tc(
+    y,
+    upper_col,
+    lower_col,
+    ps,
+    cues=None,
+    p_swap_ind=1,
+    p_corr_ind=0,
+    spline_order=1,
+    n_knots=5,
+    swap_decider=swap_argmax,
+    corr_decider=corr_argmax,
+    col_thr=np.pi / 4,
+    col_diff=_col_diff_rad,
+    model=sklm.Ridge,
+    single_color=False,
+    norm=True,
+    pre_pca=None,
+):
+    if cues is not None:
+        targ_col = np.zeros_like(upper_col)
+        dist_col = np.zeros_like(upper_col)
+        targ_col[cues == 1] = upper_col[cues == 1]
+        targ_col[cues == 0] = lower_col[cues == 0]
+        dist_col[cues == 1] = lower_col[cues == 1]
+        dist_col[cues == 0] = upper_col[cues == 0]
+        upper_col = targ_col
+        lower_col = dist_col
+
+    null_colors = (upper_col, lower_col)
+    if single_color:
+        null_colors = null_colors[:1]
+    null_coeffs, spliner = make_lm_coefficients(
+        *null_colors,
+        cues=cues,
+        spline_knots=n_knots,
+        spline_degree=spline_order,
+        return_spliner=True,
+    )
+
+    swap_colors = null_colors[::-1]
+    if single_color:
+        swap_colors = swap_colors[:1]
+    color_swap_coeffs = make_lm_coefficients(
+        *swap_colors,
+        cues=cues,
+        spline_knots=n_knots,
+        spline_degree=spline_order,
+        use_spliner=spliner,
+    )
+    alternates = (null_coeffs, color_swap_coeffs,)
+    if cues is not None:
+        cue_swap_coeffs = make_lm_coefficients(
+            *swap_colors,
+            cues=1 - cues,
+            spline_knots=n_knots,
+            spline_degree=spline_order,
+            use_spliner=spliner,
+        )
+        cue_swap_null_coeffs = make_lm_coefficients(
+            *null_colors,
+            cues=1 - cues,
+            spline_knots=n_knots,
+            spline_degree=spline_order,
+            use_spliner=spliner,
+        )
+        alternates = alternates + (cue_swap_coeffs, cue_swap_null_coeffs)
+
+    col_dist_mask = col_diff(lower_col, upper_col) > col_thr
+    corr_inds, swap_inds = _get_corr_swap_inds(
+        ps, corr_decider, swap_decider, and_mask=col_dist_mask,
+    )
+
+    pipe = na.make_model_pipeline(norm=norm, pca=pre_pca, post_norm=False)
+    y_trs = pipe.fit_transform(y[corr_inds])
+    m = model()
+    m.fit(null_coeffs[corr_inds], y_trs)
+
+    def resp_gen(cu, cl, cue=None):
+        if not u.check_list(cu):
+            cu = np.array([cu])
+        if not u.check_list(cl):
+            cl = np.array([cl])
+        coeffs = make_lm_coefficients(cu, cl, cues=cue, use_spliner=spliner)
+        return coeffs, m.predict(coeffs)
+
+    return null_coeffs, resp_gen
+
 
 def swap_lm_tc(
     y,
@@ -2817,29 +2906,31 @@ def make_lm_coefficients(
     cues=None,
     spline_knots=4,
     spline_degree=2,
-    standardize_splines=True,
+    standardize_splines=False,
     use_spliner=None,
-    return_spliner=False
+    return_spliner=False,
 ):
     all_coeffs = []
     if len(cols) > 0:
         all_cols = np.expand_dims(np.concatenate(cols), 1)
-        if use_spliner is not None:
+        if use_spliner is not None and cues is None:
             spliner = use_spliner
+        elif use_spliner is not None and cues is not None:
+            spliner, cue_trs = use_spliner
         else:
             pipe = []
             pipe.append(
                 skp.SplineTransformer(
                     spline_knots,
                     degree=spline_degree,
-                    include_bias=False,
+                    include_bias=True,
                     extrapolation="periodic",
                 )
             )
             if standardize_splines:
                 pipe.append(skp.StandardScaler())
 
-                spliner = sklpipe.make_pipeline(*pipe)
+            spliner = sklpipe.make_pipeline(*pipe)
             spliner.fit(all_cols)
         for col in cols:
             col_spl = spliner.transform(np.expand_dims(col, 1))
@@ -2850,12 +2941,18 @@ def make_lm_coefficients(
     else:
         all_cols = np.zeros((len(cues), 0))
         all_coeffs.append(all_cols)
-    if cues is not None:
-        cues = skp.StandardScaler().fit_transform(np.expand_dims(cues, 1))
+    if cues is not None and use_spliner is None:
+        cue_trs = skp.StandardScaler()
+        cues = cue_trs.fit_transform(np.expand_dims(cues, 1))
+        all_coeffs.append(cues)
+    elif cues is not None and use_spliner is not None:
+        cues = cue_trs.transform(np.expand_dims(cues, 1))
         all_coeffs.append(cues)
     coeffs = np.concatenate(all_coeffs, axis=1)
-    if return_spliner:
+    if return_spliner and cues is None:
         out = (coeffs, spliner)
+    elif return_spliner and cues is not None:
+        out = (coeffs, (spliner, cue_trs))
     else:
         out = coeffs
     return out
