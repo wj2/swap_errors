@@ -410,8 +410,8 @@ class SingleUnitFigure(SwapErrorFigure):
 
 class ModelBasedFigure(SwapErrorFigure):
     def _get_d1_pro_fits(self):
-        n_colors = self.params.get("n_colors")
-        spline_order = self.params.get("spline_order")
+        n_colors = self.params.get("d1_load_n_colors")
+        spline_order = self.params.get("d1_load_spline_order")
         session_split = self.params.getint("session_split")
         total_sessions = self.params.getint("total_sessions")
 
@@ -449,6 +449,96 @@ class ModelBasedFigure(SwapErrorFigure):
         }
         return full_dict, elmo_data, wald_data
 
+    def _save_kind_diff_stats(self, fits, monkey, task, 
+                              pos_ind=0, neg_ind=1,
+                              type1="color selection",
+                              type2="cue interpretation"):
+        kind_diffs = []
+        nz = 0
+        for k, (fit, data) in fits.items():
+            probs = np.concatenate(fit['other'].posterior["p_err"])
+            type_ind = swa.get_type_ind(task, data)
+            probs = probs[:, type_ind]
+            diff = probs[:, pos_ind] - probs[:, neg_ind]
+            interv = u.conf_interval(diff, withmean=True)
+            nz += np.all(interv > 0)
+            kind_diffs.append(np.mean(diff))
+        avg_diffs = u.bootstrap_list(np.array(kind_diffs), np.nanmean)
+        ad_interv = u.conf_interval(avg_diffs, withmean=True)[:, 0]
+        avg_diffs_str = u.format_sirange(*ad_interv)
+        s = ("{monkey}: {avg_diffs} greater probability of "
+             "{type1} than {type2} errors")
+        s = s.format(monkey=monkey, avg_diffs=avg_diffs_str,
+                     type1=type1, type2=type2)
+        mname = monkey.replace(" ", "_")
+        self.save_stats_string(s, "kind-diff_{}_{}".format(task, mname))
+    
+    def _save_rate_stats(self, fits, monkey, delay, task, t_ind=True,
+                         thresh=.1, use_ind=-1):
+        no_zero = 0
+        probs_all = []
+        for k, (fit, data) in fits.items():
+            probs = np.concatenate(fit['other'].posterior["p_err"])
+            if t_ind:
+                type_ind = swa.get_type_ind(task, data)
+                probs = probs[:, type_ind]
+            probs = 1 - probs[:, use_ind]
+            probs_all.append(np.mean(probs))
+            interv = u.conf_interval(probs, withmean=True)
+            no_zero += np.all(interv > thresh)
+        ps_all = u.bootstrap_list(np.array(probs_all), np.nanmean)
+        ps_range = u.format_sirange(*u.conf_interval(ps_all, withmean=True)[:, 0])
+        mname = monkey.replace(" ", "_")
+        s1 = "{monkey}: {ps_range} average probability of error"
+        s1 = s1.format(monkey=monkey, ps_range=ps_range)
+        self.save_stats_string(s1, "range-rate_{}_{}_{}".format(task, delay, mname))
+        
+        s2 = "{monkey}: significantly greater than {thresh} in {nz}/{tot} sessions"
+        s2 = s2.format(monkey=monkey, nz=no_zero, thresh=thresh, tot=len(fits))
+        self.save_stats_string(s2, "nz-rate_{}_{}_{}".format(task, delay, mname))
+
+    def _save_rate_diff_stats(self, diff_bootstrap, monkey, task):
+        high, low = u.conf_interval(diff_bootstrap, withmean=True)[:, 0]
+        diff = u.format_sirange(high, low)
+        s = "{monkey}: {diff} greater in delay 2 than delay 1"
+        s = s.format(monkey=monkey, diff=diff)
+        mname = monkey.replace(" ", "_")
+        self.save_stats_string(s, "nz-rate_{}_{}".format(task, mname))
+
+    def _save_decoding_rates(self, rates, monkey, key, task):
+        diffs = []
+        for k, err_tuple in rates.items():
+            c_err, s_err = err_tuple[:2]
+            diffs.append(np.mean(s_err) - np.mean(c_err))
+        mu_diff = u.bootstrap_list(np.array(diffs), np.nanmean)
+        dec_diff = u.format_sirange(*u.conf_interval(mu_diff, withmean=True)[:, 0])
+
+        s = "{monkey}: {diff} difference in decoding performance, swap - correct"
+        s = s.format(monkey=monkey, diff=dec_diff)
+        mname = monkey.replace(" ", "_")
+
+        self.save_stats_string(s, "dec-diff_{}_{}_{}".format(mname, key, task))
+
+    def _save_monkey_dec_diff(self, m1_rates, m2_rates, key, task, m1="Monkey E",
+                              m2="W", m_name=None, t_ind=0, suffix=""):
+        m1_mus = []
+        for k, err_tuple in m1_rates.items():
+            c_err = err_tuple[t_ind]
+            m1_mus.append(np.mean(c_err))
+        m2_mus = []
+        for k, err_tuple in m2_rates.items():
+            c_err = err_tuple[t_ind]
+            m2_mus.append(np.mean(c_err))
+        diffs = u.bootstrap_diff(np.array(m1_mus), np.array(m2_mus))
+        s = "{diff} higher cue decoding performance{suffix} in {m1} than {m2}"
+        if m_name is not None:
+            m_f = m_name.replace(" ", "_")
+            key = "_".join((key, m_f, str(t_ind)))
+            s = "{}: ".format(m_name) + s
+        diff_str = u.format_sirange(*u.conf_interval(diffs, withmean=True)[:, 0])
+        s = s.format(diff=diff_str, m1=m1, m2=m2, suffix=suffix)
+        self.save_stats_string(s, "dec-mdiff_{}_{}".format(key, task))
+        
     def get_model_dict(self, ri, period):
         if self.data.get((ri, period)) is None:
             self.data[(ri, period)] = self._get_model_dict(ri, period)
@@ -490,6 +580,9 @@ class ModelBasedFigure(SwapErrorFigure):
             self.data[key] = (e_rates, w_rates)
         e_rates, w_rates = self.data[key]
 
+        self._save_decoding_rates(e_rates, "Monkey E", key, type_str)
+        self._save_decoding_rates(w_rates, "Monkey W", key, type_str)
+        self._save_monkey_dec_diff(e_rates, w_rates, key, type_str)
         swv.plot_cue_decoding(
             e_rates, axs=(dec_ax, diff_ax), color=self.monkey_colors["Elmo"]
         )
@@ -583,11 +676,8 @@ class ModelBasedFigure(SwapErrorFigure):
         }
         return full_dict, elmo_fits, wald_fits
 
-    def get_d1_fits(self, runind_name="d1_runind"):
+    def get_d1_fits(self, runind_name="d1_runind", period="CUE2_ON"):
         ri = self.params.get(runind_name)
-        period = "CUE2_ON"
-        # SWITCH BACK
-        period = "SAMPLES_ON"
         out = self.get_model_dict(ri, period)
         return out
 
@@ -698,7 +788,7 @@ class ModelBasedFigure(SwapErrorFigure):
 
         return out_data
 
-    def _panel_d2(self, type_str="retro"):
+    def _panel_d2(self, type_str="retro", **kwargs):
         key = "panel_d2"
         ppc_axs, posterior_axs, sess_ax = self.gss[key]
 
@@ -707,6 +797,11 @@ class ModelBasedFigure(SwapErrorFigure):
         w_d2_color = self.params.getcolor("waldorf_color")
 
         full_dict, elmo_fits, wald_fits = self.get_d2_fits()
+        self._save_rate_stats(elmo_fits, "Monkey E", "d2", type_str)
+        self._save_rate_stats(wald_fits, "Monkey W", "d2", type_str)
+        self._save_kind_diff_stats(elmo_fits, "Monkey E", type_str, **kwargs)
+        self._save_kind_diff_stats(wald_fits, "Monkey W", type_str, **kwargs)
+
         swv.plot_cumulative_simplex(
             elmo_fits, ax=posterior_axs[0], color=e_d2_color, plot_type=type_str
         )
@@ -799,46 +894,6 @@ class ProSwapFigure(ModelBasedFigure):
             self.data["pro_d1"] = self._get_d1_pro_fits()
         return self.data["pro_d1"]
 
-    def _get_d1_pro_fits(self):
-        n_colors = self.params.get("n_colors")
-        spline_order = self.params.get("spline_order")
-        session_split = self.params.getint("session_split")
-        total_sessions = self.params.getint("total_sessions")
-
-        t_beg = self.params.getfloat("d1_t_beg")
-        t_end = self.params.getfloat("d1_t_end")
-
-        e_name = self.params.get("Elmo_name")
-        w_name = self.params.get("Waldorf_name")
-
-        impute = self.params.getboolean("d1_impute")
-
-        elmo_sessions = range(session_split)
-        elmo_data = swa.load_pro_d1_stan_data(
-            session_range=elmo_sessions,
-            n_colors=n_colors,
-            spline_order=spline_order,
-            start=t_beg,
-            end=t_end,
-            impute=impute,
-        )
-
-        wald_sessions = range(session_split, total_sessions)
-        wald_data = swa.load_pro_d1_stan_data(
-            session_range=wald_sessions,
-            n_colors=n_colors,
-            spline_order=spline_order,
-            start=t_beg,
-            end=t_end,
-            impute=impute,
-        )
-
-        full_dict = {
-            (e_name, "pro d1", "joint"): elmo_data,
-            (w_name, "pro d1", "joint"): wald_data,
-        }
-        return full_dict, elmo_data, wald_data
-
     def panel_d1(self, refit=False, reload_=False):
         key = "panel_d1"
         dec_ax, diff_ax = self.gss[key]
@@ -864,7 +919,9 @@ class ProSwapFigure(ModelBasedFigure):
         axs[1].set_yticks([0, -0.2, -0.4])
 
     def panel_d2(self):
-        self._panel_d2(type_str="pro")
+        self._panel_d2(type_str="pro", pos_ind=1, neg_ind=0,
+                       type1="cue selection",
+                       type2="misbinding")
 
     def panel_decoding_comparison(self):
         key = "panel_decoding_comparison"
@@ -878,6 +935,19 @@ class ProSwapFigure(ModelBasedFigure):
 
         e_color = self.monkey_colors["Elmo"]
         w_color = self.monkey_colors["Waldorf"]
+
+        self._save_monkey_dec_diff(d1_e_rates, d2_e_rates, key, "pro", m1="delay 1",
+                                   m2="2", m_name="Monkey E",
+                                   suffix=" on correct trials")
+        self._save_monkey_dec_diff(d1_e_rates, d2_e_rates, key, "pro", m1="delay 1",
+                                   m2="2", t_ind=1, m_name="Monkey E",
+                                   suffix=" on swap trials")
+        self._save_monkey_dec_diff(d1_w_rates, d2_w_rates, key, "pro", m1="delay 1",
+                                   m2="2", m_name="Monkey W",
+                                   suffix=" on correct trials")
+        self._save_monkey_dec_diff(d1_w_rates, d2_w_rates, key, "pro", m1="delay 1",
+                                   m2="2", t_ind=1, m_name="Monkey W",
+                                   suffix=" on swap trials")
         swv.plot_decoding_comparison(
             d1_e_rates,
             d2_e_rates,
@@ -1212,27 +1282,6 @@ class RetroSwapFigure(ModelBasedFigure):
         w_d2_color = gpl.add_color_value(w_color, col_diff)
         return (e_d1_color, e_d2_color), (w_d1_color, w_d2_color)
 
-    def _save_rate_stats(self, fits, monkey, delay, task, t_ind=True):
-        no_zero = 0
-        for k, (fit, data) in fits.items():
-            probs = np.concatenate(fit['other'].posterior["p_err"])
-            if t_ind:
-                type_ind = swa.get_type_ind(task, data)
-                probs = probs[:, type_ind]
-            interv = u.conf_interval(probs, withmean=True)
-            no_zero += np.all(interv > 0)
-        s = "{monkey}: {nz}/{tot} sessions"
-        s = s.format(monkey=monkey, nz=no_zero, tot=len(fits))
-        mname = monkey.replace(" ", "_")
-        self.save_stats_string(s, "nz-rate_{}_{}_{}".format(task, delay, mname))
-
-    def _save_rate_diff_stats(self, diff_bootstrap, monkey, task):
-        low, high = u.conf_interval(diff_bootstrap, withmean=True)[:, 0]
-        s = "{monkey}: \SIrange{{{low}}}{{{high}}}{{}}"
-        s = s.format(monkey=monkey, low=low, high=high)
-        mname = monkey.replace(" ", "_")
-        self.save_stats_string(s, "nz-rate_{}_{}".format(task, mname))
-
     def panel_rate_differences(self):
         key = "panel_rate_differences"
         sess_ax, sess_diff_ax = self.gss[key]
@@ -1260,10 +1309,8 @@ class RetroSwapFigure(ModelBasedFigure):
         #                colors=(e_d2_color, w_d2_color),
         #                diff=.1)
 
-        self._save_rate_stats(e_d1_fits, "Monkey E", "d1", "retro")
-        self._save_rate_stats(w_d1_fits, "Monkey W", "d1", "retro")
-        self._save_rate_stats(e_d2_fits, "Monkey E", "d2", "retro")
-        self._save_rate_stats(w_d2_fits, "Monkey W", "d2", "retro")
+        self._save_rate_stats(e_d1_fits, "Monkey E", "d1", "retro", t_ind=False)
+        self._save_rate_stats(w_d1_fits, "Monkey W", "d1", "retro", t_ind=False)
         swv.plot_rate_differences(e_d1_fits, e_d2_fits, ax=sess_ax, color=e_color)
         swv.plot_rate_differences(w_d1_fits, w_d2_fits, ax=sess_ax, color=w_color)
         gpl.clean_plot(sess_ax, 0)

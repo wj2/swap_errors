@@ -141,7 +141,6 @@ def plot_cue_decoding(rate_dict, color=None, axs=None, n_boots=1000, x_cent=0):
         color = l[0].get_color()
 
     mu_diff = u.bootstrap_list(np.array(diffs), np.nanmean, n_boots)
-    print(np.mean(mu_diff < 0))
     gpl.violinplot(
         [mu_diff],
         [x_cent],
