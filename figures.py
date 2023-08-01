@@ -1,14 +1,7 @@
 import numpy as np
-import scipy.stats as sts
-import functools as ft
 import pickle
-import os
-
-import sklearn.model_selection as skms
-import sklearn.linear_model as sklm
 
 import general.plotting as gpl
-import general.plotting_styles as gps
 import general.paper_utilities as pu
 import general.utility as u
 import general.data_io as gio
@@ -406,6 +399,115 @@ class SingleUnitFigure(SwapErrorFigure):
         axs[0, 1].view_init(20, 30)
         axs[1, 0].view_init(50, 30)
         axs[1, 1].view_init(50, 30)
+
+
+class LMFigure(SwapErrorFigure):
+    def load_all_runs(self):
+        run_inds = tuple(self.params.getlist("run_inds"))
+        folder = self.params.get("lm_folder")
+        if self.data.get((run_inds, folder)) is None:
+            out = swa.load_lm_results(run_inds, folder)
+            self.data[(run_inds, folder)] = out
+        return self.data[(run_inds, folder)]
+
+    def _plot_lm_dict(self, *args, **kwargs):
+        return self._plot_cue_dict(
+            *args, **kwargs, plot_func=swv.plot_lm_tc, set_ticks=True
+        )
+
+    def _plot_cue_dict(
+            self,
+            trial_type,
+            data_dict,
+            axs,
+            plot_func=swv.plot_cue_tc,
+            set_ticks=False,
+    ):
+        key_order = {
+            'pro': ('cue', 'color', 'wheel'),
+            'retro': ('color', 'cue', 'wheel'),
+        }
+
+        e_name = self.params.get("Elmo_name")
+        w_name = self.params.get("Waldorf_name")
+
+        corr_color = self.params.getcolor("correct_color")
+        swap_color = self.params.getcolor("swap_color")
+
+        mat_ind = self.params.getlist("mat_ind", typefunc=int)
+        if mat_ind is None:
+            mat_ind = (0, 1)
+        else:
+            mat_ind = tuple(mat_ind)
+
+        m_names = (e_name, w_name)
+        monkeys = ("Elmo", "Wald")
+        for i, m in enumerate(monkeys):
+            plot_func(
+                data_dict[m][trial_type],
+                key_order=key_order[trial_type],
+                axs=np.expand_dims(axs[i], 0),
+                null_color=corr_color,
+                swap_color=swap_color,
+                mat_ind=mat_ind,
+            )
+            if i < len(monkeys) - 1:
+                list(gpl.clean_plot_bottom(ax) for ax in axs[i])
+                list(ax.set_xlabel("") for ax in axs[i])
+            if set_ticks:
+                axs[i, 0].set_yticks([0, .5, 1])
+        return axs
+
+    def make_gss(self):
+        gss = {}
+
+        horiz_gap = 5
+        lm_gs = pu.make_mxn_gridspec(
+            self.gs, 2, 3, 0, 45, 0, 100, 5, horiz_gap
+        )
+        lm_axs = self.get_axs(lm_gs, sharey="all", sharex="vertical")
+
+        cue_gs = pu.make_mxn_gridspec(
+            self.gs, 2, 3, 55, 100, 0, 100, 5, horiz_gap
+        )
+        cue_axs = self.get_axs(cue_gs, sharey="horizontal", sharex="vertical")
+
+        gss["panel_color_cue"] = (lm_axs, cue_axs)
+
+        self.gss = gss
+
+    def panel_color_cue(self):
+        key = "panel_color_cue"
+        color_axs, cue_axs = self.gss[key]
+        fd, color_dict, cue_dict = self.load_all_runs()
+        self._plot_lm_dict(self.trial_type, color_dict, color_axs)
+        self._plot_cue_dict(self.trial_type, cue_dict, cue_axs)
+
+
+class RetroLMFigure(LMFigure):
+    def __init__(self, fig_key="retro_lm", colors=colors, **kwargs):
+        fsize = (4, 6)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        self.exp_data = None
+        self.trial_type = "retro"
+        super().__init__(fsize, params, colors=colors, **kwargs)
+
+
+class ProLMFigure(LMFigure):
+    def __init__(self, fig_key="pro_lm", colors=colors, **kwargs):
+        fsize = (4, 6)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        self.exp_data = None
+        self.trial_type = "pro"
+        super().__init__(fsize, params, colors=colors, **kwargs)
 
 
 class ModelBasedFigure(SwapErrorFigure):
@@ -1502,6 +1604,7 @@ class NaiveSwapFigure(SwapErrorFigure):
             ax.set_xticklabels(['', '', ''])
         diff_axs[-1].set_xticks([0, 1, 2])
         diff_axs[-1].set_xticklabels(['E', 'W', 'combined'], rotation=45)
+
 
 class ForgettingFigure(ModelBasedFigure):
     def __init__(self, fig_key="forget", colors=colors, **kwargs):

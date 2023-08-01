@@ -2392,9 +2392,10 @@ def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
         if plot_markers:
             gpl.add_hlines(0, axs[0, i], color=null_color, plot_outline=True)
             gpl.add_hlines(1, axs[0, i], color=swap_color, plot_outline=True)
-        axs[0, i].set_title(k)
         gpl.add_hlines(cent, axs[0, i], linestyle='dashed')
         gpl.clean_plot(axs[0, i], i)
+
+        axs[0, i].set_xlabel("time from {}".format(k))
     return axs
 
 
