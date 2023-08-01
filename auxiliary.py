@@ -115,7 +115,7 @@ def load_lm_results(runinds, folder='swap_errors/lms/',
                 cd_tt[timing] = cues
                 cd[trial_type] = cd_tt
                 cue_dict[monkey] = cd
-                
+
                 monkey_dict[monkey] = (colors, cues)
             tt_dict[timing] = monkey_dict
         full_dict[trial_type] = tt_dict
