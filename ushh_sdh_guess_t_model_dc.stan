@@ -84,8 +84,8 @@ transformed parameters {
   matrix[3, N] i_down_type;
   real mu_u_type[3, N, K];
   real mu_l_type[3, N, K];
-  real mu_d_u_type[3, N, K];
-  real mu_d_l_type[3, N, K];
+  real mu_d_u_type[2, N, K];
+  real mu_d_l_type[2, N, K];
   
   vector<lower=0>[N] vars;
   vars = vars_raw .* (nu - 2) ./ nu;
