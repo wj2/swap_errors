@@ -190,7 +190,7 @@ if __name__ == "__main__":
         (True, False, True, False, False): "swap_errors/ushh_sdh_guess_t_model.pkl",
         (False, False, True, False, False): "swap_errors/ushh_sdh_t_inter_model.pkl",
         (True, True, False, True, False): "swap_errors/ushh_d1_guess_cov_model.pkl",
-        (True, True, False, True, True): "swap_errors/ushh_sdh_guess_t_model_dc.pkl",
+        (True, False, True, False, True): "swap_errors/ushh_sdh_guess_t_model_dc.pkl",
     }
 
     model_path = model_dict[
