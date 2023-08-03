@@ -2359,9 +2359,15 @@ def plot_cue_tc(*args, **kwargs):
                       **kwargs)
 
 
+default_label_dict = {
+    "color": "samples",
+}
+
+
 def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
                swap_color='red', mat_inds=None, use_mat_inds=True,
-               plot_markers=True, cent=.5, key_order=None):
+               plot_markers=True, cent=.5, key_order=None,
+               label_dict=default_label_dict):
     if key_order is None:
         key_order = out_dict.keys()
     if axs is None:
@@ -2395,7 +2401,8 @@ def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
         gpl.add_hlines(cent, axs[0, i], linestyle='dashed')
         gpl.clean_plot(axs[0, i], i)
 
-        axs[0, i].set_xlabel("time from {}".format(k))
+        axs[0, i].set_xlabel("time from {}".format(label_dict.get(k, k)))
+    axs[0, 0].set_ylabel("normalized\nprojection")
     return axs
 
 

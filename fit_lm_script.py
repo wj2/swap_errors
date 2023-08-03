@@ -1,5 +1,5 @@
 import argparse
-import functools as ft 
+import functools as ft
 
 import swap_errors.analysis as swan
 
