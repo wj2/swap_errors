@@ -94,16 +94,16 @@ transformed parameters {
     for (j in 1:K) { 
       mu_u_type[:, i, j] = to_array_1d(mu_u[i, j]
 				       + pr_var_c_ul[i, j]
-				       .* to_vector(mu_u_raw[:, i, j]));
+				       * to_vector(mu_u_raw[:, i, j]));
       mu_l_type[:, i, j] = to_array_1d(mu_l[i, j]
 				       + pr_var_c_ul[i, j]
-				       .* to_vector(mu_l_raw[:, i, j]));
+				       * to_vector(mu_l_raw[:, i, j]));
       mu_d_u_type[:, i, j] = to_array_1d(mu_d_u[i, j]
 					 + pr_var_c_ul[i, j]
-					 .* to_vector(mu_d_u_raw[:, i, j]));
+					 * to_vector(mu_d_u_raw[:, i, j]));
       mu_d_l_type[:, i, j] = to_array_1d(mu_d_l[i, j]
 					 + pr_var_c_ul[i, j]
-					 .* to_vector(mu_d_l_raw[:, i, j]));
+					 * to_vector(mu_d_l_raw[:, i, j]));
     }
   }
 
