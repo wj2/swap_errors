@@ -60,6 +60,7 @@ def create_parser():
     parser.add_argument("--prior_gamma_alpha", default=1, type=float)
     parser.add_argument("--prior_gamma_beta", default=.5, type=float)
     parser.add_argument("--prior_dirichlet", default=None, type=float, nargs='+')
+    parser.add_argument("--fit_cov", default=False, action="store_true")
 
     return parser
 
@@ -180,17 +181,21 @@ if __name__ == "__main__":
     n_chains = args.n_chains
 
     model_dict = {
-        # fit_guesses, fit_delay1, use_single
-        (True, False, False): "swap_errors/ushh_dh_guess_t_model.pkl",
-        (False, False, False): "swap_errors/ushh_dh_t_inter_model.pkl",
-        (True, True, False): "swap_errors/ushh_d1_guess_t_model.pkl",
-        (False, True, False): "swap_errors/ushh_d1_t_model.pkl",
-        (True, False, True): "swap_errors/ushh_sdh_guess_t_model.pkl",
-        (False, False, True): "swap_errors/ushh_sdh_t_inter_model.pkl",
+        # fit_guesses, fit_delay1, use_single, fit_cov
+        (True, False, False, False): "swap_errors/ushh_dh_guess_t_model.pkl",
+        (False, False, False, False): "swap_errors/ushh_dh_t_inter_model.pkl",
+        (True, True, False, False): "swap_errors/ushh_d1_guess_t_model.pkl",
+        (False, True, False, False): "swap_errors/ushh_d1_t_model.pkl",
+        (True, False, True, False): "swap_errors/ushh_sdh_guess_t_model.pkl",
+        (False, False, True, False): "swap_errors/ushh_sdh_t_inter_model.pkl",
+        (True, True, False, True): "swap_errors/ushh_d1_guess_cov_model.pkl",
     }
 
     model_path = model_dict[
-        args.fit_guesses, args.fit_delay1, "single" in args.use_trl_types
+        args.fit_guesses,
+        args.fit_delay1,
+        "single" in args.use_trl_types,
+        args.fit_cov,
     ]
     print(model_path)
     data["prior_alpha"] = args.prior_alpha
