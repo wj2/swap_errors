@@ -163,20 +163,25 @@ model {
       mu_d_u_use = to_matrix(mu_d_u_type[type[n]]);
       mu_d_l_use = to_matrix(mu_d_l_type[type[n]]);
     
-      nom = color_likelihood(y[n], C_u[n], C_l[n], mu_u_use, mu_d_u_use,
-			     mu_l_use, mu_d_l_use, cue[n], vars, nu,
+      nom = color_likelihood(y[n], C_u[n], C_l[n],
+			     mu_u_use, mu_d_u_use,
+			     mu_l_use, mu_d_l_use,
+			     cue[n], vars, nu,
 			     i_up_use, i_down_use);
       lp[1] = log_p[n][1] + nom;
       // spatial errors
       lp_swp[1] = (log_p_err[type[n]][1]
-		   + color_likelihood(y[n], C_l[n], C_u[n], mu_u_use,
-				      mu_d_u_use,
-				      mu_l_use, mu_d_l_use, cue[n], vars, nu,
+		   + color_likelihood(y[n], C_l[n], C_u[n],
+				      mu_u_use, mu_d_u_use,
+				      mu_l_use, mu_d_l_use,
+				      cue[n], vars, nu,
 				      i_up_use, i_down_use));
       // cue errors
       lp_swp[2] = (log_p_err[type[n]][2]
-		   + color_likelihood(y[n], C_u[n], C_l[n], mu_u_use, mu_d_u_use,
-				      mu_l_use, mu_d_l_use, 1 - cue[n], vars, nu,
+		   + color_likelihood(y[n], C_u[n], C_l[n],
+				      mu_u_use, mu_d_u_use,
+				      mu_l_use, mu_d_l_use,
+				      1 - cue[n], vars, nu,
 				      i_up_use, i_down_use));
       // no errors
       lp_swp[3] = log_p_err[type[n]][3] + nom;
@@ -189,15 +194,15 @@ model {
 	lp_guess[1] = (log_p_guess_err[type[n]][1]
 		       + color_likelihood(y[n], C_resp[n], C_l[n],
 					  mu_u_use, mu_d_u_use,
-					  mu_l_use, mu_d_l_use, cue[n],
-					  vars, nu,
+					  mu_l_use, mu_d_l_use,
+					  cue[n], vars, nu,
 					  i_up_use, i_down_use));
       } else {
 	lp_guess[1] = (log_p_guess_err[type[n]][1]
 		       + color_likelihood(y[n], C_u[n], C_resp[n],
 					  mu_u_use, mu_d_u_use,
-					  mu_l_use, mu_d_l_use, cue[n],
-					  vars, nu,
+					  mu_l_use, mu_d_l_use,
+					  cue[n], vars, nu,
 					  i_up_use, i_down_use));
       }
       lp_guess[2] = log_p_guess_err[type[n]][2] + nom;
@@ -205,8 +210,10 @@ model {
       lp[3] = log_p[n][3] + log_sum_exp(lp_guess);
       trg[n] = log_sum_exp(lp);
     } else {
-      nom = color_likelihood(y[n], C_u[n], C_l[n], mu_u_use, mu_u_use*0,
-			     mu_l_use, mu_l_use*0, cue[n], vars, nu,
+      nom = color_likelihood(y[n], C_u[n], C_l[n],
+			     mu_u_use, mu_u_use*0,
+			     mu_l_use, mu_l_use*0,
+			     cue[n], vars, nu,
 			     i_up_use, i_down_use);
       trg[n] = nom;
     }
