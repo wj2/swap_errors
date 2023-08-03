@@ -1860,6 +1860,32 @@ pro_sequences = {
 }
 
 
+all_regions = ("7ab", "fef", "motor", "pfc", "tpot", "v4pit")
+single_region_subsets = {
+    r: (r,) for r in all_regions
+}
+sub_region_subsets = {
+    "no {}".format(r): tuple(x for x in all_regions if x != r)
+    for r in all_regions
+}
+all_region_subset = {
+    "all": all_regions
+}
+
+
+def prepare_lm_tc_pops(
+    *args,
+    region_subsets=single_region_subsets,
+    **kwargs,
+):
+    for (k, sub) in region_subsets.items():
+        retro_dict = make_lm_tc_pops(*args, regions=sub, **kwargs)
+        save_lm_tc_pops(retro_dict, add="retro_{}".format(k))
+
+        pro_dict = make_lm_tc_pops(*args, regions=sub, **kwargs)
+        save_lm_tc_pops(pro_dict, add="pro_{}".format(k))
+
+
 def make_lm_tc_pops(
     data,
     use_pro=False,
