@@ -64,10 +64,12 @@ parameters {
 
   vector<lower=2>[N] nu; // DOF for student T
   vector<lower=0>[N] vars_raw;
-  vector<lower=0>[N] pr_var_c; // prior variances
-  vector<lower=0>[N] pr_var_d; // prior variances
-  vector<lower=0>[N] pr_var_c_ul; // prior variances
-  vector<lower=0>[N] pr_var_d_ul; // prior variances
+  
+  matrix<lower=0>[N, K] pr_var_c; // prior variances
+  matrix<lower=0>[N, K] pr_var_d; // prior variances
+  matrix<lower=0>[N, K] pr_var_c_ul; // prior variances
+  matrix<lower=0>[N, K] pr_var_d_ul; // prior variances
+  
   vector<lower=0>[N] pr_var_i_up;
   vector<lower=0>[N] pr_var_i_down;
 
@@ -78,8 +80,8 @@ parameters {
 transformed parameters {
   vector[3] log_p_err[is_joint ? 2:1];
   vector[2] log_p_guess_err[is_joint ? 2:1];
-  vector[N] i_up_type;
-  vector[N] i_down_type;
+  matrix[3, N] i_up_type;
+  matrix[3, N] i_down_type;
   real mu_u_type[3, N, K];
   real mu_l_type[3, N, K];
   real mu_d_u_type[3, N, K];
@@ -88,13 +90,27 @@ transformed parameters {
   vector<lower=0>[N] vars;
   vars = vars_raw .* (nu - 2) ./ nu;
 
-  mu_u_type = mu_u + pr_var_c_ul*mu_u_raw;
-  mu_l_type = mu_l + pr_var_c_ul*mu_l_raw;
-  mu_d_u_type = mu_d_u + pr_var_c_ul*mu_d_u_raw;
-  mu_d_l_type = mu_d_l + pr_var_c_ul*mu_d_l_raw;
+  for (i in 1:N) {
+    for (j in 1:K) { 
+      mu_u_type[:, i, j] = to_array_1d(mu_u[i, j]
+				       + pr_var_c_ul[i, j]
+				       .* to_vector(mu_u_raw[:, i, j]));
+      mu_l_type[:, i, j] = to_array_1d(mu_l[i, j]
+				       + pr_var_c_ul[i, j]
+				       .* to_vector(mu_l_raw[:, i, j]));
+      mu_d_u_type[:, i, j] = to_array_1d(mu_d_u[i, j]
+					 + pr_var_c_ul[i, j]
+					 .* to_vector(mu_d_u_raw[:, i, j]));
+      mu_d_l_type[:, i, j] = to_array_1d(mu_d_l[i, j]
+					 + pr_var_c_ul[i, j]
+					 .* to_vector(mu_d_l_raw[:, i, j]));
+    }
+  }
 
-  i_up_type = intercept_up + pr_var_i_up*i_up_raw;
-  i_down_type = intercept_down + pr_var_i_down*i_down_raw;
+  for (i in 1:3) { 
+    i_up_type[i] = intercept_up' + pr_var_i_up' .* i_up_raw[i];
+    i_down_type[i] = intercept_down' + pr_var_i_down' .* i_down_raw[i];
+  }
   
   log_p_err = log(p_err);
   log_p_guess_err = log(p_guess_err);
@@ -119,12 +135,12 @@ model {
   for (k in 1:K){
     mu_c_pr[:,k] ~ normal(0, prior_std);
     mu_d_pr[:,k] ~ normal(0, prior_std);
+    pr_var_c[:, k] ~ normal(0, prior_std);
+    pr_var_d[:, k] ~ normal(0, prior_std);
+    pr_var_c_ul[:, k] ~ normal(0, prior_std);
+    pr_var_d_ul[:, k] ~ normal(0, prior_std);
   }
-  pr_var_c ~ normal(0, prior_std);
-  pr_var_d ~ normal(0, prior_std);
   
-  pr_var_c_ul ~ normal(0, prior_std);
-  pr_var_d_ul ~ normal(0, prior_std);
 
   // intercepts
   intercept_up ~ normal(0, prior_std);
@@ -145,10 +161,10 @@ model {
   // type-level prior
   // coefficients
   for (k in 1:K){
-    mu_u[:,k] ~ normal(mu_c_pr[:,k], pr_var_c);
-    mu_l[:,k] ~ normal(mu_c_pr[:,k], pr_var_c);
-    mu_d_u[:,k] ~ normal(mu_d_pr[:,k], pr_var_d);
-    mu_d_l[:,k] ~ normal(mu_d_pr[:,k], pr_var_d);
+    mu_u[:,k] ~ normal(mu_c_pr[:,k], pr_var_c[:, k]);
+    mu_l[:,k] ~ normal(mu_c_pr[:,k], pr_var_c[:, k]);
+    mu_d_u[:,k] ~ normal(mu_d_pr[:,k], pr_var_d[:, k]);
+    mu_d_l[:,k] ~ normal(mu_d_pr[:,k], pr_var_d[:, k]);
 
     for (i in 1:3) {
       mu_u_raw[i, :, k] ~ normal(0, 1);
