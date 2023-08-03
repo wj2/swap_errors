@@ -402,10 +402,10 @@ class SingleUnitFigure(SwapErrorFigure):
 
 
 class LMFigure(SwapErrorFigure):
-    def load_all_runs(self):
+    def load_all_runs(self, reload_data=False):
         run_inds = tuple(self.params.getlist("run_inds"))
         folder = self.params.get("lm_folder")
-        if self.data.get((run_inds, folder)) is None:
+        if self.data.get((run_inds, folder)) is None or reload_data:
             out = swa.load_lm_results(run_inds, folder)
             self.data[(run_inds, folder)] = out
         return self.data[(run_inds, folder)]
@@ -436,9 +436,12 @@ class LMFigure(SwapErrorFigure):
 
         mat_ind = self.params.getlist("mat_ind", typefunc=int)
         if mat_ind is None:
-            mat_ind = (0, 1)
+            mat_inds = ((0, 1),)*len(key_order[trial_type])
         else:
             mat_ind = tuple(mat_ind)
+            mat_inds = [mat_ind,]*len(key_order[trial_type])
+            if trial_type == "retro":
+                mat_inds[0] = (0, 1)
 
         m_names = (e_name, w_name)
         monkeys = ("Elmo", "Wald")
@@ -449,7 +452,7 @@ class LMFigure(SwapErrorFigure):
                 axs=np.expand_dims(axs[i], 0),
                 null_color=corr_color,
                 swap_color=swap_color,
-                mat_ind=mat_ind,
+                mat_inds=mat_inds,
             )
             if i < len(monkeys) - 1:
                 list(gpl.clean_plot_bottom(ax) for ax in axs[i])
@@ -496,6 +499,17 @@ class RetroLMFigure(LMFigure):
         self.trial_type = "retro"
         super().__init__(fsize, params, colors=colors, **kwargs)
 
+    def get_lm_plot_colors(self):
+        corr_color = self.params.getcolor("correct_color")
+        color11 = self.params.getcolor("misbinding_color")
+        color21 = self.params.getcolor("selection_color")
+        color22 = self.params.getcolor("cue_interp_color")
+        color31 = self.params.getcolor("selection_color")
+        color32 = self.params.getcolor("cue_interp_color")
+        colors_all = ((color11, color21, color31),
+                      (None, color22, color32))
+        return colors_all
+
 
 class ProLMFigure(LMFigure):
     def __init__(self, fig_key="pro_lm", colors=colors, **kwargs):
@@ -509,7 +523,18 @@ class ProLMFigure(LMFigure):
         self.trial_type = "pro"
         super().__init__(fsize, params, colors=colors, **kwargs)
 
+    def get_lm_plot_colors(self):
+        corr_color = self.params.getcolor("correct_color")
+        color11 = self.params.getcolor("cue_interp_color")
+        color21 = self.params.getcolor("misbinding_color")
+        color22 = self.params.getcolor("selection_color")
+        color31 = self.params.getcolor("misbinding_color")
+        color32 = self.params.getcolor("selection_color")
+        colors_all = ((color11, color21, color31),
+                      (None, color22, color32))
+        return colors_all
 
+    
 class ModelBasedFigure(SwapErrorFigure):
     def _get_d1_pro_fits(self):
         n_colors = self.params.get("d1_load_n_colors")

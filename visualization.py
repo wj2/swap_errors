@@ -2355,6 +2355,7 @@ def plot_proj_p_scatter(
 
 
 def plot_cue_tc(*args, **kwargs):
+    kwargs.pop("mat_inds", None)
     return plot_lm_tc(*args, use_mat_inds=False, plot_markers=False, cent=0,
                       **kwargs)
 
