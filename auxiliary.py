@@ -89,6 +89,8 @@ def load_lm_results(runinds, folder='swap_errors/lms/',
             tt_dict[timing] = tt_timing_dict
             full_dict[trial_type] = tt_dict
 
+    # print(out.keys())
+    # print(out["kwargs"])
     cue_dict = {}
     color_dict = {}
     for trial_type, tt_dict in full_dict.items():
