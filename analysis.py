@@ -1,7 +1,8 @@
 import os
 import numpy as np
 import pickle
-import pystan as ps
+import stan
+import stan as ps
 import arviz as az
 import scipy.spatial.distance as spsd
 import scipy.special as spsp
@@ -1865,7 +1866,7 @@ single_region_subsets = {
     r: (r,) for r in all_regions
 }
 sub_region_subsets = {
-    "no {}".format(r): tuple(x for x in all_regions if x != r)
+    "no_{}".format(r): tuple(x for x in all_regions if x != r)
     for r in all_regions
 }
 all_region_subset = {
@@ -1882,7 +1883,9 @@ def prepare_lm_tc_pops(
         retro_dict = make_lm_tc_pops(*args, regions=sub, **kwargs)
         save_lm_tc_pops(retro_dict, add="retro_{}".format(k))
 
-        pro_dict = make_lm_tc_pops(*args, regions=sub, **kwargs)
+        pro_dict = make_lm_tc_pops(
+            *args, regions=sub, use_pro=True, **kwargs,
+        )
         save_lm_tc_pops(pro_dict, add="pro_{}".format(k))
 
 
