@@ -459,8 +459,27 @@ class LMFigure(SwapErrorFigure):
                 list(ax.set_xlabel("") for ax in axs[i])
             if set_ticks:
                 axs[i, 0].set_yticks([0, .5, 1])
+            self._save_cv_stats(
+                data_dict[m][trial_type], m_names[i],
+            )
         return axs
 
+    def _save_cv_stats(self, data, monkey):
+        stat_dict = {
+            ("color", "correct", "misbind"): (.25, ((0, 0), (0, 1))),
+            ("cue", "correct", "selection error"): (.25, ((0, 0), (0, 1))),
+            ("cue", "correct", "cue interpretation error"): (.25, ((0, 0), (0, 2))),
+            ("wheel", "correct", "selection error"): (.25, ((0, 0), (0, 1))),
+            ("wheel", "correct", "cue interpretation error"): (.25, ((0, 0), (0, 2))),
+        }
+        for (k, t1, t2), (t_ind, (pt1, pt2)) in stat_dict.items():
+            t2_save = t2.split(" ")[0]
+            (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = data[k]
+            print(nc_comb.shape)
+            s = "{monkey}: {diffs} closer to the {type1} than {type2} prototype"
+            cv_name = "cv_{}_{}_{}-{}".format(self.trial_type, monkey, t1, t2_save)
+            self.save_stats_string()
+    
     def make_gss(self):
         gss = {}
 
