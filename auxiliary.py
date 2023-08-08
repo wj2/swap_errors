@@ -43,7 +43,7 @@ o_fp = '../results/swap_errors/fits/'
 naive_template = '[0-9\-_:\.]*\.pkl'
 
 
-lm_template = ("fit_lmtc_(?P<trial_type>pro|retro)_"
+lm_template = ("fit_lmtc_(?P<trial_type>pro|retro)_[a-z0-9_]*"
                "(?P<timing>color|wheel|cue)\-presentation_"
                "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\.pkl")
 

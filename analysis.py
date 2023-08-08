@@ -1,8 +1,8 @@
 import os
 import numpy as np
 import pickle
-import stan
-import stan as ps
+# import stan
+import pystan as ps
 import arviz as az
 import scipy.spatial.distance as spsd
 import scipy.special as spsp

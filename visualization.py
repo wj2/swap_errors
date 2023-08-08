@@ -2368,6 +2368,7 @@ default_label_dict = {
 def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
                swap_color='red', mat_inds=None, use_mat_inds=True,
                plot_markers=True, cent=.5, key_order=None,
+               null_colors=None, swap_colors=None,
                label_dict=default_label_dict):
     if key_order is None:
         key_order = out_dict.keys()
@@ -2376,6 +2377,10 @@ def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
                               sharey=True, squeeze=False)
     if mat_inds is None:
         mat_inds = (mat_ind,)*len(out_dict)
+    if null_colors is None:
+        null_colors = (null_color,)*len(out_dict)
+    if swap_colors is None:
+        swap_colors = (swap_color,)*len(out_dict)
     for i, k in enumerate(key_order):
         out = out_dict[k]
         (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = out
@@ -2389,16 +2394,16 @@ def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
                 sc_comb = sc_comb[mat_inds[i]]
             else:
                 nc_plot = np.stack(nc_plot, axis=0)
-            gpl.plot_trace_werr(xs, nc_plot, ax=axs[0, i], color=null_color,
+            gpl.plot_trace_werr(xs, nc_plot, ax=axs[0, i], color=null_colors[i],
                                 central_tendency=np.nanmedian,
                                 error_func=gpl.std)
             gpl.plot_trace_werr(xs, sc_comb, ax=axs[0, i],
                                 central_tendency=np.nanmedian,
-                                color=swap_color)
+                                color=swap_colors[i])
 
         if plot_markers:
-            gpl.add_hlines(0, axs[0, i], color=null_color, plot_outline=True)
-            gpl.add_hlines(1, axs[0, i], color=swap_color, plot_outline=True)
+            gpl.add_hlines(0, axs[0, i], color=null_colors[i], plot_outline=True)
+            gpl.add_hlines(1, axs[0, i], color=swap_colors[i], plot_outline=True)
         gpl.add_hlines(cent, axs[0, i], linestyle='dashed')
         gpl.clean_plot(axs[0, i], i)
 

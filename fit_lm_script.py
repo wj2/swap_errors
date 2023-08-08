@@ -23,6 +23,7 @@ def create_parser():
     parser.add_argument("--pre_pca", default=None, type=float)
     parser.add_argument("--jobid", default="0000", type=str)
     parser.add_argument("--single_color", default=False, action='store_true')
+    parser.add_argument("--region_str", default=None, type=str)
     return parser
 
 
@@ -37,8 +38,14 @@ if __name__ == "__main__":
         corr_decider = ft.partial(swan.corr_plurality, prob=args.use_threshold)
         kwargs["corr_decider"] = corr_decider
 
+    if args.region_str is not None:
+        use_r = "_{}".format(args.region_str)
+    else:
+        use_r = ""
+    data_file = args.data_file.format(region=use_r)
+        
     swan.swap_lm_tc_frompickle(
-        args.data_file,
+        data_file,
         out_folder=args.output_folder,
         spline_order=args.spline_order,
         n_knots=args.num_knots,

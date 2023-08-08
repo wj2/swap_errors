@@ -187,7 +187,7 @@ if __name__ == "__main__":
         (False, False, False, False, False): "swap_errors/ushh_dh_t_inter_model.pkl",
         (True, True, False, False, False): "swap_errors/ushh_d1_guess_t_model.pkl",
         (False, True, False, False, False): "swap_errors/ushh_d1_t_model.pkl",
-        (True, False, True, False, False): "swap_errors/ushh_sdh_guess_t_model.pkl",
+        (True, False, True, False, False): "swap_errors/ushh_sdh_guess_t_model_g.pkl",
         (False, False, True, False, False): "swap_errors/ushh_sdh_t_inter_model.pkl",
         (True, True, False, True, False): "swap_errors/ushh_d1_guess_cov_model.pkl",
         (True, False, True, False, True): "swap_errors/ushh_sdh_guess_t_model_dc.pkl",
