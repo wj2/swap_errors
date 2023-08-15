@@ -1,9 +1,11 @@
 
+import os
 import swap_errors.figures as swf
 
 if __name__ == "__main__":
     fig_data = {}
     save_fig_templates = ("fig-{}.svg", "fig-{}.pdf")
+    os.chdir("/burg/home/wjj2109/analysis")
 
     fig_key = "pro_lm"
     fig = swf.ProLMFigure(data=fig_data.get(fig_key))
