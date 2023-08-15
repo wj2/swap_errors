@@ -2362,6 +2362,10 @@ def plot_cue_tc(*args, **kwargs):
 
 default_label_dict = {
     "color": "samples",
+    "pre-color": "samples",
+    "post-color": "samples",
+    "pre-cue": "cue",
+    "post-cue": "cue",
 }
 
 

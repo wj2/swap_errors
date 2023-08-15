@@ -44,7 +44,8 @@ naive_template = '[0-9\-_:\.]*\.pkl'
 
 
 lm_template = ("fit_lmtc_(?P<trial_type>pro|retro)_[a-z0-9_]*"
-               "(?P<timing>color|wheel|cue)\-presentation_"
+               "(?P<timing>cue|color|wheel|pre-cue|post-cue|pre-color|post-color)"
+               "\-presentation_"
                "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\.pkl")
 
 
