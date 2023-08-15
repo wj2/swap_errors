@@ -2,7 +2,7 @@ import os
 import numpy as np
 import pickle
 # import stan
-import pystan as ps
+import stan as ps
 import arviz as az
 import scipy.spatial.distance as spsd
 import scipy.special as spsp
@@ -1851,12 +1851,14 @@ def _fit_lm_tc_model(tr_pair, null_pairs, swap_pairs, model=sklm.Ridge,
 
 retro_sequences = {
     'color presentation': (-.75, 1, 'SAMPLES_ON_diode', False, True),
-    'cue presentation': (-.5, .8, 'CUE2_ON_diode', True, True,),
+    'pre-cue presentation': (-.8, 0, 'CUE2_ON_diode', False, True,),
+    'post-cue presentation': (-.5, .8, 'CUE2_ON_diode', True, True,),
     'wheel presentation': (-1, 0, 'WHEEL_ON_diode', True, True),
 }
 pro_sequences = {
     'cue presentation': (-.5, .5, 'CUE1_ON_diode', True, False,),
-    'color presentation': (-.5, 1.5, 'SAMPLES_ON_diode', True, True),
+    'pre-color presentation': (-.5, 0, 'SAMPLES_ON_diode', True, False),
+    'post-color presentation': (-.5, 1.5, 'SAMPLES_ON_diode', True, True),
     'wheel presentation': (-1, 0, 'WHEEL_ON_diode', True, True),
 }
 

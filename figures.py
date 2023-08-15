@@ -527,6 +527,58 @@ class LMFigure(SwapErrorFigure):
         )
 
 
+class NeuronNumFigure(SwapErrorFigure):
+    def __init__(self, fig_key="nnf", colors=colors, **kwargs):
+        fsize = (4, 7)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        self.exp_data = None
+        super().__init__(fsize, params, colors=colors, **kwargs)
+
+    def make_gss(self):
+        gss = {}
+        self.gss = gss
+
+    def save_neuron_nums(self, data=None):
+        if data is None:
+            data = self._get_experimental_data()
+        regions = data["neur_regions"]
+
+        region_counts = {}
+        total_counts = []
+        for session in regions:
+            sess_regions = session.iloc[0]
+            rs, cs = np.unique(sess_regions, return_counts=True)
+            for i, r in enumerate(rs):
+                r_i = region_counts.get(r, [])
+                r_i.append(cs[i])
+                region_counts[r] = r_i
+            total_counts.append(len(sess_regions))
+        label_dict = {
+            "7ab": "posterior parietal cortex",
+            "motor": "motor cortex",
+            "pfc": "prefrontal cortex",
+            "v4pit": "V4 and posterior IT",
+        }
+        s_base = "{label}: \SIrange{{{min_num}}}{{{max_num}}}{{}} units"
+        s_list = list(
+            s_base.format(label=l,
+                          min_num=np.min(region_counts[k]),
+                          max_num=np.max(region_counts[k]))
+            for k, l in label_dict.items()
+        )
+        full_str = "; ".join(s_list)
+        self.save_stats_string(full_str, "neuron_numbers_regions")
+
+        s_total = "combined: \SIrange{{{min_num}}}{{{max_num}}}{{}} units"
+        s_total = s_total.format(min_num=np.min(total_counts),
+                                 max_num=np.max(total_counts))
+        self.save_stats_string(s_total, "neuron_numbers_total")
+        
+
 class RetroLMFigure(LMFigure):
     def __init__(self, fig_key="retro_lm", colors=colors, **kwargs):
         fsize = (4, 7)
