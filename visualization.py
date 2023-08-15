@@ -291,12 +291,10 @@ def plot_naive_centroid(
     if limit_bins is None:
         limit_bins = (-extreme, extreme + 1)
     bins = np.linspace(*limit_bins, n_bins)
-    ax_null.hist(nulls, bins=bins, density=True, histtype=null_histtype,
-                 color=c_color)
+    ax_null.hist(nulls, bins=bins, density=True, histtype=null_histtype, color=c_color)
     if len(swaps.shape) > 1:
         swaps = np.mean(swaps, axis=0)
-    ax_swap.hist(swaps, density=True, bins=bins, histtype=swap_histtype,
-                 color=s_color)
+    ax_swap.hist(swaps, density=True, bins=bins, histtype=swap_histtype, color=s_color)
     gpl.add_vlines([0, 1], ax_null)
     gpl.add_vlines([0, 1], ax_swap)
     m_null = np.nanmedian(nulls)
@@ -310,7 +308,7 @@ def plot_naive_centroid(
     y_low, y_up = ax_null.get_ylim()
     if utest.pvalue < p_thr and plot_pval:
         ax_null.plot([m_swaps], [y_up - y_up * 0.1], "*", ms=5, color=s_color)
-    
+
     return ax, info
 
 
@@ -757,7 +755,9 @@ def plot_all_nc_dict(
             d2_key=d2_key,
         )
         _, info_dicts = plot_naive_centroid_dict_comb(
-            *use_dis, biggest_extreme=biggest_extreme, axs=axs[i],
+            *use_dis,
+            biggest_extreme=biggest_extreme,
+            axs=axs[i],
             **kwargs,
         )
 
@@ -786,7 +786,7 @@ def plot_all_nc_dict(
     return axs, info_groups
 
 
-def plot_nc_diffs(info_groups, diff_axs, colors=None, plot_key='comb'):
+def plot_nc_diffs(info_groups, diff_axs, colors=None, plot_key="comb"):
     if colors is None:
         colors = {}
     for i, (k, l) in enumerate(info_groups.items()):
@@ -798,7 +798,7 @@ def plot_nc_diffs(info_groups, diff_axs, colors=None, plot_key='comb'):
     for ax in diff_axs:
         gpl.clean_plot(ax, 0)
         gpl.add_hlines(0, ax)
-            
+
 
 def _plot_simplex(pts, ax, line_grey_col=(0.6, 0.6, 0.6)):
     pts_x = pts[:, 1] - pts[:, 0]
@@ -1987,23 +1987,28 @@ def visualize_model_collection_views(
             **kwarg_combs[i],
         )
     return f, axs
-    
-def plot_rate_differences(d1, d2, param='p_err', use_type='retro',
-                          d1_p_ind=1, d2_p_ind=2, ax=None, color=None):
+
+
+def plot_rate_differences(
+    d1, d2, param="p_err", use_type="retro", d1_p_ind=1, d2_p_ind=2, ax=None, color=None
+):
     if ax is None:
         f, ax = plt.subplots(1, 1)
     for k, (fit_d1, _) in d1.items():
         fit_d2, data_d2 = d2[k]
-        fit_d1 = fit_d1['other']
-        fit_d2 = fit_d2['other']
+        fit_d1 = fit_d1["other"]
+        fit_d2 = fit_d2["other"]
         type_ind = swaux.get_type_ind(use_type, data_d2)
         prob_d1 = np.concatenate(fit_d1.posterior[param])
         prob_d2 = np.concatenate(fit_d2.posterior[param])[:, type_ind]
         prob_d1 = 1 - prob_d1[:, d1_p_ind]
         prob_d2 = 1 - prob_d2[:, d2_p_ind]
-        diff = prob_d2 - prob_d1
-        gpl.violinplot([diff], [k], color=[color], ax=ax, showmedians=True,
-                       showextrema=False)
+        dim = min(prob_d1.shape[0], prob_d2.shape[0])
+        diff = prob_d2[:dim] - prob_d1[:dim]
+        gpl.violinplot(
+            [diff], [k], color=[color], ax=ax, showmedians=True, showextrema=False
+        )
+
 
 def _compute_common_dimred(
     mdict,
@@ -2225,7 +2230,7 @@ def plot_dists(
     precomputed_data=None,
     pred_label=True,
     simple_label=False,
-    legend_label='observed',
+    legend_label="observed",
     **kwargs,
 ):
     figsize = (fwid * len(mistakes) * mult, fwid)
@@ -2281,9 +2286,9 @@ def plot_dists(
             gpl.clean_plot(axs[k], k)
             if k == 0:
                 if simple_label:
-                    axs[k].set_ylabel('density')
+                    axs[k].set_ylabel("density")
                 else:
-                    l = r'density | $p_{swp} > ' + '{}$'.format(p_thr)
+                    l = r"density | $p_{swp} > " + "{}$".format(p_thr)
                     axs[k].set_ylabel(l)
             else:
                 axs[k].set_ylabel("")
@@ -2356,8 +2361,7 @@ def plot_proj_p_scatter(
 
 def plot_cue_tc(*args, **kwargs):
     kwargs.pop("mat_inds", None)
-    return plot_lm_tc(*args, use_mat_inds=False, plot_markers=False, cent=0,
-                      **kwargs)
+    return plot_lm_tc(*args, use_mat_inds=False, plot_markers=False, cent=0, **kwargs)
 
 
 default_label_dict = {
@@ -2369,22 +2373,38 @@ default_label_dict = {
 }
 
 
-def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
-               swap_color='red', mat_inds=None, use_mat_inds=True,
-               plot_markers=True, cent=.5, key_order=None,
-               null_colors=None, swap_colors=None,
-               label_dict=default_label_dict):
+def plot_lm_tc(
+    out_dict,
+    mat_ind=(0, 1),
+    axs=None,
+    fwid=3,
+    null_color="green",
+    swap_color="red",
+    mat_inds=None,
+    use_mat_inds=True,
+    plot_markers=True,
+    cent=0.5,
+    key_order=None,
+    null_colors=None,
+    swap_colors=None,
+    label_dict=default_label_dict,
+):
     if key_order is None:
         key_order = out_dict.keys()
     if axs is None:
-        f, axs = plt.subplots(1, len(out_dict), figsize=(fwid*len(out_dict), fwid),
-                              sharey=True, squeeze=False)
+        f, axs = plt.subplots(
+            1,
+            len(out_dict),
+            figsize=(fwid * len(out_dict), fwid),
+            sharey=True,
+            squeeze=False,
+        )
     if mat_inds is None:
-        mat_inds = (mat_ind,)*len(out_dict)
+        mat_inds = (mat_ind,) * len(out_dict)
     if null_colors is None:
-        null_colors = (null_color,)*len(out_dict)
+        null_colors = (null_color,) * len(out_dict)
     if swap_colors is None:
-        swap_colors = (swap_color,)*len(out_dict)
+        swap_colors = (swap_color,) * len(out_dict)
     for i, k in enumerate(key_order):
         out = out_dict[k]
         (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = out
@@ -2398,17 +2418,26 @@ def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
                 sc_comb = sc_comb[mat_inds[i]]
             else:
                 nc_plot = np.stack(nc_plot, axis=0)
-            gpl.plot_trace_werr(xs, nc_plot, ax=axs[0, i], color=null_colors[i],
-                                central_tendency=np.nanmedian,
-                                error_func=gpl.std)
-            gpl.plot_trace_werr(xs, sc_comb, ax=axs[0, i],
-                                central_tendency=np.nanmedian,
-                                color=swap_colors[i])
+            gpl.plot_trace_werr(
+                xs,
+                nc_plot,
+                ax=axs[0, i],
+                color=null_colors[i],
+                central_tendency=np.nanmedian,
+                error_func=gpl.std,
+            )
+            gpl.plot_trace_werr(
+                xs,
+                sc_comb,
+                ax=axs[0, i],
+                central_tendency=np.nanmedian,
+                color=swap_colors[i],
+            )
 
         if plot_markers:
             gpl.add_hlines(0, axs[0, i], color=null_colors[i], plot_outline=True)
             gpl.add_hlines(1, axs[0, i], color=swap_colors[i], plot_outline=True)
-        gpl.add_hlines(cent, axs[0, i], linestyle='dashed')
+        gpl.add_hlines(cent, axs[0, i], linestyle="dashed")
         gpl.clean_plot(axs[0, i], i)
 
         axs[0, i].set_xlabel("time from {}".format(label_dict.get(k, k)))
@@ -2416,20 +2445,32 @@ def plot_lm_tc(out_dict, mat_ind=(0, 1), axs=None, fwid=3, null_color='green',
     return axs
 
 
-default_error_labels = ('misbinding', 'color\nselection', 'color\nselection')
+default_error_labels = ("misbinding", "color\nselection", "color\nselection")
 
 
-def plot_lm_hists(out_dict, mat_ind=(0, 1), x_pts=(.25, 0, -.25), axs=None, fwid=3,
-                  null_color='green', swap_color='red', eps=1e-5, n_bins=20,
-                  bin_bounds=(-1, 2), error_labels=default_error_labels, mat_inds=None,
-                  key_order=None):
+def plot_lm_hists(
+    out_dict,
+    mat_ind=(0, 1),
+    x_pts=(0.25, 0, -0.25),
+    axs=None,
+    fwid=3,
+    null_color="green",
+    swap_color="red",
+    eps=1e-5,
+    n_bins=20,
+    bin_bounds=(-1, 2),
+    error_labels=default_error_labels,
+    mat_inds=None,
+    key_order=None,
+):
     if key_order is None:
         key_order = out_dict.keys()
     if axs is None:
-        f, axs = plt.subplots(2, len(out_dict), figsize=(fwid*len(out_dict), 2*fwid),
-                              sharex='all')
+        f, axs = plt.subplots(
+            2, len(out_dict), figsize=(fwid * len(out_dict), 2 * fwid), sharex="all"
+        )
     if mat_inds is None:
-        mat_inds = (mat_ind,)*len(out_dict)
+        mat_inds = (mat_ind,) * len(out_dict)
 
     bins = np.linspace(*bin_bounds, n_bins + 1)
     for i, k in enumerate(key_order):
@@ -2438,8 +2479,10 @@ def plot_lm_hists(out_dict, mat_ind=(0, 1), x_pts=(.25, 0, -.25), axs=None, fwid
         t_diffs = np.abs(xs - x_pts[i])
         time_ind = np.argmin(t_diffs)
         if np.min(t_diffs) > eps:
-            s = ('time difference not exactly zero, closest is time point {} '
-                 'for target {}')
+            s = (
+                "time difference not exactly zero, closest is time point {} "
+                "for target {}"
+            )
             print(s.format(xs[time_ind], x_pts[i]))
         nc_plot = nc_comb[mat_inds[i]][:, time_ind]
         sc_plot = sc_comb[mat_inds[i]][:, time_ind]
@@ -2453,11 +2496,15 @@ def plot_lm_hists(out_dict, mat_ind=(0, 1), x_pts=(.25, 0, -.25), axs=None, fwid
         axs[1, i].set_xticks([0, 1])
         gpl.clean_plot(axs[0, i], 0)
         gpl.clean_plot(axs[1, i], 0)
-        axs[1, i].set_xticklabels(['correct', error_labels[i]], rotation=45)
+        axs[1, i].set_xticklabels(["correct", error_labels[i]], rotation=45)
         gpl.clean_plot_bottom(axs[1, i], keeplabels=True)
         axs[1, i].invert_yaxis()
-        gpl.make_yaxis_scale_bar(axs[0, i], magnitude=.2, double=False, label='density')
-        gpl.make_yaxis_scale_bar(axs[1, i], magnitude=.2, double=False, label='density')
+        gpl.make_yaxis_scale_bar(
+            axs[0, i], magnitude=0.2, double=False, label="density"
+        )
+        gpl.make_yaxis_scale_bar(
+            axs[1, i], magnitude=0.2, double=False, label="density"
+        )
         axs[0, i].set_title(k)
 
 
@@ -2471,21 +2518,21 @@ def plot_session_swap_distr_collection(
     p_ind=None,
     ret_data=True,
     colors=None,
-    mistake='spatial',
+    mistake="spatial",
     new_joint=False,
     cue_time=False,
     only_keys=None,
     legend=True,
     color=None,
     precomputed_data=None,
-    legend_label='observed',
+    legend_label="observed",
     pred_label=True,
-    **kwargs
+    **kwargs,
 ):
     if pred_label:
-        pred_label = 'predicted'
+        pred_label = "predicted"
     else:
-        pred_label = ''
+        pred_label = ""
     if colors is None:
         colors = {}
     if axs is None:
@@ -2598,11 +2645,18 @@ def plot_session_swap_distr_collection(
         use_color = colors.get(k)
         if use_color is None:
             use_color = color
-        _, bins, _ = axs[i].hist(td_full, bins=bins, color=use_color,
-                                 density=True, label=legend_label)
-        axs[i].hist(pd_full, bins=bins, histtype='step', color='k',
-                    linestyle='dashed',
-                    density=True, label=pred_label)
+        _, bins, _ = axs[i].hist(
+            td_full, bins=bins, color=use_color, density=True, label=legend_label
+        )
+        axs[i].hist(
+            pd_full,
+            bins=bins,
+            histtype="step",
+            color="k",
+            linestyle="dashed",
+            density=True,
+            label=pred_label,
+        )
         gpl.add_vlines([0, 1], axs[i])
         axs[i].set_ylabel(k)
         if ret_data:

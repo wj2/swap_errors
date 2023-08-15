@@ -427,8 +427,8 @@ class LMFigure(SwapErrorFigure):
             set_ticks=False,
     ):
         key_order = {
-            'pro': ('cue', 'pre-color', 'post-color', 'wheel'),
-            'retro': ('color', 'pre-cue', 'post-cue', 'wheel'),
+            'pro': ('cue', 'color', 'wheel'),
+            'retro': ('color', 'cue', 'wheel'),
         }
 
         e_name = self.params.get("Elmo_name")
@@ -460,57 +460,20 @@ class LMFigure(SwapErrorFigure):
         return axs
 
     def _save_cv_stats(self, data, monkey):
-        if self.trial_type == "pro":
-            stat_dict = {
-                ("cue", "correct", "none"): (.25, (0, 1)),
-                ("cue", "correct", "cue interpretation error"): (.25, (0, 1)),
-                ("pre-color", "correct", "none"): (-.25, (0, 1)),
-                ("pre-color", "correct", "cue interpretation error"): (-.25, (0, 1)),
-                ("post-color", "correct", "misbinding error"): (.25, (0, 1)),
-                ("post-color", "correct", "cue selection error"): (.25, (0, 2)),
-                ("wheel", "correct", "misbinding error"): (-.25, (0, 1)),
-                ("wheel", "correct", "cue selection error"): (-.25, (0, 2)),
-            }
-        else:
-            stat_dict = {
-                ("color", "correct", "misbind"): (.25, (0, 1)),
-                ("color", "correct", "none"): (.25, (0, 1)),
-                ("pre-cue", "correct", "misbind"): (-.25, (0, 1)),
-                ("pre-cue", "correct", "none"): (-.25, (0, 1)),
-                ("post-cue", "correct", "color selection error"): (.25, (0, 1)),
-                ("post-cue", "correct", "cue interpretation error"): (.25, (0, 2)),
-                ("wheel", "correct", "color selection error"): (-.25, (0, 1)),
-                ("wheel", "correct", "cue interpretation error"): (-.25, (0, 2)),
-            }
-            
-        for (k, t1, t2), (t_pt, pt) in stat_dict.items():
+        stat_dict = {
+            ("color", "correct", "misbind"): (.25, ((0, 0), (0, 1))),
+            ("cue", "correct", "selection error"): (.25, ((0, 0), (0, 1))),
+            ("cue", "correct", "cue interpretation error"): (.25, ((0, 0), (0, 2))),
+            ("wheel", "correct", "selection error"): (.25, ((0, 0), (0, 1))),
+            ("wheel", "correct", "cue interpretation error"): (.25, ((0, 0), (0, 2))),
+        }
+        for (k, t1, t2), (t_ind, (pt1, pt2)) in stat_dict.items():
             t2_save = t2.split(" ")[0]
             (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = data[k]
-            t_ind = np.argmin((xs - t_pt)**2)
-            nc_comb = nc_comb[..., t_ind]
-            sc_comb = sc_comb[..., t_ind]
-            if len(nc_comb.shape) == 1 or nc_comb.shape[0] == 0:
-                l_proto = nc_comb
-                r_proto = sc_comb
-                t1_t2_str = "cue-dec"
-                diff_str = "correct rather than incorrect cue"
-            else:
-                r_proto = nc_comb[pt]
-                l_proto = sc_comb[pt]
-                t1_t2_str = "{}-{}".format(t1, t2_save)
-                diff_str = "{type2} than {type1} prototype".format(type2=t2, type1=t1)
-
-            if nc_comb.shape[0] != 0:
-                diffs = u.bootstrap_diff(l_proto, r_proto)
-                high, low = u.conf_interval(diffs, withmean=True)[:, 0]
-                diff_range = u.format_sirange(high, low)
-            
-                s = "{monkey}: {diffs} closer to the {diff_str}"
-                s = s.format(monkey=monkey, diffs=diff_range, diff_str=diff_str)
-                cv_name = "cv_{}_{}_{}_{}".format(
-                    self.trial_type, monkey.replace(" ", "_"), k, t1_t2_str
-                )
-                self.save_stats_string(s, cv_name)
+            print(nc_comb.shape)
+            s = "{monkey}: {diffs} closer to the {type1} than {type2} prototype"
+            cv_name = "cv_{}_{}_{}-{}".format(self.trial_type, monkey, t1, t2_save)
+            self.save_stats_string()
     
     def make_gss(self):
         gss = {}
@@ -521,12 +484,12 @@ class LMFigure(SwapErrorFigure):
         vert_pt = int(200/3)
         
         lm_gs = pu.make_mxn_gridspec(
-            self.gs, 4, 4, 0, vert_pt - vert_gap/2, 0, 100, 5, horiz_gap
+            self.gs, 4, 3, 0, vert_pt - vert_gap/2, 0, 100, 5, horiz_gap
         )
         lm_axs = self.get_axs(lm_gs, sharey="all", sharex="vertical")
 
         cue_gs = pu.make_mxn_gridspec(
-            self.gs, 2, 4, vert_pt + vert_gap/2, 100, 0, 100, 5, horiz_gap
+            self.gs, 2, 3, vert_pt + vert_gap/2, 100, 0, 100, 5, horiz_gap
         )
         cue_axs = self.get_axs(cue_gs, sharey="horizontal", sharex="vertical")
 
@@ -540,8 +503,8 @@ class LMFigure(SwapErrorFigure):
         fd, color_dict, cue_dict = self.load_all_runs()
 
         colors_null, colors_alt = self.get_lm_plot_colors()        
-        mat_inds_lm = (((0, 1), (0, 1), (0, 1), (0, 1)),
-                       ((0, 1), (0, 1), (0, 2), (0, 2)))
+        mat_inds_lm = (((0, 1), (0, 1), (0, 1)),
+                       ((0, 1), (0, 2), (0, 2)))
 
         self._plot_lm_dict(
             self.trial_type,
@@ -553,7 +516,7 @@ class LMFigure(SwapErrorFigure):
         )
 
         colors_null, colors_alt = self.get_cue_plot_colors()        
-        mat_inds_cue = (((0, 1), (0, 1), (0, 1), (0, 1)),)
+        mat_inds_cue = (((0, 1), (0, 1), (0, 1)),)
         self._plot_cue_dict(
             self.trial_type,
             cue_dict,
@@ -632,10 +595,8 @@ class RetroLMFigure(LMFigure):
         corr_color = self.params.getcolor("correct_color")
         cue_interp_color = self.params.getcolor("cue_interp_color")
         
-        colors_alt = ((cue_interp_color, cue_interp_color,
-                       cue_interp_color, cue_interp_color),)
-        colors_null = ((corr_color, corr_color,
-                        corr_color, corr_color),)
+        colors_alt = ((cue_interp_color, cue_interp_color, cue_interp_color),)
+        colors_null = ((corr_color, corr_color, corr_color),)
         return colors_null, colors_alt
 
     def get_lm_plot_colors(self):
@@ -645,10 +606,10 @@ class RetroLMFigure(LMFigure):
         color22 = self.params.getcolor("cue_interp_color")
         color31 = self.params.getcolor("selection_color")
         color32 = self.params.getcolor("cue_interp_color")
-        colors_alt = ((color11, color11, color21, color31),
-                      (color11, color11, color22, color32))
-        colors_null = ((corr_color, corr_color, corr_color, corr_color),
-                       (corr_color, corr_color, corr_color, corr_color))
+        colors_alt = ((color11, color21, color31),
+                      (color11, color22, color32))
+        colors_null = ((corr_color, corr_color, corr_color),
+                       (corr_color, corr_color, corr_color))
         return colors_null, colors_alt
 
 
@@ -669,9 +630,8 @@ class ProLMFigure(LMFigure):
         cue_interp_color = self.params.getcolor("cue_interp_color")
         cue_sel_color = self.params.getcolor("selection_color")
         
-        colors_alt = ((cue_interp_color, cue_interp_color,
-                       cue_sel_color, cue_sel_color),)
-        colors_null = ((corr_color, corr_color, corr_color, corr_color),)
+        colors_alt = ((cue_interp_color, cue_sel_color, cue_sel_color),)
+        colors_null = ((corr_color, corr_color, corr_color),)
         return colors_null, colors_alt
 
     def get_lm_plot_colors(self):
@@ -682,10 +642,10 @@ class ProLMFigure(LMFigure):
         color31 = self.params.getcolor("misbinding_color")
         color32 = self.params.getcolor("selection_color")
         
-        colors_alt = ((color11, color11, color21, color31),
-                      (color11, color11, color22, color32))
-        colors_null = ((corr_color, corr_color, corr_color, corr_color),
-                       (corr_color, corr_color, corr_color, corr_color))
+        colors_alt = ((color11, color21, color31),
+                      (color11, color22, color32))
+        colors_null = ((corr_color, corr_color, corr_color),
+                       (corr_color, corr_color, corr_color))
         return colors_null, colors_alt
 
     
