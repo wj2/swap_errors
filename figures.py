@@ -496,7 +496,12 @@ class LMFigure(SwapErrorFigure):
                 t1_t2_str = "cue-dec"
                 diff_str = "correct rather than incorrect cue"
             else:
-                r_proto = nc_comb[pt]
+                nc_plot = list(
+                    np.squeeze(np.mean(nc_indiv_i, axis=0))
+                    for nc_indiv_i in nc_indiv
+                )
+
+                r_proto = nc_plot[pt]
                 l_proto = sc_comb[pt]
                 t1_t2_str = "{}-{}".format(t1, t2_save)
                 diff_str = "{type2} than {type1} prototype".format(type2=t2, type1=t1)
