@@ -2455,6 +2455,18 @@ def fit_similarity_dispersion(dists, corrs, return_func=True, **kwargs):
     return out
 
 
+def simulate_emp_err(sig, dprime, n_samps=10000, n_pts=100, norm=True):
+    func_dists = np.linspace(-np.pi, np.pi, n_pts)
+    sim_func = norm_distr_func(func_dists, sig, norm=norm)
+
+    noise = sts.norm(0, 1).rvs((n_samps, n_pts))
+
+    inds = np.argmax(np.expand_dims(sim_func*dprime, 0) + noise,
+                     axis=1)
+    errs = func_dists[inds]
+    return errs
+
+
 def simulate_emp_errs(sig, min_dp=.2, max_dp=2, n_dp=10, n_pts=100,
                       n_samps=10000, norm=True):
     func_dists = np.linspace(-np.pi, np.pi, n_pts)
@@ -2473,6 +2485,7 @@ def simulate_emp_errs(sig, min_dp=.2, max_dp=2, n_dp=10, n_pts=100,
     # sopt.minimize(_min_func, .1, bounds=((0, None),))
     return errs_ds
 
+
 def dprime_sig_sweep(emp_errs, min_dp=.2, max_dp=3, n_dp=25,
                      min_sigma=.1, max_sigma=5, n_sigma=20,
                      n_bins=10):
@@ -2487,6 +2500,7 @@ def dprime_sig_sweep(emp_errs, min_dp=.2, max_dp=3, n_dp=25,
             samp_hist, _ = np.histogram(samp, bins=hist_bins, density=True)
             kls[i, j] = np.sum(spsp.kl_div(err_hist, samp_hist))
     return sigmas, dps, kls
+
 
 def fit_tcc_dprime(resps, targs, cols, n_pts=100, n_samps=10000, **kwargs):
     emp_errs = u.normalize_periodic_range(targs - cols)
@@ -2600,6 +2614,47 @@ def get_color_means(
     return out
 
 
+def fit_tccish_model(col_cents, pops, err, max_dp=5, shuffle=False):
+    if shuffle:
+        rng = np.random.default_rng()
+        col_cents = rng.permuted(col_cents)
+    sigs_emp, funcs = estimate_distance_decay(col_cents, pops)
+
+    sigs_sweep, dps_sweep, kls = dprime_sig_sweep(err)
+    inds = np.argmin((sigs_emp[None] - sigs_sweep[:, None])**2, axis=0)
+    dps_emp = dps_sweep[np.argmin(kls[inds], axis=1)]
+
+    return (sigs_sweep, dps_sweep, kls), (sigs_emp, dps_emp)
+
+
+def make_all_color_pseudopops(
+    data,
+    tbeg,
+    tend,
+    monkeys=("Elmo", "Waldorf"),
+    trls=("retro", "pro",),
+    filter_swap_prob=.3,
+    resamples=200,
+    min_trials=10,
+):
+    out_dict = {}
+    for m in monkeys:
+        out_dict[m] = {}
+        data_m = data.session_mask(data['animal'] == m)
+        for trl in trls:
+            out = make_color_pseudopops(
+                data_m,
+                tbeg,
+                tend,
+                trl_type=trl,
+                min_trials=min_trials,
+                filter_swap_prob=filter_swap_prob,
+                resamples=resamples,
+            )
+            out_dict[m][trl] = out
+    return out_dict
+
+
 def make_color_pseudopops(
     data,
     tbeg,
@@ -2609,7 +2664,7 @@ def make_color_pseudopops(
     error_key='err',
     trl_type='retro',
     swap_prob_key='swap_prob',
-    n_col_bins=8,
+    n_col_bins=11,
     trl_ax=3,
     filter_swap_prob=None,
     **kwargs,

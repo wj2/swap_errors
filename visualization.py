@@ -2321,6 +2321,42 @@ def plot_dists(
     return out
 
 
+def plot_sig_comparison(emp_func, bins, theor_func, ax=None):
+    if ax is None:
+        f, ax = plt.subplots(1, 1)
+    l = ax.plot(bins, emp_func.T)
+    _ = ax.plot(bins, theor_func.T, linestyle='dashed', color=l[0].get_color())
+    return ax
+
+
+def plot_sweep(sigmas, dps, kls, theor_params=None, ax=None, f=None):
+    if ax is None:
+        f, ax = plt.subplots(1, 1)
+    m = gpl.pcolormesh(dps, sigmas, np.log(kls), ax=ax)
+    f.colorbar(m)
+    ax.set_ylabel('sigma')
+    ax.set_xlabel('dprime')
+    if theor_params is not None:
+        ax.plot(theor_params[1], theor_params[0], 'ro')
+    return ax
+
+
+def plot_kl_comp_distrib(sigmas, dps, kls, errs, **kwargs):
+    sig_ind, dp_ind = np.where(np.min(kls) == kls)
+    sig_opt = sigmas[sig_ind]
+    dp_opt = dps[dp_ind]
+    return plot_comparison_distrib(sig_opt, dp_opt, errs, **kwargs)
+
+
+def plot_comparison_distrib(sig_opt, dp_opt, errs, ax=None):
+    if ax is None:
+        f, ax = plt.subplots(1, 1)
+    err_theor = swan.simulate_emp_err(sig_opt, dp_opt)
+    ax.hist(errs, density=True)
+    ax.hist(err_theor, histtype="step", density=True)
+    return ax
+
+
 def plot_proj_p_heat(
     td, p, ax=None, p_n_bins=5, td_n_bins=10, bounds=(-1, 2), normalize_cols=True
 ):
