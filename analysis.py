@@ -19,6 +19,7 @@ import itertools as it
 import statsmodels.stats.weightstats as smw
 import elephant as el
 import quantities as pq
+import sklearn.metrics.pairwise as skmp
 
 import general.data_io as dio
 import general.neural_analysis as na
@@ -2414,19 +2415,20 @@ def rdm_similarity(resps, cols, n_bins=8):
     return bin_cents, mat
 
 
-def compute_similarity_curve(resps, cols, similarity_metric=u.cosine_similarity):
-    n = len(resps)
-    dists = np.zeros(n**2)
-    corrs = np.zeros(n**2)
-    for ind, (i, j) in enumerate(it.product(range(n), repeat=2)):
-        tr_i = resps[i]
-        tr_j = resps[j]
-        corrs[ind] = similarity_metric(tr_i, tr_j)
-        dists[ind] = u.normalize_periodic_range(cols[i] - cols[j])
+def negative_euclidean_distances(*args, **kwargs):
+    return -skmp.euclidean_distances(*args, **kwargs)
 
-        if i == j:
-            corrs[ind] = np.nan
-            dists[ind] = np.nan
+
+def compute_similarity_curve(
+    resps, cols, similarity_metric=negative_euclidean_distances,
+):
+    dists = u.normalize_periodic_range(
+        np.expand_dims(cols, 1) - np.expand_dims(cols, 0)
+    )
+    corrs = similarity_metric(resps, resps)
+    mask = np.identity(corrs.shape[0], dtype=bool)
+    corrs[mask] = np.nan
+    dists[mask] = np.nan
     return dists, corrs
 
 
@@ -2639,14 +2641,17 @@ def save_color_pseudopops_regions(
     region_groups=all_region_subset,
     **kwargs,
 ):
+    out_data = {}
     for region_key, region_list in region_groups.items():
         path = save_file.format(region_key=region_key)
         try:
             out_rk = make_all_color_pseudopops(*args, **kwargs, regions=region_list)
+            out_data[region_key] = out_rk
             pickle.dump(out_rk, open(path, "wb"))
         except ValueError as e:
             print("error creating population, {rk}".format(rk=region_key))
             print(e)
+    return out_data
 
 
 def make_all_color_pseudopops(
@@ -2658,12 +2663,15 @@ def make_all_color_pseudopops(
     filter_swap_prob=.3,
     resamples=200,
     min_trials=10,
+    cue_filter=None,
     **kwargs,
 ):
     out_dict = {}
     for m in monkeys:
         out_dict[m] = {}
         data_m = data.session_mask(data['animal'] == m)
+        if cue_filter is not None:
+            data_m = data_m.mask(data_m["IsUpperSample"] == cue_filter)
         for trl in trls:
             out = make_color_pseudopops(
                 data_m,
@@ -2725,7 +2733,7 @@ def make_color_pseudopops(
         tend - tbeg,
         *masks,
         tzfs=(time_key,)*n_col_bins,
-        shuffle_trials=False,
+        shuffle_trials=True,
         **kwargs,
     )
     t_cent = (tbeg + tend)/2
@@ -2748,8 +2756,7 @@ def _preprocess_dist_pop(pop, norm=True, pre_pca=.99, **kwargs):
     return pop_pre
 
 
-def estimate_distance_decay(bin_cents, pops, similarity_metric=u.cosine_similarity,
-                            pre_pca=.99):
+def estimate_distance_decay(bin_cents, pops, pre_pca=.99, **kwargs):
     sigs = np.zeros(len(pops))
     cents_u = np.unique(bin_cents)
     n_bins = len(cents_u)
@@ -2757,7 +2764,7 @@ def estimate_distance_decay(bin_cents, pops, similarity_metric=u.cosine_similari
     fits = np.zeros_like(funcs)
     for i, pop in enumerate(pops):
         pop_i_pre = _preprocess_dist_pop(pops[i], norm=True, pre_pca=pre_pca)
-        dists, corrs = compute_similarity_curve(pop_i_pre, bin_cents)
+        dists, corrs = compute_similarity_curve(pop_i_pre, bin_cents, **kwargs)
         sigs[i], func = fit_similarity_dispersion(dists, corrs, n_bins=n_bins,
                                                   return_func=True)
         funcs[i] = func[0]

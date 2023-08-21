@@ -23,12 +23,15 @@ def plot_sigma_vs_emp(tcc_dict, fwid=3, ind=None, ax=None):
         f, ax = plt.subplots(1, 1, figsize=(fwid, fwid))
     emp_results = tcc_dict["emp"]
     sigs, dps = emp_results
+    funcs = tcc_dict["funcs"]
     if ind is None:
         sig_m = np.median(sigs)
         ind = np.argmin((sigs - sig_m)**2)
-    funcs = tcc_dict["funcs"]
-    ax.plot(funcs[1], funcs[0].T)
-    _ = ax.plot(funcs[1], funcs[2].T, linestyle='dashed')
+    print(funcs[0].shape)
+    ax.plot(funcs[1], funcs[0].T, alpha=.1)
+    _ = ax.plot(funcs[1], funcs[2].T, linestyle='dashed', alpha=.1)
+    ax.plot(funcs[1], np.mean(funcs[0], axis=0), color="r")
+    _ = ax.plot(funcs[1], np.mean(funcs[2], axis=0), linestyle='dashed', color="g")
     return ax
 
 
@@ -47,7 +50,7 @@ def plot_tcc_results(tcc_dict, fwid=3, ind=None, faxs=None):
     emp_results = tcc_dict["emp"]
     sigs, dps = emp_results
     if ind is None:
-        sig_m = np.median(sigs)
+        sig_m = np.mean(sigs)
         ind = np.argmin((sigs - sig_m)**2)
     plot_comparison_distrib(sigs[ind], dps[ind], errs, ax=axs[2])
 
@@ -2371,6 +2374,8 @@ def plot_sweep(sigmas, dps, kls, theor_params=None, ax=None, f=None):
     ax.set_xlabel('dprime')
     if theor_params is not None:
         ax.plot(theor_params[1], theor_params[0], 'ro')
+    sig_inds, dp_inds = np.where(kls == np.min(kls))
+    ax.plot(dps[dp_inds], sigmas[sig_inds], 'g*')
     return ax
 
 
