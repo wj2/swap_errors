@@ -37,3 +37,20 @@ if __name__ == "__main__":
     fig.panel_decoding_comparison()
     fig_data[fig_key] = fig.get_data()
     list(fig.save(sft.format(fig_key)) for sft in save_fig_templates)
+
+    fig_key = "guess"
+    fig = swf.GuessFigure(data=fig_data.get(fig_key))
+    fig.panel_retro_d1()
+    fig.panel_pro_d1()
+    fig.panel_retro_d2()
+    fig.panel_pro_d2()
+    fig_data[fig_key] = fig.get_data()
+    list(fig.save(sft.format(fig_key)) for sft in save_fig_templates)
+
+    fig_key = "forget"
+    fig = swf.ForgettingFigure(data=fig_data.get(fig_key))
+    fig.panel_retro()
+    fig.panel_pro()
+    fig_data[fig_key] = fig.get_data()
+    list(fig.save(sft.format(fig_key)) for sft in save_fig_templates)
+

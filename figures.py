@@ -494,29 +494,41 @@ class LMFigure(SwapErrorFigure):
                 l_proto = nc_comb
                 r_proto = sc_comb
                 t1_t2_str = "cue-dec"
-                diff_str = "correct rather than incorrect cue"
+                diff_str = "correct cue than on correct trials"
             else:
                 nc_plot = list(
                     np.squeeze(np.mean(nc_indiv_i, axis=0))
                     for nc_indiv_i in nc_indiv
                 )
+                nc_plot = np.stack(nc_plot, axis=2)
 
                 r_proto = nc_plot[pt]
                 l_proto = sc_comb[pt]
                 t1_t2_str = "{}-{}".format(t1, t2_save)
-                diff_str = "{type2} than {type1} prototype".format(type2=t2, type1=t1)
+                diff_str = "{type2} prototype than in correct trials".format(
+                    type2=t2, type1=t1
+                )
 
             if nc_comb.shape[0] != 0:
                 diffs = u.bootstrap_diff(l_proto, r_proto)
                 high, low = u.conf_interval(diffs, withmean=True)[:, 0]
                 diff_range = u.format_sirange(high, low)
 
-                s = "{monkey}: {diffs} closer to the {diff_str}"
+                s = "{monkey}: activity in swap trials is {diffs} closer to the {diff_str}"
                 s = s.format(monkey=monkey, diffs=diff_range, diff_str=diff_str)
                 cv_name = "cv_{}_{}_{}_{}".format(
                     self.trial_type, monkey.replace(" ", "_"), k, t1_t2_str
                 )
                 self.save_stats_string(s, cv_name)
+
+                cv_only_name = "cv_{}_{}_{}_{}_onlyrange".format(
+                    self.trial_type, monkey.replace(" ", "_"), k, t1_t2_str
+                )
+
+                s_only = "{monkey}: {diffs}"
+                s_only = s_only.format(monkey=monkey, diffs=diff_range)
+                self.save_stats_string(s_only, cv_only_name)
+                
     
     def make_gss(self):
         gss = {}
@@ -759,6 +771,11 @@ class ModelBasedFigure(SwapErrorFigure):
                      type1=type1, type2=type2)
         mname = monkey.replace(" ", "_")
         self.save_stats_string(s, "kind-diff_{}_{}".format(task, mname))
+        s_only = "{monkey}: {avg_diffs}".format(
+            monkey=monkey, avg_diffs=avg_diffs_str,
+        )
+        self.save_stats_string(s_only, "kind-diff_{}_{}_onlyrange".format(task, mname))
+        
     
     def _save_rate_stats(self, fits, monkey, delay, task, t_ind=True,
                          thresh=.1, use_ind=-1):
@@ -780,17 +797,36 @@ class ModelBasedFigure(SwapErrorFigure):
         s1 = s1.format(monkey=monkey, ps_range=ps_range)
         self.save_stats_string(s1, "range-rate_{}_{}_{}".format(task, delay, mname))
         
+        s1_only = "{monkey}: {ps_range}"
+        s1_only = s1_only.format(monkey=monkey, ps_range=ps_range)
+        self.save_stats_string(
+            s1_only, "range-rate_{}_{}_{}_onlyrange".format(task, delay, mname)
+        )
+        
         s2 = "{monkey}: significantly greater than {thresh} in {nz}/{tot} sessions"
         s2 = s2.format(monkey=monkey, nz=no_zero, thresh=thresh, tot=len(fits))
         self.save_stats_string(s2, "nz-rate_{}_{}_{}".format(task, delay, mname))
 
+        s2_only = "{monkey}: {nz}/{tot} sessions"
+        s2_only = s2_only.format(monkey=monkey, nz=no_zero, tot=len(fits))
+        self.save_stats_string(
+            s2_only, "nz-rate_{}_{}_{}_onlyrange".format(task, delay, mname)
+        )
+
     def _save_rate_diff_stats(self, diff_bootstrap, monkey, task):
         high, low = u.conf_interval(diff_bootstrap, withmean=True)[:, 0]
         diff = u.format_sirange(high, low)
+        
         s = "{monkey}: {diff} greater in delay 2 than delay 1"
         s = s.format(monkey=monkey, diff=diff)
         mname = monkey.replace(" ", "_")
         self.save_stats_string(s, "nz-rate_{}_{}".format(task, mname))
+
+        s_only = "{monkey}: {diff}"
+        s_only = s_only.format(monkey=monkey, diff=diff)
+        self.save_stats_string(
+            s_only, "nz-rate_{}_{}_onlyrange".format(task, mname)
+        )
 
     def _save_decoding_rates(self, rates, monkey, key, task):
         diffs = []
@@ -803,8 +839,13 @@ class ModelBasedFigure(SwapErrorFigure):
         s = "{monkey}: {diff} difference in decoding performance, swap - correct"
         s = s.format(monkey=monkey, diff=dec_diff)
         mname = monkey.replace(" ", "_")
-
         self.save_stats_string(s, "dec-diff_{}_{}_{}".format(mname, key, task))
+        
+        s_only = "{monkey}: {diff}"
+        s_only = s_only.format(monkey=monkey, diff=dec_diff)
+        self.save_stats_string(
+            s_only, "dec-diff_{}_{}_{}_onlyrange".format(mname, key, task)
+        )
 
     def _save_monkey_dec_diff(self, m1_rates, m2_rates, key, task, m1="Monkey E",
                               m2="W", m_name=None, t_ind=0, suffix=""):
@@ -823,9 +864,10 @@ class ModelBasedFigure(SwapErrorFigure):
             key = "_".join((key, m_f, str(t_ind)))
             s = "{}: ".format(m_name) + s
         diff_str = u.format_sirange(*u.conf_interval(diffs, withmean=True)[:, 0])
+        
         s = s.format(diff=diff_str, m1=m1, m2=m2, suffix=suffix)
         self.save_stats_string(s, "dec-mdiff_{}_{}".format(key, task))
-        
+
     def get_model_dict(self, ri, period):
         if self.data.get((ri, period)) is None:
             self.data[(ri, period)] = self._get_model_dict(ri, period)

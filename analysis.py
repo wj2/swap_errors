@@ -180,7 +180,8 @@ def compare_params(d1, d2, param="p_err", use_type="retro", d1_p_ind=1, d2_p_ind
         prob_d2 = np.concatenate(fit_d2.posterior[param])[:, type_ind]
         prob_d1 = 1 - prob_d1[:, d1_p_ind]
         prob_d2 = 1 - prob_d2[:, d2_p_ind]
-        diff = prob_d2 - prob_d1
+        dim = min(prob_d1.shape[0], prob_d2.shape[0])
+        diff = prob_d2[:dim] - prob_d1[:dim]
         p = diff < 0
         diff_distr[k] = diff
         ps[k] = p
