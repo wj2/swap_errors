@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from mpl_toolkits import mplot3d
 import sklearn.decomposition as skd
 import sklearn.manifold as skm
 import sklearn.linear_model as sklm
@@ -17,6 +16,40 @@ import general.utility as u
 import general.neural_analysis as na
 import swap_errors.analysis as swan
 import swap_errors.auxiliary as swaux
+
+
+def plot_sigma_vs_emp(tcc_dict, fwid=3, ind=None, ax=None):
+    if ax is None:
+        f, ax = plt.subplots(1, 1, figsize=(fwid, fwid))
+    emp_results = tcc_dict["emp"]
+    sigs, dps = emp_results
+    if ind is None:
+        sig_m = np.median(sigs)
+        ind = np.argmin((sigs - sig_m)**2)
+    funcs = tcc_dict["funcs"]
+    ax.plot(funcs[1], funcs[0].T)
+    _ = ax.plot(funcs[1], funcs[2].T, linestyle='dashed')
+    return ax
+
+
+def plot_tcc_results(tcc_dict, fwid=3, ind=None, faxs=None):
+    if faxs is None:
+        faxs = plt.subplots(1, 3, figsize=(fwid*3, fwid))
+    f, axs = faxs
+    sweep_results = tcc_dict["sweep"]
+    emp_results = tcc_dict["emp"]
+    errs = tcc_dict["err"]
+
+    plot_sweep(*sweep_results, theor_params=emp_results, ax=axs[0], f=f)
+
+    plot_kl_comp_distrib(*sweep_results, errs, ax=axs[1])
+
+    emp_results = tcc_dict["emp"]
+    sigs, dps = emp_results
+    if ind is None:
+        sig_m = np.median(sigs)
+        ind = np.argmin((sigs - sig_m)**2)
+    plot_comparison_distrib(sigs[ind], dps[ind], errs, ax=axs[2])
 
 
 def compare_model_confs(param_key, *models, ax=None, fwid_h=10, fwid_v=1):

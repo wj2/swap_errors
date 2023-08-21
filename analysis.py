@@ -2624,7 +2624,28 @@ def fit_tccish_model(col_cents, pops, err, max_dp=5, shuffle=False):
     inds = np.argmin((sigs_emp[None] - sigs_sweep[:, None])**2, axis=0)
     dps_emp = dps_sweep[np.argmin(kls[inds], axis=1)]
 
-    return (sigs_sweep, dps_sweep, kls), (sigs_emp, dps_emp)
+    out_dict = {}
+    out_dict["sweep"] = (sigs_sweep, dps_sweep, kls)
+    out_dict["emp"] = (sigs_emp, dps_emp)
+    out_dict["err"] = err
+    out_dict["funcs"] = funcs
+    return out_dict
+
+
+def save_color_pseudopops_regions(
+    *args,
+    save_file="swap_errors/color_pseudo_data/m_{region_key}_pseudos.pkl",
+    region_groups=all_region_subset,
+    **kwargs,
+):
+    for region_key, region_list in region_groups.items():
+        path = save_file.format(region_key=region_key)
+        try:
+            out_rk = make_all_color_pseudopops(*args, **kwargs, regions=region_list)
+            pickle.dump(out_rk, open(path, "wb"))
+        except ValueError as e:
+            print("error creating population, {rk}".format(rk=region_key))
+            print(e)
 
 
 def make_all_color_pseudopops(
@@ -2636,6 +2657,7 @@ def make_all_color_pseudopops(
     filter_swap_prob=.3,
     resamples=200,
     min_trials=10,
+    **kwargs,
 ):
     out_dict = {}
     for m in monkeys:
@@ -2650,6 +2672,7 @@ def make_all_color_pseudopops(
                 min_trials=min_trials,
                 filter_swap_prob=filter_swap_prob,
                 resamples=resamples,
+                **kwargs,
             )
             out_dict[m][trl] = out
     return out_dict
