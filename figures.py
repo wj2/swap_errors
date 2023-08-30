@@ -751,8 +751,8 @@ class ModelBasedFigure(SwapErrorFigure):
 
     def _save_kind_diff_stats(self, fits, monkey, task, 
                               pos_ind=0, neg_ind=1,
-                              type1="color selection",
-                              type2="cue interpretation"):
+                              type1="mis-selected colors",
+                              type2="mis-interpreted cue"):
         kind_diffs = []
         nz = 0
         for k, (fit, data) in fits.items():
@@ -767,7 +767,7 @@ class ModelBasedFigure(SwapErrorFigure):
         ad_interv = u.conf_interval(avg_diffs, withmean=True)[:, 0]
         avg_diffs_str = u.format_sirange(*ad_interv)
         s = ("{monkey}: {avg_diffs} greater probability of "
-             "{type1} than {type2} errors")
+             "{type1} than {type2} representations")
         s = s.format(monkey=monkey, avg_diffs=avg_diffs_str,
                      type1=type1, type2=type2)
         mname = monkey.replace(" ", "_")
@@ -1250,8 +1250,8 @@ class ProSwapFigure(ModelBasedFigure):
 
     def panel_d2(self):
         self._panel_d2(type_str="pro", pos_ind=1, neg_ind=0,
-                       type1="cue selection",
-                       type2="misbinding")
+                       type1="mis-selected cue",
+                       type2="misbound colors")
 
     def panel_decoding_comparison(self):
         key = "panel_decoding_comparison"
