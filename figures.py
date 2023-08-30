@@ -865,9 +865,15 @@ class ModelBasedFigure(SwapErrorFigure):
             key = "_".join((key, m_f, str(t_ind)))
             s = "{}: ".format(m_name) + s
         diff_str = u.format_sirange(*u.conf_interval(diffs, withmean=True)[:, 0])
-        
+
         s = s.format(diff=diff_str, m1=m1, m2=m2, suffix=suffix)
         self.save_stats_string(s, "dec-mdiff_{}_{}".format(key, task))
+
+        if m_name is not None:
+            s_only = "{monkey}: {diff}".format(monkey=m_name, diff=diff_str)
+            self.save_stats_string(
+                s_only, "dec-mdiff_{}_{}_onlyrange".format(key, task),
+            )
 
     def get_model_dict(self, ri, period):
         if self.data.get((ri, period)) is None:
