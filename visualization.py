@@ -35,9 +35,9 @@ def plot_sigma_vs_emp(tcc_dict, fwid=3, ind=None, ax=None):
     return ax
 
 
-def plot_tcc_results(tcc_dict, fwid=3, ind=None, faxs=None):
+def plot_tcc_results(tcc_dict, fwid=2, ind=None, faxs=None, plot_title=""):
     if faxs is None:
-        faxs = plt.subplots(1, 3, figsize=(fwid*3, fwid))
+        faxs = plt.subplots(1, 3, figsize=(fwid*3.5, fwid))
     f, axs = faxs
     sweep_results = tcc_dict["sweep"]
     emp_results = tcc_dict["emp"]
@@ -53,6 +53,12 @@ def plot_tcc_results(tcc_dict, fwid=3, ind=None, faxs=None):
         sig_m = np.mean(sigs)
         ind = np.argmin((sigs - sig_m)**2)
     plot_comparison_distrib(sigs[ind], dps[ind], errs, ax=axs[2])
+    gpl.clean_plot(axs[1], 0)
+    gpl.clean_plot(axs[2], 1)
+    gpl.make_yaxis_scale_bar(axs[1], .1, label="density", double=False)
+    axs[1].set_xlabel("error (radians)")
+    axs[2].set_xlabel("error (radians)")
+    axs[0].set_title(plot_title)
 
 
 def compare_model_confs(param_key, *models, ax=None, fwid_h=10, fwid_v=1):
@@ -2365,13 +2371,17 @@ def plot_sig_comparison(emp_func, bins, theor_func, ax=None):
     return ax
 
 
-def plot_sweep(sigmas, dps, kls, theor_params=None, ax=None, f=None):
+def plot_sweep(sigmas, dps, kls, theor_params=None, ax=None, f=None, cmap="Blues"):
     if ax is None:
         f, ax = plt.subplots(1, 1)
-    m = gpl.pcolormesh(dps, sigmas, np.log(kls), ax=ax)
+    m = gpl.pcolormesh(dps, sigmas, np.log(kls), ax=ax, cmap=cmap)
     f.colorbar(m)
-    ax.set_ylabel('sigma')
-    ax.set_xlabel('dprime')
+    ax.set_ylabel('width')
+    ax.set_xlabel("d'")
+    xt = ax.get_xticks()
+    ax.set_xticks(xt[::5])
+    yt = ax.get_yticks()
+    ax.set_yticks(yt[::5])
     if theor_params is not None:
         ax.plot(theor_params[1], theor_params[0], 'ro')
     sig_inds, dp_inds = np.where(kls == np.min(kls))
@@ -2383,15 +2393,19 @@ def plot_kl_comp_distrib(sigmas, dps, kls, errs, **kwargs):
     sig_ind, dp_ind = np.where(np.min(kls) == kls)
     sig_opt = sigmas[sig_ind]
     dp_opt = dps[dp_ind]
-    return plot_comparison_distrib(sig_opt, dp_opt, errs, **kwargs)
+    labels = ("empirical", "optimal")
+    return plot_comparison_distrib(sig_opt, dp_opt, errs, labels=labels, **kwargs)
 
 
-def plot_comparison_distrib(sig_opt, dp_opt, errs, ax=None):
+def plot_comparison_distrib(sig_opt, dp_opt, errs, ax=None, labels=None):
     if ax is None:
         f, ax = plt.subplots(1, 1)
+    if labels is None:
+        labels = ("empirical", "average width")
     err_theor = swan.simulate_emp_err(sig_opt, dp_opt)
-    ax.hist(errs, density=True)
-    ax.hist(err_theor, histtype="step", density=True)
+    ax.hist(errs, density=True, label=labels[0])
+    ax.hist(err_theor, histtype="step", density=True, label=labels[1])
+    ax.legend(frameon=False)
     return ax
 
 

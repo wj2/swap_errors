@@ -464,24 +464,24 @@ class LMFigure(SwapErrorFigure):
         if self.trial_type == "pro":
             stat_dict = {
                 ("cue", "correct", "none"): (.25, (0, 1)),
-                ("cue", "correct", "cue interpretation error"): (.25, (0, 1)),
+                ("cue", "correct", "mis-interpreted"): (.25, (0, 1)),
                 ("pre-color", "correct", "none"): (-.25, (0, 1)),
-                ("pre-color", "correct", "cue interpretation error"): (-.25, (0, 1)),
-                ("post-color", "correct", "misbinding error"): (.25, (0, 1)),
-                ("post-color", "correct", "cue selection error"): (.25, (0, 2)),
-                ("wheel", "correct", "misbinding error"): (-.25, (0, 1)),
-                ("wheel", "correct", "cue selection error"): (-.25, (0, 2)),
+                ("pre-color", "correct", "mis-interpreted"): (-.25, (0, 1)),
+                ("post-color", "correct", "misbound"): (.25, (0, 1)),
+                ("post-color", "correct", "mis-selected"): (.25, (0, 2)),
+                ("wheel", "correct", "misbound"): (-.25, (0, 1)),
+                ("wheel", "correct", "mis-selected"): (-.25, (0, 2)),
             }
         else:
             stat_dict = {
-                ("color", "correct", "misbind"): (.25, (0, 1)),
+                ("color", "correct", "misbound"): (.25, (0, 1)),
                 ("color", "correct", "none"): (.25, (0, 1)),
-                ("pre-cue", "correct", "misbind"): (-.25, (0, 1)),
+                ("pre-cue", "correct", "misbound"): (-.25, (0, 1)),
                 ("pre-cue", "correct", "none"): (-.25, (0, 1)),
-                ("post-cue", "correct", "color selection error"): (.25, (0, 1)),
-                ("post-cue", "correct", "cue interpretation error"): (.25, (0, 2)),
-                ("wheel", "correct", "color selection error"): (-.25, (0, 1)),
-                ("wheel", "correct", "cue interpretation error"): (-.25, (0, 2)),
+                ("post-cue", "correct", "mis-selected"): (.25, (0, 1)),
+                ("post-cue", "correct", "mis-interpreted"): (.25, (0, 2)),
+                ("wheel", "correct", "mis-selected"): (-.25, (0, 1)),
+                ("wheel", "correct", "mis-interpreted"): (-.25, (0, 2)),
             }
 
         for (k, t1, t2), (t_pt, pt) in stat_dict.items():
@@ -505,7 +505,7 @@ class LMFigure(SwapErrorFigure):
                 r_proto = nc_plot[pt]
                 l_proto = sc_comb[pt]
                 t1_t2_str = "{}-{}".format(t1, t2_save)
-                diff_str = "{type2} prototype than in correct trials".format(
+                diff_str = "{type2} rep. than on correct trials".format(
                     type2=t2, type1=t1
                 )
 
@@ -514,7 +514,7 @@ class LMFigure(SwapErrorFigure):
                 high, low = u.conf_interval(diffs, withmean=True)[:, 0]
                 diff_range = u.format_sirange(high, low)
 
-                s = "{monkey}: activity in swap trials is {diffs} closer to the {diff_str}"
+                s = "{monkey}: activity on swap trials is {diffs} closer to the {diff_str}"
                 s = s.format(monkey=monkey, diffs=diff_range, diff_str=diff_str)
                 cv_name = "cv_{}_{}_{}_{}".format(
                     self.trial_type, monkey.replace(" ", "_"), k, t1_t2_str
@@ -617,6 +617,7 @@ class NeuronNumFigure(SwapErrorFigure):
             "motor": "motor cortex",
             "pfc": "prefrontal cortex",
             "v4pit": "V4 and posterior IT",
+            "fef": "frontal eye fields",
         }
         s_base = "{label}: \SIrange{{{min_num}}}{{{max_num}}}{{}} units"
         s_list = list(
@@ -793,7 +794,7 @@ class ModelBasedFigure(SwapErrorFigure):
         ps_all = u.bootstrap_list(np.array(probs_all), np.nanmean)
         ps_range = u.format_sirange(*u.conf_interval(ps_all, withmean=True)[:, 0])
         mname = monkey.replace(" ", "_")
-        s1 = "{monkey}: {ps_range} average probability of error"
+        s1 = "{monkey}: {ps_range} probability of alternate rep. on swap trials"
         s1 = s1.format(monkey=monkey, ps_range=ps_range)
         self.save_stats_string(s1, "range-rate_{}_{}_{}".format(task, delay, mname))
         
