@@ -767,7 +767,7 @@ class ModelBasedFigure(SwapErrorFigure):
         ad_interv = u.conf_interval(avg_diffs, withmean=True)[:, 0]
         avg_diffs_str = u.format_sirange(*ad_interv)
         s = ("{monkey}: {avg_diffs} greater probability of "
-             "{type1} than {type2} representations")
+             "{type1} than {type2} representation")
         s = s.format(monkey=monkey, avg_diffs=avg_diffs_str,
                      type1=type1, type2=type2)
         mname = monkey.replace(" ", "_")
