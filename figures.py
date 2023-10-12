@@ -193,19 +193,19 @@ class BehaviorFigure(SwapErrorFigure):
         corr_int = u.conf_interval(corr_prob, withmean=True)
         guess_int = u.conf_interval(guess_prob, withmean=True)
         swap_int = u.conf_interval(swap_prob, withmean=True)
-        s = """{monkey}:
-        correct probability = \SIrange{{{clow:.2f}}}{{{chigh:.2f}}}{{}},
-        swap probability = \SIrange{{{slow:.2f}}}{{{shigh:.2f}}}{{}},
-        guess probability = \SIrange{{{glow:.2f}}}{{{ghigh:.2f}}}{{}}"""
-        s = s.format(monkey=monkey,
-                     clow=corr_int[1, 0],
-                     chigh=corr_int[0, 0],
-                     slow=swap_int[1, 0],
-                     shigh=swap_int[0, 0],
-                     glow=guess_int[1, 0],
-                     ghigh=guess_int[0, 0])
+        p_names = ("correct", "guess", "swap")
+        intervals = (corr_int, guess_int, swap_int)
+        full_s = "{monkey}: ".format(monkey=monkey)
+        sub_template = "{pn} probability = \SIrange{{{low:.2f}}}{{{high:.2f}}}{{}}"
+        et_template = "{monkey}: {sub_s}"
         mname = monkey.replace(" ", "_")
-        self.save_stats_string(s, "trial-types_{}".format(mname))
+        for i, pn in enumerate(p_names):
+            interv = intervals[i]
+            sub_s = sub_template.format(pn=pn, low=interv[1, 0], high=interv[0, 0])
+            full_s = full_s + sub_s + ", "
+            et_str = et_template.format(monkey=monkey, sub_s=sub_s)
+            self.save_stats_string(et_str, "trial-types_{}_{}".format(mname, pn))
+        self.save_stats_string(full_s, "trial-types_{}".format(mname))
 
     def panel_trial_simplex(self):
         key = "panel_trial_simplex"
@@ -776,8 +776,7 @@ class ModelBasedFigure(SwapErrorFigure):
             monkey=monkey, avg_diffs=avg_diffs_str,
         )
         self.save_stats_string(s_only, "kind-diff_{}_{}_onlyrange".format(task, mname))
-        
-    
+
     def _save_rate_stats(self, fits, monkey, delay, task, t_ind=True,
                          thresh=.1, use_ind=-1):
         no_zero = 0

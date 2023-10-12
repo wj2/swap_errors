@@ -13,12 +13,21 @@ import functools as ft
 
 import general.plotting as gpl
 import general.utility as u
+import general.rf_models as rfm
 import general.neural_analysis as na
 import swap_errors.analysis as swan
 import swap_errors.auxiliary as swaux
 
 
-def plot_sigma_vs_emp(tcc_dict, fwid=3, ind=None, ax=None):
+def plot_sigma_vs_emp(
+    tcc_dict,
+    fwid=3,
+    ind=None,
+    ax=None,
+    color=None,
+    indiv_color=(.6,)*3,
+    plot_indiv_fits=False,
+):
     if ax is None:
         f, ax = plt.subplots(1, 1, figsize=(fwid, fwid))
     emp_results = tcc_dict["emp"]
@@ -27,15 +36,54 @@ def plot_sigma_vs_emp(tcc_dict, fwid=3, ind=None, ax=None):
     if ind is None:
         sig_m = np.median(sigs)
         ind = np.argmin((sigs - sig_m)**2)
-    print(funcs[0].shape)
-    ax.plot(funcs[1], funcs[0].T, alpha=.1)
-    _ = ax.plot(funcs[1], funcs[2].T, linestyle='dashed', alpha=.1)
-    ax.plot(funcs[1], np.mean(funcs[0], axis=0), color="r")
-    _ = ax.plot(funcs[1], np.mean(funcs[2], axis=0), linestyle='dashed', color="g")
+    ax.plot(funcs[1], funcs[0].T, alpha=.2, color=indiv_color)
+    if plot_indiv_fits:
+        _ = ax.plot(
+            funcs[1], funcs[2].T, linestyle='dashed', alpha=.1, color=indiv_color
+        )
+    ax.plot(funcs[1], np.mean(funcs[0], axis=0), color=color)
+    gpl.plot_trace_werr(
+        funcs[1],
+        np.mean(funcs[2], axis=0),
+        linestyle='dashed',
+        color=color,
+        plot_outline=True,
+        ax=ax,
+    )
     return ax
 
 
-def plot_tcc_results(tcc_dict, fwid=2, ind=None, faxs=None, plot_title=""):
+def visualize_rf_properties(w_distrib, n_units=2000, total_pwr=10, axs=None, skip=.2):
+    if axs is None:
+        fwid = 2
+        f, axs = plt.subplots(1, 3, figsize=(fwid*3, fwid))
+
+    out = rfm.get_random_uniform_w_distrib_pop(10, 100, 1, w_distrib)
+    stim_distr, rf, drf, noise_distr = out
+
+    print(np.mean(np.sum(rf(stim_distr.rvs(1000))**2, axis=1)))
+
+    xs = np.expand_dims(np.linspace(skip, 1 - skip, 50), 1)
+    reps = rf(xs)
+
+    axs[0].hist(w_distrib.rvs(1000))
+
+    dists, corrs = swan.compute_similarity_curve(reps, xs)
+
+    d_flat = np.squeeze(dists).flatten()
+    c_flat = np.squeeze(corrs).flatten()
+    gpl.plot_scatter_average(d_flat, c_flat, ax=axs[2])
+
+    gpl.plot_highdim_trace(reps, dim_red_mean=False, n_dim=2, ax=axs[1])
+    gpl.make_yaxis_scale_bar(axs[1], label="PC 2", text_buff=.3)
+    gpl.make_xaxis_scale_bar(axs[1], label="PC 1")
+    gpl.clean_plot(axs[1], 0)
+    gpl.clean_plot(axs[0], 0)
+    axs[1].set_aspect("equal")
+    return axs
+
+
+def plot_tcc_results(tcc_dict, fwid=2, ind=None, faxs=None, color=None, plot_title=""):
     if faxs is None:
         faxs = plt.subplots(1, 3, figsize=(fwid*3.5, fwid))
     f, axs = faxs
@@ -43,16 +91,18 @@ def plot_tcc_results(tcc_dict, fwid=2, ind=None, faxs=None, plot_title=""):
     emp_results = tcc_dict["emp"]
     errs = tcc_dict["err"]
 
-    plot_sweep(*sweep_results, theor_params=emp_results, ax=axs[0], f=f)
+    plot_sweep(
+        *sweep_results, theor_params=emp_results, ax=axs[0], fit_color=color, f=f
+    )
 
-    plot_kl_comp_distrib(*sweep_results, errs, ax=axs[1])
+    plot_kl_comp_distrib(*sweep_results, errs, ax=axs[1], hist_color=color)
 
     emp_results = tcc_dict["emp"]
     sigs, dps = emp_results
     if ind is None:
         sig_m = np.mean(sigs)
         ind = np.argmin((sigs - sig_m)**2)
-    plot_comparison_distrib(sigs[ind], dps[ind], errs, ax=axs[2])
+    plot_comparison_distrib(sigs[ind], dps[ind], errs, hist_color=color, ax=axs[2])
     gpl.clean_plot(axs[1], 0)
     gpl.clean_plot(axs[2], 1)
     gpl.make_yaxis_scale_bar(axs[1], .1, label="density", double=False)
@@ -2371,7 +2421,18 @@ def plot_sig_comparison(emp_func, bins, theor_func, ax=None):
     return ax
 
 
-def plot_sweep(sigmas, dps, kls, theor_params=None, ax=None, f=None, cmap="Blues"):
+def plot_sweep(
+    sigmas,
+    dps,
+    kls,
+    theor_params=None,
+    ax=None,
+    f=None,
+    cmap="Greys",
+    fit_color=(.6,)*3,
+    opt_color="w",
+    ms=5,
+):
     if ax is None:
         f, ax = plt.subplots(1, 1)
     m = gpl.pcolormesh(dps, sigmas, np.log(kls), ax=ax, cmap=cmap)
@@ -2382,10 +2443,12 @@ def plot_sweep(sigmas, dps, kls, theor_params=None, ax=None, f=None, cmap="Blues
     ax.set_xticks(xt[::5])
     yt = ax.get_yticks()
     ax.set_yticks(yt[::5])
+    ax.set_yticks([.1, 2, 4])
+    ax.set_xticks([.2, 1, 2])
     if theor_params is not None:
-        ax.plot(theor_params[1], theor_params[0], 'ro')
+        ax.plot(theor_params[1], theor_params[0], color=fit_color, marker='o', ms=ms)
     sig_inds, dp_inds = np.where(kls == np.min(kls))
-    ax.plot(dps[dp_inds], sigmas[sig_inds], 'g*')
+    ax.plot(dps[dp_inds], sigmas[sig_inds], color=opt_color, marker='*', ms=ms)
     return ax
 
 
@@ -2393,18 +2456,33 @@ def plot_kl_comp_distrib(sigmas, dps, kls, errs, **kwargs):
     sig_ind, dp_ind = np.where(np.min(kls) == kls)
     sig_opt = sigmas[sig_ind]
     dp_opt = dps[dp_ind]
-    labels = ("empirical", "optimal")
+    labels = ("empirical", "predicted")
     return plot_comparison_distrib(sig_opt, dp_opt, errs, labels=labels, **kwargs)
 
 
-def plot_comparison_distrib(sig_opt, dp_opt, errs, ax=None, labels=None):
+def plot_comparison_distrib(
+    sig_opt,
+    dp_opt,
+    errs,
+    ax=None,
+    labels=None,
+    fit_color="k",
+    hist_color=np.array([52, 152, 219])/255,
+):
     if ax is None:
         f, ax = plt.subplots(1, 1)
     if labels is None:
         labels = ("empirical", "average width")
     err_theor = swan.simulate_emp_err(sig_opt, dp_opt)
-    ax.hist(errs, density=True, label=labels[0])
-    ax.hist(err_theor, histtype="step", density=True, label=labels[1])
+    ax.hist(errs, density=True, label=labels[0], color=hist_color)
+    ax.hist(
+        err_theor,
+        histtype="step",
+        density=True,
+        label=labels[1],
+        color=fit_color,
+        linestyle="dashed",
+    )
     ax.legend(frameon=False)
     return ax
 

@@ -559,4 +559,3 @@ def load_buschman_data(folder, template='[0-9]{2}[01][0-9][0123][0-9]',
     super_dict = dict(date=dates, experiment=expers, animal=monkeys,
                       data=datas, n_neurs=n_neurs)
     return super_dict
-

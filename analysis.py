@@ -1,8 +1,8 @@
 import os
 import numpy as np
 import pickle
-# import stan
-import pystan as ps
+import stan
+# import pystan as ps
 import arviz as az
 import scipy.spatial.distance as spsd
 import scipy.special as spsp
@@ -128,9 +128,9 @@ def cue_decoding(
     test_frac=0.1,
 ):
     if pre:
-        model = na.make_model_pipeline(model, pca=0.999, max_iter=max_iter)
+        model = na.make_model_pipeline(model, pca=0.999, max_iter=max_iter, dual="auto")
     else:
-        model = model(max_iter=max_iter)
+        model = model(max_iter=max_iter, dual="auto")
     if data["is_joint"] == 1:
         _, type_int = swa.get_type_ind(type_str, data, return_type=True)
         mask = data[type_field] == type_int
@@ -1990,6 +1990,74 @@ def swap_lm_tc_frompickle(path, out_folder='.', prefix='fit_', jobid="0000",
     return out_path, out_dict
 
 
+def swap_lm_tc_null_frompickle(
+    region_path,
+    null_path,
+    out_folder='.',
+    prefix='fit_nulls_',
+    jobid="0000",
+    n_reps=2,
+    **kwargs
+):
+    sd = pickle.load(open(region_path, 'rb'))
+    sd_null = pickle.load(open(null_path, 'rb'))
+    _, name = os.path.split(region_path)
+    name, ext = os.path.splitext(name)
+    new_name = prefix + name + "_{}".format(jobid) + ext
+    out_path = os.path.join(out_folder, new_name)
+
+    use_keys = ('spks', 'uc', 'lc', 'ps', 'cues')
+    args = list(sd.pop(uk) for uk in use_keys)
+    spks, uc, lc, ps, cues = args
+    other_info = sd.pop('other')
+    xs = other_info['xs']
+
+    args_null = list(sd_null.pop(uk) for uk in use_keys)
+    spks_null, uc_null, lc_null, ps_null, cues_null = args_null
+    other_info = sd_null.pop('other')
+    xs_null = other_info['xs']
+
+    subsample_neurs = spks.shape[1]
+    tot_neurs = spks_null.shape[1]
+    rng = np.random.default_rng()
+
+    ncue_nulls = np.zeros((n_reps, len(xs)))
+    scue_nulls = np.zeros_like(ncue_nulls)
+    for i in range(n_reps):
+        print(i)
+        inds = rng.choice(tot_neurs, size=subsample_neurs, replace=False)
+        spks_null_i = spks_null[:, inds]
+        args_null_i = spks_null_i, uc_null, lc_null, ps_null, cues_null
+        nc_null, sc_null = swap_lm_tc(*args_null_i, **sd_null, **kwargs)
+        if i == 0:
+            nc_nulls = np.zeros((n_reps,) + nc_null.shape[1:3] + (len(xs_null),))
+            sc_nulls = np.zeros_like(nc_nulls)
+        nc_nulls[i] = np.mean(nc_null, axis=(0, 3))
+        sc_nulls[i] = np.mean(sc_null, axis=(0, 3))
+        if cues is not None:
+            ncue_null, scue_null = swap_cue_tc(
+                spks_null_i, ps_null, cues_null.to_numpy(), **kwargs
+            )
+        else:
+            ncue_null, scue_null = np.zeros((0, 0, len(xs))), np.zeros((0, 0, len(xs)))
+        ncue_nulls[i] = np.mean(ncue_null, axis=(0, 1))
+        scue_nulls[i] = np.mean(scue_null, axis=(0, 1))
+        
+    out_dict = {
+        'null_color': nc_nulls,
+        'swap_color': sc_nulls,
+        'null_cue': ncue_nulls,
+        'swap_cue': scue_nulls,
+        'args': args,
+        'kwargs': kwargs,
+        'xs': xs,
+        'other': other_info,
+        'sd': sd,
+    }
+    pickle.dump(out_dict, open(out_path, 'wb'))
+    return out_path, out_dict
+
+
 def fit_lm_tc_all(full_pd, **kwargs):
     outs = {}
     for k, pd in full_pd.items():
@@ -2095,7 +2163,9 @@ def swap_cue_tc(
     null_dists = np.zeros((len(corr_inds), 1, n_ts))
     swap_dists = np.zeros((len(corr_inds), len(swap_inds), n_ts))
 
-    model = na.make_model_pipeline(model, norm=norm, pca=pre_pca, max_iter=max_iter)
+    model = na.make_model_pipeline(
+        model, norm=norm, pca=pre_pca, max_iter=max_iter, dual="auto"
+    )
     swap_pair = (cues[swap_inds], y[swap_inds])
 
     if len(swap_inds) == 0:
