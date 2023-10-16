@@ -48,6 +48,29 @@ lm_template = ("fit_lmtc_(?P<trial_type>pro|retro)_[a-z0-9_]*"
                "\-presentation_"
                "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\.pkl")
 
+lm_targ_template = ("fit_lmtc_{trl_type}_no_{region}"
+                    "{timing}"
+                    "\-presentation_"
+                    "(?P<session_ind>[0-9]+)_(?P<jobid>[0-9]+)\.pkl")
+
+def list_lm_runinds(
+        folder, templ=lm_targ_template, region="pfc", trl_type="pro", timing="pre-cue",
+):
+    fls = os.listdir(folder)
+    inds = {}
+    use_templ = templ.format(region=region, trl_type=trl_type, timing=timing)
+    for fl in fls:
+        m = re.match(use_templ, fl)
+        if m is not None:
+            si = m.group("session_ind")
+            l = inds.get(si, [])
+            ji = m.group("jobid")
+            l.append(ji)
+            inds[si] = l
+
+    inds = list(inds.values())[0]
+    print(", ".join(inds))
+
 
 def load_lm_results(runinds, folder='swap_errors/lms/',
                     templ=lm_template,):
