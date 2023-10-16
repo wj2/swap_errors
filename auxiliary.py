@@ -71,7 +71,7 @@ def list_lm_runinds(
 
     inds = list(inds.values())[0]
     print(", ".join(inds))
-    
+
 
 def load_lm_results(runinds, folder='swap_errors/lms/',
                     templ=lm_template,):
