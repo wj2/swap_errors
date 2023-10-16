@@ -1,8 +1,8 @@
 import os
 import numpy as np
 import pickle
-import stan
-# import pystan as ps
+# import stan
+import pystan as ps
 import arviz as az
 import scipy.spatial.distance as spsd
 import scipy.special as spsp
@@ -128,9 +128,9 @@ def cue_decoding(
     test_frac=0.1,
 ):
     if pre:
-        model = na.make_model_pipeline(model, pca=0.999, max_iter=max_iter, dual="auto")
+        model = na.make_model_pipeline(model, pca=0.999, max_iter=max_iter)
     else:
-        model = model(max_iter=max_iter, dual="auto")
+        model = model(max_iter=max_iter)
     if data["is_joint"] == 1:
         _, type_int = swa.get_type_ind(type_str, data, return_type=True)
         mask = data[type_field] == type_int
@@ -2164,7 +2164,7 @@ def swap_cue_tc(
     swap_dists = np.zeros((len(corr_inds), len(swap_inds), n_ts))
 
     model = na.make_model_pipeline(
-        model, norm=norm, pca=pre_pca, max_iter=max_iter, dual="auto"
+        model, norm=norm, pca=pre_pca, max_iter=max_iter,
     )
     swap_pair = (cues[swap_inds], y[swap_inds])
 

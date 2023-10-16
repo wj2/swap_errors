@@ -26,13 +26,14 @@ if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args()
 
-    file_name = "curve_{jobid}.pkl".format(jobid=args.jobid)
+    core_str = os.path.splitext(os.path.split(args.data_file)[1])[0]
+    file_name = "fit_{input}_{jobid}.pkl".format(input=core_str, jobid=args.jobid)
     output_path = os.path.join(args.output_folder, file_name)
 
-    out_data = pickle.load(open(args.data_path))
+    input_data = pickle.load(open(args.data_file, "rb"))
 
     results_dict = {}
-    for m, m_dict in out_data.items():
+    for m, m_dict in input_data.items():
         results_dict[m] = {}
         for t, t_m_data in m_dict.items():
             out_tcc = swan.fit_tccish_model(*t_m_data)

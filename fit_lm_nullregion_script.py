@@ -10,7 +10,7 @@ def create_parser():
         "data_file",
         type=str,
     )
-    parser.add_argument("region_str", type=str)
+    parser.add_argument("--region_str", default="no_pfc", type=str)
     parser.add_argument(
         "-o",
         "--output_folder",
