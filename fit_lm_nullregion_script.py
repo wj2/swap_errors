@@ -39,11 +39,11 @@ if __name__ == "__main__":
         corr_decider = ft.partial(swan.corr_plurality, prob=args.use_threshold)
         kwargs["corr_decider"] = corr_decider
 
-    use_null = "_all"
     use_region = "_{}".format(args.region_str)
-    
-    null_file = args.data_file.format(region=use_null)
     region_file = args.data_file.format(region=use_region)
+    
+    use_null = "_all"
+    null_file = args.data_file.format(region=use_null)
         
     swan.swap_lm_tc_null_frompickle(
         region_file,

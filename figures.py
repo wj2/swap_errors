@@ -81,7 +81,9 @@ class SwapErrorFigure(pu.Figure):
 
     @property
     def monkey_colors(self):
-        return self._make_color_dict(self.monkeys)
+        mcolors = self._make_color_dict(self.monkeys)
+        mcolors["Wald"] = mcolors["Waldorf"]
+        return mcolors
 
     @property
     def bhv_outcomes(self):
@@ -583,78 +585,131 @@ class LMFigure(SwapErrorFigure):
 
 
 class SIRegionDropping(SwapErrorFigure):
+    def __init__(
+            self, fig_key="lm_region_dropping", trial_type="pro", colors=colors, **kwargs
+    ):
+        fsize = (4, 10)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        self.exp_data = None
+        self.trial_type = trial_type
+        super().__init__(fsize, params, colors=colors, **kwargs)
+
+    def make_gss(self):
+        gss = {}
+
+        vert_space = 8
+        lm_gs = pu.make_mxn_gridspec(
+            self.gs, 6, 2, 0, 100, 0, 80, vert_space, 5,
+        )
+        lm_axs = self.get_axs(lm_gs, sharey="all", sharex="vertical")
+
+        comp_gs = pu.make_mxn_gridspec(
+            self.gs, 6, 1, 0, 100, 90, 100, vert_space, 5,
+        )
+        comp_axs = self.get_axs(comp_gs, sharey="all", sharex="vertical", squeeze=True)
+
+        gss["panel_plot_differences"] = (lm_axs, comp_axs)
+
+        self.gss = gss
+
     def load_null_runs(self, region, time, reload_data=False):
         folder = self.params.get("lm_folder")
         if self.data.get((region, time)) is None or reload_data:
             null_inds = self.params.getlist("{}_null_{}".format(region, time))
-            null_out = swa.load_lm_results(null_inds, folder, stack=True)
+            null_out = swa.load_lm_results(null_inds, folder, swap_mean=False)
         
             full_inds = self.params.getlist("{}_{}".format(region, time))
-            full_out = swa.load_lm_results(full_inds, folder)
+            full_out = swa.load_lm_results(full_inds, folder, swap_mean=True)
             self.data[(region, time)] = (null_out, full_out)
         return self.data[(region, time)]
 
+
     def panel_plot_differences(self, reload_data=False):
         key = "panel_plot_differences"
-        axs = self.gss[key]
-        regions = ("pfc", "fef")
+        lm_axs, comp_axs = self.gss[key]
+        regions = ("pfc", "fef", "7ab", "motor", "tpot", "v4pit")
         times = ("pre-color", "wheel")
-
+        plot_ind = (0, 2)
+        self._plot_differences(
+            lm_axs, comp_axs, regions, times, plot_ind, reload_data=reload_data
+        )
+    
+    def _plot_differences(
+            self,
+            axs,
+            comp_axs,
+            regions,
+            times,
+            plot_ind,
+            reload_data=False,
+            comp_t=-.25,
+            minor_tick=.1,
+    ):
+        n_sessions = {"Wald": 10, "Elmo": 13}
+        x_labels = {
+            "wheel": "time from wheel onset",
+            "pre-cue": "time from cue onset",
+            "pre-color": "time from color onset",
+        }
         for i, j in u.make_array_ind_iterator((len(regions), len(times))):
             null_data, full_data = self.load_null_runs(
-                regions[i], times[j], reload_data=reload_data
+                regions[i], times[j], reload_data=reload_data, 
             )
-            print(null_data)
+            nd = null_data[0][self.trial_type][times[j]]
+            fd = full_data[0][self.trial_type][times[j]]
+            for k, (m, nd_m) in enumerate(nd.items()):
+                (null_corr, null_swap), _, xs = nd_m[0]
+                (full_corr, full_swap), _, xs = fd[m][0]
+                
+                # positive is more swap error evidence
+                null_diff = null_swap - null_corr
+                full_diff = np.mean(full_swap, axis=2) - np.mean(full_corr, axis=2)
 
-    def _plot_lm_dict(self, *args, **kwargs):
-        return self._plot_cue_dict(
-            *args, **kwargs, plot_func=swv.plot_lm_tc, set_ticks=True
-        )
-
-    def _plot_cue_dict(
-            self,
-            trial_type,
-            data_dict,
-            colors_null,
-            colors_alt,
-            mat_inds_all,
-            axs,
-            plot_func=swv.plot_cue_tc,
-            set_ticks=False,
-    ):
-        key_order = {
-            'pro': ('cue', 'pre-color', 'post-color', 'wheel'),
-            'retro': ('color', 'pre-cue', 'post-cue', 'wheel'),
-        }
-
-        e_name = self.params.get("Elmo_name")
-        w_name = self.params.get("Waldorf_name")
-
-        print(data_dict["Wald"]["pro"].keys())
-        m_names = (e_name, w_name)
-        monkeys = ("Elmo", "Wald")
-        for i, m in enumerate(monkeys):
-            fj = len(mat_inds_all)*i
-            for j, mat_inds in enumerate(mat_inds_all):
-                ind = fj + j
-                plot_func(
-                    data_dict[m][trial_type],
-                    key_order=key_order[trial_type],
-                    axs=np.expand_dims(axs[ind], 0),
-                    null_colors=colors_null[j],
-                    swap_colors=colors_alt[j],
-                    mat_inds=mat_inds,
+                # positive means region neurons more important
+                single_trace = (
+                    null_diff[:, plot_ind[0], plot_ind[1]]
+                    - np.expand_dims(full_diff[plot_ind[0], plot_ind[1]], 0)
                 )
-                if ind < len(axs) - 1:
-                    list(gpl.clean_plot_bottom(ax) for ax in axs[ind])
-                    list(ax.set_xlabel("") for ax in axs[ind])
-            if set_ticks:
-                axs[ind, 0].set_yticks([0, .5, 1])
-                axs[ind, 0].set_ylim([0, 1])
-            self._save_cv_stats(
-                data_dict[m][trial_type], m_names[i],
-            )
-        return axs
+
+                t_ind = np.argmin((xs - comp_t)**2)
+                if i == 0 and j == 0:
+                    label = "Monkey {}".format(m[0])
+                else:
+                    label = ""
+                gpl.plot_trace_werr(
+                    xs,
+                    single_trace,
+                    ax=axs[i, j],
+                    sem_n=n_sessions[m],
+                    label=label,
+                    color=self.monkey_colors[m],
+                )
+
+                gpl.plot_trace_werr(
+                    [j + minor_tick*(k - .5)],
+                    single_trace[..., t_ind:t_ind+1],
+                    ax=comp_axs[i],
+                    sem_n=n_sessions[m],
+                    label=label,
+                    color=self.monkey_colors[m],
+                    points=True,
+                    fill=False,
+                )
+            axs[i, j].set_xlabel(x_labels[times[j]])
+            if j == 0:
+                axs[i, j].set_ylabel(
+                    "relative importance of\n{} neurons".format(regions[i].upper())
+                )
+            if j == 1:
+                gpl.add_hlines(0, comp_axs[i])
+                comp_axs[i].set_xticks([0, 1])
+                comp_axs[i].set_xticklabels(times, rotation=45)
+            gpl.add_hlines(0, axs[i, j])
+            gpl.clean_plot(axs[i, j], j)
 
     def _save_cv_stats(self, data, monkey):
         if self.trial_type == "pro":
@@ -724,57 +779,25 @@ class SIRegionDropping(SwapErrorFigure):
                 s_only = "{monkey}: {diffs}"
                 s_only = s_only.format(monkey=monkey, diffs=diff_range)
                 self.save_stats_string(s_only, cv_only_name)
-                
+
+
+class SIRegionDroppingPro(SIRegionDropping):
+    def __init__(self, trial_type="pro", **kwargs):
+        super().__init__(trial_type=trial_type, **kwargs)
+
     
-    def make_gss(self):
-        gss = {}
+class SIRegionDroppingRetro(SIRegionDropping):
+    def __init__(self, trial_type="retro", **kwargs):
+        super().__init__(trial_type=trial_type, **kwargs)
 
-        horiz_gap = 5
-        vert_gap = 10
-
-        vert_pt = int(200/3)
-        
-        lm_gs = pu.make_mxn_gridspec(
-            self.gs, 4, 4, 0, vert_pt - vert_gap/2, 0, 100, 5, horiz_gap
-        )
-        lm_axs = self.get_axs(lm_gs, sharey="all", sharex="vertical")
-
-        cue_gs = pu.make_mxn_gridspec(
-            self.gs, 2, 4, vert_pt + vert_gap/2, 100, 0, 100, 5, horiz_gap
-        )
-        cue_axs = self.get_axs(cue_gs, sharey="horizontal", sharex="vertical")
-
-        gss["panel_color_cue"] = (lm_axs, cue_axs)
-
-        self.gss = gss
-        
-    def panel_color_cue(self):
-        key = "panel_color_cue"
-        color_axs, cue_axs = self.gss[key]
-        fd, color_dict, cue_dict = self.load_all_runs()
-
-        colors_null, colors_alt = self.get_lm_plot_colors()
-        mat_inds_lm = (((0, 1), (0, 1), (0, 1), (0, 1)),
-                       ((0, 1), (0, 1), (0, 2), (0, 2)))
-
-        self._plot_lm_dict(
-            self.trial_type,
-            color_dict,
-            colors_null,
-            colors_alt,
-            mat_inds_lm,
-            color_axs,
-        )
-
-        colors_null, colors_alt = self.get_cue_plot_colors()        
-        mat_inds_cue = (((0, 1), (0, 1), (0, 1), (0, 1)),)
-        self._plot_cue_dict(
-            self.trial_type,
-            cue_dict,
-            colors_null,
-            colors_alt,
-            mat_inds_cue,
-            cue_axs,
+    def panel_plot_differences(self, reload_data=False):
+        key = "panel_plot_differences"
+        lm_axs, comp_axs = self.gss[key]
+        regions = ("pfc", "fef", "7ab", "motor", "tpot", "v4pit")
+        times = ("pre-cue", "wheel")
+        plot_ind = (0, 1)
+        self._plot_differences(
+            lm_axs, comp_axs, regions, times, plot_ind, reload_data=reload_data
         )
 
         
