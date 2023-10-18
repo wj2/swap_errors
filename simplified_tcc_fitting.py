@@ -75,6 +75,21 @@ def sample_pts_dprime(
 def fit_and_sample_dprime_pts(
     col_rep_dists, col_diffs, bhv_errs, n_bins=10, n_samps=5000, **kwargs,
 ):
+    """
+    Fit and sample from the dprime that best fits the behavioral response
+    distribution given a pointwise similarity function.
+
+    Parameters
+    ----------
+    col_rep_dists : array_like (C,)
+        The ordered similarity function, giving the representational distance
+        between color 0 and each other color. 
+    col_diffs : arrray_like (C,)
+        The x-axis for the similarity function, should be the same length as
+        col_rep_dists.
+    bhv_errs : array_like, (T,)
+        Array of all behavioral errors, should have the same range as col_diffs.
+    """
     dp_fit = fit_dprime_pts(
         col_rep_dists, col_diffs, bhv_errs, n_bins=n_bins, **kwargs
     )
