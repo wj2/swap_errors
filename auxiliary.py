@@ -43,18 +43,33 @@ o_fp = '../results/swap_errors/fits/'
 naive_template = '[0-9\-_:\.]*\.pkl'
 
 
-lm_template = ("fit_lmtc_(?P<trial_type>pro|retro)_[a-z0-9_]*"
+lm_template = ("fit_(nulls_)?lmtc_(?P<trial_type>pro|retro)_[a-z0-9_]*"
                "(?P<timing>cue|color|wheel|pre-cue|post-cue|pre-color|post-color)"
                "\-presentation_"
                "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\.pkl")
 
-lm_targ_template = ("fit_lmtc_{trl_type}_no_{region}"
-                    "{timing}"
+lm_targ_template = ("fit_nulls_lmtc_{trl_type}_no_{region}"
+                    "_{timing}"
                     "\-presentation_"
                     "(?P<session_ind>[0-9]+)_(?P<jobid>[0-9]+)\.pkl")
 
+
+def make_lm_lists(
+    *args, **kwargs
+):
+    regions = ("pfc", "fef", "7ab", "motor", "tpot", "v4pit")
+    times = ("pre-cue", "pre-color", "wheel")
+    use_tt = {"pre-cue": "retro", "pre-color": "pro", "wheel": "pro"}
+    for r in regions:
+        for t in times:
+            s = list_lm_runinds(
+                *args, **kwargs, region=r, timing=t, trl_type=use_tt[t]
+            )
+            full_s = "{}_null_{} = {}".format(r, t, s)
+            print(full_s)
+
 def list_lm_runinds(
-        folder, templ=lm_targ_template, region="pfc", trl_type="pro", timing="pre-cue",
+    folder, templ=lm_targ_template, region="pfc", trl_type="pro", timing="pre-cue",
 ):
     fls = os.listdir(folder)
     inds = {}
@@ -69,11 +84,12 @@ def list_lm_runinds(
             inds[si] = l
 
     inds = list(inds.values())[0]
-    print(", ".join(inds))
+    s = ", ".join(inds)
+    return s
 
 
 def load_lm_results(runinds, folder='swap_errors/lms/',
-                    templ=lm_template,):
+                    templ=lm_template, swap_mean=True):
     jobids = '|'.join(runinds)
     templ = templ.format(jobids=jobids)
     fls = os.listdir(folder)
@@ -86,10 +102,14 @@ def load_lm_results(runinds, folder='swap_errors/lms/',
             session_ind = int(m.group("session_ind"))
             out = pickle.load(open(os.path.join(folder, fl), 'rb'))
             null_col_fl = out["null_color"]
-            swap_col_fl = np.mean(out["swap_color"], axis=0)
-
             null_cue_fl = out["null_cue"]
-            swap_cue_fl = np.mean(out["swap_cue"], axis=0)
+            if swap_mean:
+                swap_col_fl = np.mean(out["swap_color"], axis=0)
+                swap_cue_fl = np.mean(out["swap_cue"], axis=0)
+            else:
+                swap_col_fl = out["swap_color"]
+                swap_cue_fl = out["swap_cue"]
+
             xs = out["xs"]
 
             if session_ind in range(13):
@@ -101,15 +121,18 @@ def load_lm_results(runinds, folder='swap_errors/lms/',
             tt_timing_dict = tt_dict.get(timing, {})
 
             (null_col, swap_col), (null_cue, swap_cue), _ = tt_timing_dict.get(
-                monkey, (([], []), ([], []), None))
+                monkey, (([], []), ([], []), None)
+            )
             null_col.append(null_col_fl)
             swap_col.append(swap_col_fl)
             null_cue.append(np.squeeze(null_cue_fl))
             swap_cue.append(swap_cue_fl)
 
-            tt_timing_dict[monkey] = ((null_col, swap_col),
-                                      (null_cue, swap_cue),
-                                      xs)
+            tt_timing_dict[monkey] = (
+                (null_col, swap_col),
+                (null_cue, swap_cue),
+                xs
+            )
             tt_dict[timing] = tt_timing_dict
             full_dict[trial_type] = tt_dict
 
@@ -121,9 +144,12 @@ def load_lm_results(runinds, folder='swap_errors/lms/',
         for timing, monkey_dict in tt_dict.items():
             for monkey, (colors, cues, xs) in monkey_dict.items():
                 nulls, swaps = colors
-                swaps_comb = np.concatenate(swaps, axis=2)
                 nulls_comb = np.concatenate(nulls, axis=0)
-                nulls_comb = np.squeeze(np.swapaxes(nulls_comb, 0, 3))
+                if swap_mean:
+                    nulls_comb = np.squeeze(np.swapaxes(nulls_comb, 0, 3))
+                    swaps_comb = np.concatenate(swaps, axis=2)
+                else:
+                    swaps_comb = np.concatenate(swaps, axis=0)
                 colors = (nulls_comb, swaps_comb), (nulls, swaps), xs
                 cd = color_dict.get(monkey, {})
                 cd_tt = cd.get(trial_type, {})
