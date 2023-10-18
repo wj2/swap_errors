@@ -2595,7 +2595,6 @@ def fit_tcc_dprime(resps, targs, cols, n_pts=100, n_samps=10000, **kwargs):
 
     dprimes = np.linspace(.1, 2, 10)
     errs_ds = np.stack(list(_min_func(dp) for dp in dprimes), axis=0)
-    # sopt.minimize(_min_func, .1, bounds=((0, None),))
     return emp_errs, errs_ds
     
 
