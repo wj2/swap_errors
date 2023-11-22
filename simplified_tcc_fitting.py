@@ -12,7 +12,9 @@ def fit_dprime_pts(
     n_bins=10,
     min_d=0,
     max_d=5,
-    n_ds = 100,
+    n_ds=1000,
+    filt=True,
+    n_samps=10000,
 ):
     """
     Fit the dprime that best fits the behavioral response distribution given
@@ -35,9 +37,15 @@ def fit_dprime_pts(
     if n_bins is None:
         n_bins = len(col_diffs)
 
-    hist_bins = np.linspace(-np.pi, np.pi, n_bins)
+    if filt:
+        bounds = (np.min(col_diffs), np.max(col_diffs))
+    else:
+        bounds = (-np.pi, np.pi)
+    if n_samps is None:
+        n_samps = len(bhv_errs)
+    hist_bins = np.linspace(*bounds, n_bins)
     bhv_hist = np.histogram(bhv_errs, bins=hist_bins, density=True)[0]
-    frozen_noise = sts.norm(0, 1).rvs((len(bhv_errs), len(col_rep_dists)))
+    frozen_noise = sts.norm(0, 1).rvs((n_samps, len(col_rep_dists)))
     def _min_func(dprime):
         inds = np.argmax(np.expand_dims(col_rep_dists*dprime, 0) + frozen_noise,
                          axis=1)
@@ -59,7 +67,7 @@ def sample_pts_dprime(
     dprime,
     renorm_dists=True,
     n_bins=10,
-    n_samps=5000,
+    n_samps=10000,
 ):
     if renorm_dists:
         crd_zeroed = col_rep_dists - np.nanmin(col_rep_dists)
@@ -73,7 +81,7 @@ def sample_pts_dprime(
 
 
 def fit_and_sample_dprime_pts(
-    col_rep_dists, col_diffs, bhv_errs, n_bins=10, n_samps=5000, **kwargs,
+    col_rep_dists, col_diffs, bhv_errs, n_bins=20, n_samps=10000, **kwargs,
 ):
     """
     Fit and sample from the dprime that best fits the behavioral response

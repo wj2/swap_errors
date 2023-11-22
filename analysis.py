@@ -1,8 +1,8 @@
 import os
 import numpy as np
 import pickle
-# import stan
-import pystan as ps
+import stan
+# import pystan as ps
 import arviz as az
 import scipy.spatial.distance as spsd
 import scipy.special as spsp
@@ -15,6 +15,7 @@ import sklearn.preprocessing as skp
 import sklearn.pipeline as sklpipe
 import scipy.stats as sts
 import scipy.optimize as sopt
+import scipy.signal as ssig
 import itertools as it
 import statsmodels.stats.weightstats as smw
 import elephant as el
@@ -52,6 +53,13 @@ def average_simplices(
     stan_dict = dict(samps=samps, T=T, N=N, D=D)
     out = su.fit_model(stan_dict, model_path, arviz_convert=False, **kwargs)
     return out
+
+
+def smooth_dfunc(func, wid, xs, mode="valid"):
+    con = np.ones((1,)*(len(func.shape) - 1) + (wid,)) / wid
+    out = ssig.convolve(func, con, mode=mode)
+    new_xs = ssig.convolve(xs, np.squeeze(con), mode=mode)
+    return out, new_xs
 
 
 def number_decoding(

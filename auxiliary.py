@@ -88,6 +88,37 @@ def list_lm_runinds(
     return s
 
 
+def load_motoaki_mat(path, dis_key="disN_block", col_key="disC_block", bhv_key="Error"):
+    x = sio.loadmat(path)
+    n_sessions = x[dis_key].shape[1]
+    n_blocks = x[dis_key][0, -1].shape[1]
+    n_cols = x[dis_key][0, -1][0, -1].shape[1]
+
+    out_mat = np.zeros((n_sessions, n_blocks, n_cols))
+    out_mat[:] = np.nan
+    col_list = x[col_key][0, -1][0, -1][0]
+    errors = {}
+    for i in range(n_sessions):
+        session_ds = x[dis_key][0, i]
+        session_cs = x[col_key][0, i]
+
+        n_blocks_i = x[dis_key][0, i].shape[1]
+        for j in range(n_blocks_i):
+            err_list = errors.get(j, [])
+            err_ij = x[bhv_key][0, i][0, j]
+            err_list.append(err_ij)
+            errors[j] = err_list
+
+            cols_ij = session_cs[0, j][0]
+            dist_ij = session_ds[0, j][0]
+            if len(cols_ij) < len(col_list):
+                mask = np.isin(col_list, cols_ij)
+            else:
+                mask = np.ones_like(col_list, dtype=bool)
+            out_mat[i, j][mask] = dist_ij
+    return out_mat, col_list, errors
+
+
 def load_lm_results(runinds, folder='swap_errors/lms/',
                     templ=lm_template, swap_mean=True):
     jobids = '|'.join(runinds)
