@@ -3133,6 +3133,45 @@ def plot_k_distributions(
     return f, axs
 
 
+def plot_tcc_behavioral_params(samples, axs=None, fwid=2):
+    if axs is None:
+        n_plots = len(samples)
+        f, axs = plt.subplots(1, n_plots, figsize=(fwid*n_plots, fwid))
+    for i, (param, samps) in enumerate(samples.items()):
+        axs[i].hist(samps, density=True)
+        axs[i].set_xlabel(param)
+        if i == 0:
+            axs[i].set_ylabel("density")
+        gpl.clean_plot(axs[i], i)
+
+
+def plot_tcc_behavioral_fit(out, axs=None, fwid=2):
+    if axs is None:
+        f, axs = plt.subplots(
+            1, 2, figsize=(fwid*2, fwid), sharey=True, sharex=True,
+        )
+    ax1, ax2 = axs
+    errs_sim = u.normalize_periodic_range(
+        out["predictive_samples"] - np.expand_dims(out["targs"], 0)
+    ).flatten()
+
+    _, bins, _ = ax1.hist(errs_sim, density=True, histtype="step")
+    errs = u.normalize_periodic_range(out["resps"] - out["targs"].detach().numpy())
+    ax1.hist(errs, bins=bins, density=True)
+
+    swaps_sim = u.normalize_periodic_range(
+        out["predictive_samples"] - np.expand_dims(out["dists"], 0)
+    ).flatten()
+    swaps = u.normalize_periodic_range(out["resps"] - out["dists"].detach().numpy())
+    ax2.hist(swaps_sim, bins=bins, density=True, histtype="step")
+    ax2.hist(swaps, bins=bins, density=True)
+    gpl.clean_plot(ax1, 0)
+    gpl.clean_plot(ax2, 1)
+    ax1.set_ylabel("density")
+    ax1.set_xlabel("distance from target")
+    ax2.set_xlabel("distance from distractor")
+
+
 def make_color_circle(ax=None, px=1000, r_cent=350, r_wid=100):
     if ax is None:
         f, ax = plt.subplots(1, 1)

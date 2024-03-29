@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import pickle
-import stan
+# import stan
 # import pystan as ps
 import arviz as az
 import scipy.spatial.distance as spsd
@@ -26,7 +26,7 @@ import general.data_io as dio
 import general.neural_analysis as na
 import general.stan_utility as su
 import general.utility as u
-import general.decoders as gd
+# import general.decoders as gd
 import general.plotting as gpl
 import swap_errors.auxiliary as swa
 # import rsatoolbox as rsa
@@ -1822,6 +1822,29 @@ def _project_preds(preds, samps, use_center=False):
     return out
 
 
+def _fit_cn_lm_tc(tr_pair, coeff_pair, y_pair, model=sklm.Ridge, pre_pipe=None):
+    tr_coeffs, tr_y = tr_pair
+    n_ts = tr_y.shape[-1]
+
+    dists = np.zeros(n_ts)
+    for i in range(n_ts):
+        tr_y_i = tr_y[..., i]
+        y_pair_i = y_pair[..., i]
+
+        if pre_pipe is not None:
+            tr_y_i = pre_pipe.fit_transform(tr_y_i)
+            y_pair_i = pre_pipe.transform(y_pair_i)
+        m = model()
+        m.fit(tr_coeffs, tr_y_i)
+
+        y_te_pred = m.predict(coeff_pair)
+        v1 = np.diff(y_pair_i)[0]
+        v2 = np.diff(y_te_pred)[0]
+        dists[i] = v1 @ v2
+
+    return dists    
+
+
 def _fit_lm_tc_model(tr_pair, null_pairs, swap_pairs, model=sklm.Ridge,
                      pre_pipe=None):
     tr_coeffs, tr_y = tr_pair
@@ -1960,6 +1983,36 @@ def save_lm_tc_pops(
                 'other': {'xs': xs, 'sequence': k},
             }
             pickle.dump(sd, open(path, 'wb'))
+
+
+def distance_lm_tc_frompickle(
+        path, out_folder=".", prefix="fit_", jobid="0000", **kwargs,
+):
+    sd = pickle.load(open(path, 'rb'))
+    _, name = os.path.split(path)
+    name, ext = os.path.splitext(name)
+    new_name = prefix + name + "_{}".format(jobid) + ext
+    out_path = os.path.join(out_folder, new_name)
+
+    use_keys = ('spks', 'uc', 'lc', 'ps', 'cues')
+    args = list(sd.pop(uk) for uk in use_keys)
+    spks, uc, lc, ps, cues = args
+    other_info = sd.pop('other')
+    xs = other_info['xs']
+
+    dist_mat = distance_lm_tc(*args, **sd, **kwargs)
+
+    out_dict = {
+        'dist_mat': dist_mat,
+        'args': args,
+        'kwargs': kwargs,
+        'xs': xs,
+        'other': other_info,
+        'sd': sd,
+    }
+    pickle.dump(out_dict, open(out_path, 'wb'))
+    return out_path, out_dict
+
 
 
 def swap_lm_tc_frompickle(path, out_folder='.', prefix='fit_', jobid="0000",
@@ -2291,6 +2344,154 @@ def lm_tc(
         return coeffs, m.predict(coeffs)
 
     return null_coeffs, resp_gen
+
+
+def coeff_threshold(fg1, fg2, col_thr=np.pi/4, col_diff=_col_diff_rad):
+    c11, c21, cue1 = fg1
+    c12, c22, cue2 = fg2
+
+    c11 = np.expand_dims(c11, 1)
+    c21 = np.expand_dims(c21, 1)
+    cue1 = np.expand_dims(cue1, 1)
+
+    c12 = np.expand_dims(c12, 0)
+    c22 = np.expand_dims(c22, 0)
+    cue2 = np.expand_dims(cue2, 0)
+
+    c1_close = col_diff(c11, c12) < col_thr
+    c2_close = col_diff(c21, c22) < col_thr
+    same_cue = cue1 == cue2
+
+    mask = c1_close * c2_close * same_cue
+    inds = np.stack(np.where(mask), axis=1)
+    
+    return inds
+
+
+def distance_lm_tc(
+    y,
+    upper_col,
+    lower_col,
+    ps,
+    cues=None,
+    p_swap_ind=1,
+    p_corr_ind=0,
+    spline_order=1,
+    n_knots=5,
+    corr_decider=corr_argmax,
+    swap_decider=swap_argmax,
+    close_coeffs_decider=coeff_threshold,
+    col_thr=np.pi / 4,
+    cv=skms.LeaveOneOut,
+    col_diff=_col_diff_rad,
+    model=sklm.Ridge,
+    single_color=False,
+    norm=True,
+    pre_pca=None,
+):
+    """
+    Parameters
+    ----------
+    y : array N x K x T
+        Array where N is the number of trials, K is the number of neurons and T is the
+        number of time points
+    upper_col, lower_col : array, N
+        Array giving upper color
+    ps : array, N x 3
+    cues : array, N
+    """
+    if cues is not None:
+        targ_col = np.zeros_like(upper_col)
+        dist_col = np.zeros_like(upper_col)
+        targ_col[cues == 1] = upper_col[cues == 1]
+        targ_col[cues == 0] = lower_col[cues == 0]
+        dist_col[cues == 1] = lower_col[cues == 1]
+        dist_col[cues == 0] = upper_col[cues == 0]
+        upper_col = targ_col
+        lower_col = dist_col
+        try:
+            cues = cues.to_numpy()
+        except:
+            pass
+
+    n_trls, n_neurs, n_ts = y.shape
+    null_colors = (upper_col, lower_col)
+    if single_color:
+        null_colors = null_colors[:1]
+    null_coeffs, spliner = make_lm_coefficients(
+        *null_colors,
+        cues=cues,
+        spline_knots=n_knots,
+        spline_degree=spline_order,
+        return_spliner=True,
+    )
+
+    swap_colors = null_colors[::-1]
+    if single_color:
+        swap_colors = swap_colors[:1]
+    color_swap_coeffs = make_lm_coefficients(
+        *swap_colors,
+        cues=cues,
+        spline_knots=n_knots,
+        spline_degree=spline_order,
+        use_spliner=spliner,
+    )
+    alternates = (null_coeffs, color_swap_coeffs,)
+    alternates_raw = (null_colors + (cues,), swap_colors + (cues,))
+    if cues is not None:
+        cue_swap_coeffs = make_lm_coefficients(
+            *swap_colors,
+            cues=1 - cues,
+            spline_knots=n_knots,
+            spline_degree=spline_order,
+            use_spliner=spliner,
+        )
+        cue_swap_null_coeffs = make_lm_coefficients(
+            *null_colors,
+            cues=1 - cues,
+            spline_knots=n_knots,
+            spline_degree=spline_order,
+            use_spliner=spliner,
+        )
+        alternates = alternates + (cue_swap_coeffs, cue_swap_null_coeffs)
+        add = (swap_colors + (1 - cues,), null_colors + (1 - cues,))
+        alternates_raw = alternates_raw + add
+
+    col_dist_mask = col_diff(lower_col, upper_col) > col_thr
+    corr_inds, _ = _get_corr_swap_inds(
+        ps, corr_decider, swap_decider, and_mask=col_dist_mask,
+    )
+    alternates = list(alt[corr_inds] for alt in alternates)
+    alternates_raw = list(
+        list(alt_i[corr_inds] for alt_i in alt) for alt in alternates_raw
+    )
+    y = y[corr_inds]
+
+    n_alts = len(alternates)
+    n_trls = len(corr_inds)
+    dists = np.zeros((n_alts, n_alts), dtype=object)
+
+    trl_inds = set(np.arange(n_trls))
+    pipe = na.make_model_pipeline(norm=norm, pca=pre_pca)
+    cv_gen = cv()
+    for i_alt, j_alt in it.combinations(range(n_alts), 2):
+        alt_i, alt_j = alternates[i_alt], alternates[j_alt]
+        ar_i, ar_j = alternates_raw[i_alt], alternates_raw[j_alt]
+        close_inds = close_coeffs_decider(ar_i, ar_j)
+        dists_ij = np.zeros((len(close_inds), n_ts))
+        for i, te_inds in enumerate(close_inds):
+            tr_inds = np.array(list(trl_inds.difference(te_inds)))
+
+            coeff_tr = null_coeffs[tr_inds]
+            y_tr = y[tr_inds]
+
+            c_pair = np.stack((alt_i[te_inds[0]], alt_j[te_inds[1]]), axis=0)
+            y_te = y[te_inds]
+
+            dists_ij[i] = _fit_cn_lm_tc((coeff_tr, y_tr), c_pair, y_te, pre_pipe=pipe)
+        dists[i_alt, j_alt] = dists_ij
+        dists[j_alt, i_alt] = dists_ij
+    return dists
 
 
 def swap_lm_tc(

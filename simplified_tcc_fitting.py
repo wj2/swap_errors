@@ -47,6 +47,8 @@ def fit_dprime_pts(
     bhv_hist = np.histogram(bhv_errs, bins=hist_bins, density=True)[0]
     frozen_noise = sts.norm(0, 1).rvs((n_samps, len(col_rep_dists)))
     def _min_func(dprime):
+        e_dists = np.exp(col_rep_dists*dprime)
+        probs = e_dists/np.sum(e_dists)
         inds = np.argmax(np.expand_dims(col_rep_dists*dprime, 0) + frozen_noise,
                          axis=1)
         errs = col_diffs[inds]
