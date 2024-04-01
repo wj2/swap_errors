@@ -34,7 +34,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     kwargs = {}
-    if args.use_threshold is not None or args.use_threshold > 0:
+    if args.use_threshold is not None and args.use_threshold > 0:
         swap_decider = ft.partial(swan.swap_plurality, prob=args.use_threshold)
         kwargs["swap_decider"] = swap_decider
         corr_decider = ft.partial(swan.corr_plurality, prob=args.use_threshold)
