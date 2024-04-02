@@ -1986,7 +1986,7 @@ def save_lm_tc_pops(
 
 
 def distance_lm_tc_frompickle(
-        path, out_folder=".", prefix="fit_", jobid="0000", **kwargs,
+        path, out_folder=".", prefix="fit_dist_", jobid="0000", **kwargs,
 ):
     sd = pickle.load(open(path, 'rb'))
     _, name = os.path.split(path)
