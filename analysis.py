@@ -1838,8 +1838,8 @@ def _fit_cn_lm_tc(tr_pair, coeff_pair, y_pair, model=sklm.Ridge, pre_pipe=None):
         m.fit(tr_coeffs, tr_y_i)
 
         y_te_pred = m.predict(coeff_pair)
-        v1 = np.diff(y_pair_i)[0]
-        v2 = np.diff(y_te_pred)[0]
+        v1 = np.diff(y_pair_i, axis=0)[0]
+        v2 = np.diff(y_te_pred, axis=0)[0]
         dists[i] = v1 @ v2
 
     return dists    
@@ -2492,6 +2492,14 @@ def distance_lm_tc(
         dists[i_alt, j_alt] = dists_ij
         dists[j_alt, i_alt] = dists_ij
     return dists
+
+
+def make_mean_dist_mat(trl_dist_mat, xs):
+    dm_mu = np.zeros(trl_dist_mat.shape + (len(xs),))
+    for session, i, j in u.make_array_ind_iterator(trl_dist_mat.shape):
+        if i != j:
+            dm_mu[session, i, j] = np.mean(trl_dist_mat[session, i, j], axis=0)
+    return dm_mu, xs
 
 
 def swap_lm_tc(

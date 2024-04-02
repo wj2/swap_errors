@@ -48,10 +48,22 @@ lm_template = ("fit_(nulls_)?lmtc_(?P<trial_type>pro|retro)_[a-z0-9_]*"
                "\-presentation_"
                "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\.pkl")
 
+lm_dist_template = (
+    "fit_dist_lmtc_(?P<trial_type>pro|retro)_[a-z0-9_]*"
+    "(?P<timing>cue|color|wheel|pre-cue|post-cue|pre-color|post-color)"
+    "\-presentation_"
+    "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\.pkl"
+)
+
 lm_targ_template = ("fit_nulls_lmtc_{trl_type}_no_{region}"
                     "_{timing}"
                     "\-presentation_"
                     "(?P<session_ind>[0-9]+)_(?P<jobid>[0-9]+)\.pkl")
+
+session_to_monkey_dict = {
+    k: "Elmo" for k in range(13)
+}
+session_to_monkey_dict.update({k: "Waldorf" for k in range(13, 23)})
 
 
 def make_lm_lists(
@@ -117,6 +129,21 @@ def load_motoaki_mat(path, dis_key="disN_block", col_key="disC_block", bhv_key="
                 mask = np.ones_like(col_list, dtype=bool)
             out_mat[i, j][mask] = dist_ij
     return out_mat, col_list, errors
+
+
+def load_lm_dist_results(runind, folder="swap_errors/lm_fits/", templ=lm_dist_template):
+    use_template = templ.format(jobids=runind)
+    loaded_runs = {}
+    
+    for fl, fl_info, data_fl in u.load_folder_regex_generator(folder, use_template):
+        monkey = session_to_monkey_dict[int(fl_info["session_ind"])]
+        k = (monkey, fl_info["trial_type"], fl_info["timing"])
+        mat_list, xs = loaded_runs.get(k, ([], None))
+        mat_list.append(data_fl["dist_mat"])
+        xs = data_fl["xs"]
+        loaded_runs[k] = (mat_list, xs)
+    out = {k: (np.stack(m, axis=0), xs) for k, (m, xs) in loaded_runs.items()}
+    return out
 
 
 def load_lm_results(runinds, folder='swap_errors/lms/',
