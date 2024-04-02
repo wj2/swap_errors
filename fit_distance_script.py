@@ -41,9 +41,9 @@ if __name__ == "__main__":
         kwargs["corr_decider"] = corr_decider
 
     if args.region_str is not None:
-        use_r = "{}".format(args.region_str)
+        use_r = "_{}".format(args.region_str)
     else:
-        use_r = "all"
+        use_r = "_all"
     data_file = args.data_file.format(region=use_r)
         
     swan.distance_lm_tc_frompickle(
