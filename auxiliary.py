@@ -40,25 +40,25 @@ model_folder_template = ('swap_errors/neural_model_fits/{num_cols}_colors/'
 
 o_fit_templ = 'fit_spline{n_colors}_sess{sess_ind}_{period}_{run_ind}{ext}'
 o_fp = '../results/swap_errors/fits/'
-naive_template = '[0-9\-_:\.]*\.pkl'
+naive_template = '[0-9\\-_:\\.]*\\.pkl'
 
 
 lm_template = ("fit_(nulls_)?lmtc_(?P<trial_type>pro|retro)_[a-z0-9_]*"
                "(?P<timing>cue|color|wheel|pre-cue|post-cue|pre-color|post-color)"
-               "\-presentation_"
-               "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\.pkl")
+               "\\-presentation_"
+               "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\\.pkl")
 
 lm_dist_template = (
     "fit_dist_lmtc_(?P<trial_type>pro|retro)_[a-z0-9_]*"
     "(?P<timing>cue|color|wheel|pre-cue|post-cue|pre-color|post-color)"
-    "\-presentation_"
-    "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\.pkl"
+    "\\-presentation_"
+    "(?P<session_ind>[0-9]+)_(?P<jobid>{jobids})\\.pkl"
 )
 
 lm_targ_template = ("fit_nulls_lmtc_{trl_type}_no_{region}"
                     "_{timing}"
-                    "\-presentation_"
-                    "(?P<session_ind>[0-9]+)_(?P<jobid>[0-9]+)\.pkl")
+                    "\\-presentation_"
+                    "(?P<session_ind>[0-9]+)_(?P<jobid>[0-9]+)\\.pkl")
 
 session_to_monkey_dict = {
     k: "Elmo" for k in range(13)
@@ -329,19 +329,19 @@ def load_x_sweep(folder, run_ind, template, guess=False):
             x_list.append(out_fl)
     return pd.DataFrame(x_list)
 
-nc_sweep_pattern = 'nc_{guess}(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+\.pkl'
+nc_sweep_pattern = 'nc_{guess}(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\\-:.]+\\.pkl'
 def load_nc_sweep(folder, run_ind,
                   template=nc_sweep_pattern,
                   **kwargs):
     return load_x_sweep(folder, run_ind, template, **kwargs)
     
-fs_sweep_pattern = ('[fst]+_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\-:.]+'
-                    '\.pkl')
+fs_sweep_pattern = ('[fst]+_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\\-:.]+'
+                    '\\.pkl')
 def load_fs_sweep(folder, run_ind,
                  template=fs_sweep_pattern):
     return load_x_sweep(folder, run_ind, template)
 
-circus_sweep_pattern = 'r_[a-zA-Z_0-9]*[0-9]+_[0-9-._:]+\.pkl'
+circus_sweep_pattern = 'r_[a-zA-Z_0-9]*[0-9]+_[0-9-._:]+\\.pkl'
 def load_circus_sweep(folder, swept_keys, store_keys=('cue1', 'cue2'),
                       template=circus_sweep_pattern):
     fls = os.listdir(folder)
@@ -535,9 +535,9 @@ def load_bhv_data(fl, flname='bhv.mat', const_fields=('Date', 'Monkey'),
         trl_dict['err'] = err
     return const_dict, trl_dict
 
-busch_spks_templ_unsrt = 'selWM_001_chan([0-9]+)_4sd\.mat'
-busch_spks_templ_mua = 'selWM_001_chan([0-9]+)_4sd-srt-mua\.mat'
-busch_spks_templ = 'selWM_001_chan([0-9]+)_4sd-srt\.mat'
+busch_spks_templ_unsrt = 'selWM_001_chan([0-9]+)_4sd\\.mat'
+busch_spks_templ_mua = 'selWM_001_chan([0-9]+)_4sd-srt-mua\\.mat'
+busch_spks_templ = 'selWM_001_chan([0-9]+)_4sd-srt\\.mat'
 def load_spikes_data(folder, templ=busch_spks_templ):
     fls = os.listdir(folder)
     chan_all, ids_all, ts_all = [], [], []
@@ -578,7 +578,7 @@ def merge_dicts(sd_primary, **sess_dicts):
         new_dict[k] = (model_dict_k, data_pr)
     return new_dict
 
-def load_label_data(labelpath, unique_neurs, templ='([0-9a-zA-Z]+)\.txt'):
+def load_label_data(labelpath, unique_neurs, templ='([0-9a-zA-Z]+)\\.txt'):
     fls = os.listdir(labelpath)
     region_labels = np.zeros(len(unique_neurs), dtype=object)
     for fl in fls:

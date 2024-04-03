@@ -2485,7 +2485,7 @@ def distance_lm_tc(
             coeff_tr = null_coeffs[tr_inds]
             y_tr = y[tr_inds]
 
-            c_pair = np.stack((alt_i[te_inds[0]], alt_j[te_inds[1]]), axis=0)
+            c_pair = null_coeffs[te_inds]
             y_te = y[te_inds]
 
             dists_ij[i] = _fit_cn_lm_tc((coeff_tr, y_tr), c_pair, y_te, pre_pipe=pipe)
