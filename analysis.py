@@ -29,6 +29,7 @@ import general.utility as u
 # import general.decoders as gd
 import general.plotting as gpl
 import swap_errors.auxiliary as swa
+import pandas as pd
 # import rsatoolbox as rsa
 
 
@@ -1988,7 +1989,7 @@ def save_lm_tc_pops(
 def distance_lm_tc_frompickle(
         path, out_folder=".", prefix="fit_dist_", jobid="0000", **kwargs,
 ):
-    sd = pickle.load(open(path, 'rb'))
+    sd = pd.read_pickle(open(path, 'rb'))
     _, name = os.path.split(path)
     name, ext = os.path.splitext(name)
     new_name = prefix + name + "_{}".format(jobid) + ext
