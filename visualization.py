@@ -25,7 +25,7 @@ def plot_sigma_vs_emp(
     ind=None,
     ax=None,
     color=None,
-    indiv_color=(.6,)*3,
+    indiv_color=(0.6,) * 3,
     plot_indiv_fits=False,
 ):
     if ax is None:
@@ -35,17 +35,17 @@ def plot_sigma_vs_emp(
     funcs = tcc_dict["funcs"]
     if ind is None:
         sig_m = np.median(sigs)
-        ind = np.argmin((sigs - sig_m)**2)
-    ax.plot(funcs[1], funcs[0].T, alpha=.2, color=indiv_color)
+        ind = np.argmin((sigs - sig_m) ** 2)
+    ax.plot(funcs[1], funcs[0].T, alpha=0.2, color=indiv_color)
     if plot_indiv_fits:
         _ = ax.plot(
-            funcs[1], funcs[2].T, linestyle='dashed', alpha=.1, color=indiv_color
+            funcs[1], funcs[2].T, linestyle="dashed", alpha=0.1, color=indiv_color
         )
     ax.plot(funcs[1], np.mean(funcs[0], axis=0), color=color)
     gpl.plot_trace_werr(
         funcs[1],
         np.mean(funcs[2], axis=0),
-        linestyle='dashed',
+        linestyle="dashed",
         color=color,
         plot_outline=True,
         ax=ax,
@@ -53,15 +53,42 @@ def plot_sigma_vs_emp(
     return ax
 
 
-def visualize_rf_properties(w_distrib, n_units=2000, total_pwr=10, axs=None, skip=.2):
+@gpl.ax_adder()
+def plot_distance_projection(
+    xs,
+    dm,
+    t_targ=-0.25,
+    ax=None,
+    n_components=2,
+    ind_pairs=((0, 1), (0, 2), (1, 2)),
+    colors=None,
+    pt_color=None,
+    cut_last=True,
+):
+    ind_pairs = np.array(ind_pairs)
+    if colors is None:
+        colors = (None,) * len(ind_pairs)
+    t_ind = np.argmin(np.abs(xs - t_targ))
+    if cut_last:
+        dm = dm[:, :-1, :-1]
+    mu_dm = np.mean(dm, axis=0)[..., t_ind]
+    m = skm.MDS(n_components=n_components, dissimilarity="precomputed")
+    pts = m.fit_transform(mu_dm)
+    for i, inds in enumerate(ind_pairs):
+        ax.plot(*pts[inds].T, color=colors[i])
+    ax.plot(*pts.T, "o", color=pt_color)
+    ax.set_aspect("equal")
+
+
+def visualize_rf_properties(w_distrib, n_units=2000, total_pwr=10, axs=None, skip=0.2):
     if axs is None:
         fwid = 2
-        f, axs = plt.subplots(1, 3, figsize=(fwid*3, fwid))
+        f, axs = plt.subplots(1, 3, figsize=(fwid * 3, fwid))
 
     out = rfm.get_random_uniform_w_distrib_pop(10, 100, 1, w_distrib)
     stim_distr, rf, drf, noise_distr = out
 
-    print(np.mean(np.sum(rf(stim_distr.rvs(1000))**2, axis=1)))
+    print(np.mean(np.sum(rf(stim_distr.rvs(1000)) ** 2, axis=1)))
 
     xs = np.expand_dims(np.linspace(skip, 1 - skip, 50), 1)
     reps = rf(xs)
@@ -75,7 +102,7 @@ def visualize_rf_properties(w_distrib, n_units=2000, total_pwr=10, axs=None, ski
     gpl.plot_scatter_average(d_flat, c_flat, ax=axs[2])
 
     gpl.plot_highdim_trace(reps, dim_red_mean=False, n_dim=2, ax=axs[1])
-    gpl.make_yaxis_scale_bar(axs[1], label="PC 2", text_buff=.3)
+    gpl.make_yaxis_scale_bar(axs[1], label="PC 2", text_buff=0.3)
     gpl.make_xaxis_scale_bar(axs[1], label="PC 1")
     gpl.clean_plot(axs[1], 0)
     gpl.clean_plot(axs[0], 0)
@@ -85,7 +112,7 @@ def visualize_rf_properties(w_distrib, n_units=2000, total_pwr=10, axs=None, ski
 
 def plot_tcc_results(tcc_dict, fwid=2, ind=None, faxs=None, color=None, plot_title=""):
     if faxs is None:
-        faxs = plt.subplots(1, 3, figsize=(fwid*3.5, fwid))
+        faxs = plt.subplots(1, 3, figsize=(fwid * 3.5, fwid))
     f, axs = faxs
     sweep_results = tcc_dict["sweep"]
     emp_results = tcc_dict["emp"]
@@ -101,11 +128,11 @@ def plot_tcc_results(tcc_dict, fwid=2, ind=None, faxs=None, color=None, plot_tit
     sigs, dps = emp_results
     if ind is None:
         sig_m = np.mean(sigs)
-        ind = np.argmin((sigs - sig_m)**2)
+        ind = np.argmin((sigs - sig_m) ** 2)
     plot_comparison_distrib(sigs[ind], dps[ind], errs, hist_color=color, ax=axs[2])
     gpl.clean_plot(axs[1], 0)
     gpl.clean_plot(axs[2], 1)
-    gpl.make_yaxis_scale_bar(axs[1], .1, label="density", double=False)
+    gpl.make_yaxis_scale_bar(axs[1], 0.1, label="density", double=False)
     axs[1].set_xlabel("error (radians)")
     axs[2].set_xlabel("error (radians)")
     axs[0].set_title(plot_title)
@@ -2417,7 +2444,7 @@ def plot_sig_comparison(emp_func, bins, theor_func, ax=None):
     if ax is None:
         f, ax = plt.subplots(1, 1)
     l = ax.plot(bins, emp_func.T)
-    _ = ax.plot(bins, theor_func.T, linestyle='dashed', color=l[0].get_color())
+    _ = ax.plot(bins, theor_func.T, linestyle="dashed", color=l[0].get_color())
     return ax
 
 
@@ -2429,7 +2456,7 @@ def plot_sweep(
     ax=None,
     f=None,
     cmap="Greys",
-    fit_color=(.6,)*3,
+    fit_color=(0.6,) * 3,
     opt_color="w",
     ms=5,
 ):
@@ -2437,18 +2464,18 @@ def plot_sweep(
         f, ax = plt.subplots(1, 1)
     m = gpl.pcolormesh(dps, sigmas, np.log(kls), ax=ax, cmap=cmap)
     f.colorbar(m)
-    ax.set_ylabel('width')
+    ax.set_ylabel("width")
     ax.set_xlabel("d'")
     xt = ax.get_xticks()
     ax.set_xticks(xt[::5])
     yt = ax.get_yticks()
     ax.set_yticks(yt[::5])
-    ax.set_yticks([.1, 2, 4])
-    ax.set_xticks([.2, 1, 2])
+    ax.set_yticks([0.1, 2, 4])
+    ax.set_xticks([0.2, 1, 2])
     if theor_params is not None:
-        ax.plot(theor_params[1], theor_params[0], color=fit_color, marker='o', ms=ms)
+        ax.plot(theor_params[1], theor_params[0], color=fit_color, marker="o", ms=ms)
     sig_inds, dp_inds = np.where(kls == np.min(kls))
-    ax.plot(dps[dp_inds], sigmas[sig_inds], color=opt_color, marker='*', ms=ms)
+    ax.plot(dps[dp_inds], sigmas[sig_inds], color=opt_color, marker="*", ms=ms)
     return ax
 
 
@@ -2467,7 +2494,7 @@ def plot_comparison_distrib(
     ax=None,
     labels=None,
     fit_color="k",
-    hist_color=np.array([52, 152, 219])/255,
+    hist_color=np.array([52, 152, 219]) / 255,
 ):
     if ax is None:
         f, ax = plt.subplots(1, 1)
@@ -3136,7 +3163,7 @@ def plot_k_distributions(
 def plot_tcc_behavioral_params(samples, axs=None, fwid=2):
     if axs is None:
         n_plots = len(samples)
-        f, axs = plt.subplots(1, n_plots, figsize=(fwid*n_plots, fwid))
+        f, axs = plt.subplots(1, n_plots, figsize=(fwid * n_plots, fwid))
     for i, (param, samps) in enumerate(samples.items()):
         axs[i].hist(samps, density=True)
         axs[i].set_xlabel(param)
@@ -3148,7 +3175,11 @@ def plot_tcc_behavioral_params(samples, axs=None, fwid=2):
 def plot_tcc_behavioral_fit(out, axs=None, fwid=2):
     if axs is None:
         f, axs = plt.subplots(
-            1, 2, figsize=(fwid*2, fwid), sharey=True, sharex=True,
+            1,
+            2,
+            figsize=(fwid * 2, fwid),
+            sharey=True,
+            sharex=True,
         )
     ax1, ax2 = axs
     errs_sim = u.normalize_periodic_range(

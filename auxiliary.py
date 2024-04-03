@@ -158,7 +158,7 @@ def load_lm_results(runinds, folder='swap_errors/lms/',
             timing = m.group("timing")
             trial_type = m.group("trial_type")
             session_ind = int(m.group("session_ind"))
-            out = pickle.load(open(os.path.join(folder, fl), 'rb'))
+            out = pd.read_pickle(open(os.path.join(folder, fl), 'rb'))
             null_col_fl = out["null_color"]
             null_cue_fl = out["null_cue"]
             if swap_mean:
@@ -243,7 +243,7 @@ def load_naive_results(nc_run, folder='swap_errors/naive_centroids/',
             path = os.path.join(folder, matches[0])
         else:
             raise IOError('no matching file found')
-    c_dict = pickle.load(open(path, 'rb'))
+    c_dict = pd.read_pickle(open(path, 'rb'))
     return c_dict
 
 
@@ -295,7 +295,7 @@ def load_o_fits(run_ind, n_colors=5, sess_inds=range(23),
                                          ext='.pkl',
                                          run_ind=run_ind)
                 d_fp = os.path.join(folder, d_ind)
-                data = pickle.load(open(d_fp, 'rb'))
+                data = pd.read_pickle(open(d_fp, 'rb'))
             for k, v in data['diags'].items():
                 if not v:
                     print('session {ind} has {k} warning'.format(ind=ind,
@@ -323,7 +323,7 @@ def load_x_sweep(folder, run_ind, template, guess=False):
         m = re.match(template, fl)
         if m is not None:
             decider = m.group('decider')
-            out_fl = pickle.load(open(os.path.join(folder, fl), 'rb'))
+            out_fl = pd.read_pickle(open(os.path.join(folder, fl), 'rb'))
             args = out_fl.pop('args')
             out_fl.update(vars(args))
             x_list.append(out_fl)
@@ -351,7 +351,7 @@ def load_circus_sweep(folder, swept_keys, store_keys=('cue1', 'cue2'),
     for fl in fls:        
         m = re.match(template, fl)
         if m is not None:
-            data = pickle.load(open(os.path.join(folder, fl), 'rb'))
+            data = pd.read_pickle(open(os.path.join(folder, fl), 'rb'))
             for kk in keep_keys:
                 out[kk].append(data[kk])
             out['conj'] = {sk:out[sk] for sk in swept_keys}
@@ -418,7 +418,7 @@ def load_pro_d1_stan_data(n_colors=5, spline_order=1, region='all',
                             diff=diff, manual=manual,
                             impute=impute,
                             **kwargs)
-        sd = pickle.load(open(path, 'rb'))
+        sd = pd.read_pickle(open(path, 'rb'))
         out_dict[sr] = (None, sd)
     return out_dict
 
@@ -427,7 +427,7 @@ def load_files_ma_folders(file_template, **format_options):
     all_read = {}
     for prod in it.product(*format_options.values()):
         fp = file_template.format(*prod)
-        m = pickle.load(open(fp, 'rb'))
+        m = pd.read_pickle(open(fp, 'rb'))
         all_read[prod] = m
     return all_read
 
@@ -438,12 +438,12 @@ def session_df(file_template, keys, **format_options):
     format_options = c.OrderedDict(format_options)
     for prod in it.product(*format_options.values()):
         fp = file_template.format(*prod)
-        m = pickle.load(open(fp, 'rb'))
+        m = pd.read_pickle(open(fp, 'rb'))
         all_vals = prod + tuple(m[k] for k in keys)
 
         head, _ = os.path.split(fp)
         dp = os.path.join(head, 'stan_data.pkl')
-        data = pickle.load(open(dp, 'rb'))
+        data = pd.read_pickle(open(dp, 'rb'))
         m_dict['dims'].append(data['y'].shape[1])
     
         for i, k in enumerate(all_keys):
@@ -491,10 +491,10 @@ def load_model_fits(folder, guess_model_names=cue_default_model_names,
     model_dict = {}
     for i, ln in enumerate(load_names):
         path = os.path.join(folder, ln)
-        m = pickle.load(open(path, 'rb'))
+        m = pd.read_pickle(open(path, 'rb'))
         model_dict[load_keys[i]] = m
     data_path = os.path.join(folder, data_name)
-    data = pickle.load(open(data_path, 'rb'))
+    data = pd.read_pickle(open(data_path, 'rb'))
     return model_dict, data        
 
 busch_bhv_fields = ('StopCondition', 'ReactionTime', 'Block',
@@ -621,7 +621,7 @@ def load_buschman_data(folder, template='[0-9]{2}[01][0-9][0123][0-9]',
     dates, expers, monkeys, datas = [], [], [], []
     n_neurs = []
     if load_bhv_model is not None:
-        bhv_model = pickle.load(open(load_bhv_model, 'rb'))
+        bhv_model = pd.read_pickle(open(load_bhv_model, 'rb'))
     for fl in fls:
         m = re.match(template, fl)
         if m is not None:
