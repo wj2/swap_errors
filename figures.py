@@ -436,7 +436,6 @@ class LMFigure(SwapErrorFigure):
         e_name = self.params.get("Elmo_name")
         w_name = self.params.get("Waldorf_name")
 
-        print(data_dict["Wald"]["pro"].keys())
         m_names = (e_name, w_name)
         monkeys = ("Elmo", "Wald")
         for i, m in enumerate(monkeys):
@@ -538,10 +537,10 @@ class LMFigure(SwapErrorFigure):
         horiz_gap = 5
         vert_gap = 10
 
-        vert_pt = int(200/3)
+        vert_pt = int(325/4)
         
         lm_gs = pu.make_mxn_gridspec(
-            self.gs, 4, 4, 0, vert_pt - vert_gap/2, 0, 100, 5, horiz_gap
+            self.gs, 6, 4, 0, vert_pt - vert_gap/2, 0, 100, 5, horiz_gap
         )
         lm_axs = self.get_axs(lm_gs, sharey="all", sharex="vertical")
 
@@ -560,8 +559,11 @@ class LMFigure(SwapErrorFigure):
         fd, color_dict, cue_dict = self.load_all_runs()
 
         colors_null, colors_alt = self.get_lm_plot_colors()
-        mat_inds_lm = (((0, 1), (0, 1), (0, 1), (0, 1)),
-                       ((0, 1), (0, 1), (0, 2), (0, 2)))
+        mat_inds_lm = (
+            ((0, 1), (0, 1), (0, 1), (0, 1)),
+            ((0, 1), (0, 1), (0, 2), (0, 2)),
+            ((0, 1), (0, 1), (1, 2), (1, 2)),
+        )
 
         self._plot_lm_dict(
             self.trial_type,
@@ -856,7 +858,7 @@ class NeuronNumFigure(SwapErrorFigure):
 
 class RetroLMFigure(LMFigure):
     def __init__(self, fig_key="retro_lm", colors=colors, **kwargs):
-        fsize = (4, 7)
+        fsize = (4, 9.3)
         cf = u.ConfigParserColor()
         cf.read(config_path)
 
@@ -883,16 +885,22 @@ class RetroLMFigure(LMFigure):
         color22 = self.params.getcolor("cue_interp_color")
         color31 = self.params.getcolor("selection_color")
         color32 = self.params.getcolor("cue_interp_color")
-        colors_alt = ((color11, color11, color21, color31),
-                      (color11, color11, color22, color32))
-        colors_null = ((corr_color, corr_color, corr_color, corr_color),
-                       (corr_color, corr_color, corr_color, corr_color))
+        colors_alt = (
+            (color11, color11, color21, color31),
+            (color11, color11, color22, color32),
+            (color11, color11, color22, color32),
+        )
+        colors_null = (
+            (corr_color, corr_color, corr_color, corr_color),
+            (corr_color, corr_color, corr_color, corr_color),
+            (corr_color, corr_color, corr_color, corr_color),
+        )
         return colors_null, colors_alt
 
 
 class ProLMFigure(LMFigure):
     def __init__(self, fig_key="pro_lm", colors=colors, **kwargs):
-        fsize = (4, 7)
+        fsize = (4, 9.3)
         cf = u.ConfigParserColor()
         cf.read(config_path)
 
@@ -920,10 +928,16 @@ class ProLMFigure(LMFigure):
         color31 = self.params.getcolor("misbinding_color")
         color32 = self.params.getcolor("selection_color")
         
-        colors_alt = ((color11, color11, color21, color31),
-                      (color11, color11, color22, color32))
-        colors_null = ((corr_color, corr_color, corr_color, corr_color),
-                       (corr_color, corr_color, corr_color, corr_color))
+        colors_alt = (
+            (color11, color11, color21, color31),
+            (color11, color11, color22, color32),
+            (color11, color11, color22, color32),
+        )
+        colors_null = (
+            (corr_color, corr_color, corr_color, corr_color),
+            (corr_color, corr_color, corr_color, corr_color),
+            (corr_color, corr_color, corr_color, corr_color),
+        )
         return colors_null, colors_alt
 
     
@@ -1350,9 +1364,11 @@ class ModelBasedFigure(SwapErrorFigure):
         e_d2_color = self.params.getcolor("elmo_color")
         w_d2_color = self.params.getcolor("waldorf_color")
 
+        thresh = self.params.getfloat("strong_assoc_param")
+
         full_dict, elmo_fits, wald_fits = self.get_d2_fits()
-        self._save_rate_stats(elmo_fits, "Monkey E", "d2", type_str)
-        self._save_rate_stats(wald_fits, "Monkey W", "d2", type_str)
+        self._save_rate_stats(elmo_fits, "Monkey E", "d2", type_str, thresh=thresh,)
+        self._save_rate_stats(wald_fits, "Monkey W", "d2", type_str, thresh=thresh,)
         self._save_kind_diff_stats(elmo_fits, "Monkey E", type_str, **kwargs)
         self._save_kind_diff_stats(wald_fits, "Monkey W", type_str, **kwargs)
 
@@ -1863,8 +1879,14 @@ class RetroSwapFigure(ModelBasedFigure):
         #                colors=(e_d2_color, w_d2_color),
         #                diff=.1)
 
-        self._save_rate_stats(e_d1_fits, "Monkey E", "d1", "retro", t_ind=False)
-        self._save_rate_stats(w_d1_fits, "Monkey W", "d1", "retro", t_ind=False)
+        thresh = self.params.getfloat("strong_assoc_param")
+
+        self._save_rate_stats(
+            e_d1_fits, "Monkey E", "d1", "retro", t_ind=False, thresh=thresh,
+        )
+        self._save_rate_stats(
+            w_d1_fits, "Monkey W", "d1", "retro", t_ind=False, thresh=thresh,
+        )
         swv.plot_rate_differences(e_d1_fits, e_d2_fits, ax=sess_ax, color=e_color)
         swv.plot_rate_differences(w_d1_fits, w_d2_fits, ax=sess_ax, color=w_color)
         gpl.clean_plot(sess_ax, 0)
