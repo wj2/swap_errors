@@ -150,7 +150,7 @@ def compare_model_confs(param_key, *models, ax=None, fwid_h=10, fwid_v=1):
         for j, ind in enumerate(u.make_array_ind_iterator(samples.shape[:-1])):
             sl = samples[ind]
             color = colors.get(i)
-            l = gpl.plot_trace_werr(
+            l_ = gpl.plot_trace_werr(
                 [j + i / (2 * len(models))],
                 np.expand_dims(sl, 1),
                 conf95=True,
@@ -160,7 +160,7 @@ def compare_model_confs(param_key, *models, ax=None, fwid_h=10, fwid_v=1):
             )
             delt = gpl.conf95_interval(sl)
             wids[i].append(delt[0, 0] - delt[1, 0])
-            colors[i] = l[0].get_color()
+            colors[i] = l_[0].get_color()
     return wids
 
 
@@ -253,11 +253,11 @@ def plot_cue_decoding(rate_dict, color=None, axs=None, n_boots=1000, x_cent=0):
         c_err, s_err = err_tuple[:2]
         c_err = np.expand_dims(c_err, 1)
         s_err = np.expand_dims(s_err, 1)
-        l = gpl.plot_trace_werr(
+        l_ = gpl.plot_trace_werr(
             c_err, s_err, ax=axs[0], points=True, error_func=gpl.std, color=color
         )
         diffs.append(np.mean(s_err) - np.mean(c_err))
-        color = l[0].get_color()
+        color = l_[0].get_color()
 
     mu_diff = u.bootstrap_list(np.array(diffs), np.nanmean, n_boots)
     gpl.violinplot(
@@ -331,7 +331,7 @@ def plot_model_probs(
 
     # sns.violinplot(data=violin_full, x='x', y='y', hue='monkey',
     #                palette=monkey_colors, ax=ax)
-    l = sns.swarmplot(
+    _ = sns.swarmplot(
         data=swarm_full,
         x="x",
         y="y",
@@ -726,7 +726,6 @@ def plot_config_differences(
             null_cents1, swap_cents1 = v1[cent_ind]
             null_cents2, swap_cents2 = v2[cent_ind]
             null_ps1, swap_ps1 = v1[p_ind]
-            all_ps = np.concatenate((null_ps1, swap_ps1), axis=0)
             vcorr_null = vec_correlation(null_cents1, null_cents2)
             out = config_distance(null_cents1, null_cents2)
             null_dists, n1_dist, n2_dist = out
@@ -908,9 +907,9 @@ def plot_all_nc_dict(
 def plot_nc_diffs(info_groups, diff_axs, colors=None, plot_key="comb"):
     if colors is None:
         colors = {}
-    for i, (k, l) in enumerate(info_groups.items()):
+    for i, (k, l_) in enumerate(info_groups.items()):
         m_color = colors.get(k)
-        for j, d in enumerate(l):
+        for j, d in enumerate(l_):
             ax = diff_axs[j]
             diffs, test = d[plot_key]
             gpl.violinplot([diffs], [i], color=[m_color], ax=ax)
@@ -1087,7 +1086,7 @@ def plot_rates(
                 ind = swaux.get_type_ind(task_type, data)
                 simpl = simpl[:, ind]
             pts = 1 - simpl[:, ref_ind]
-            l = gpl.plot_trace_werr(
+            l_ = gpl.plot_trace_werr(
                 sess_ind + diff,
                 np.expand_dims(pts, 1),
                 ax=ax,
@@ -1096,7 +1095,7 @@ def plot_rates(
                 elinewidth=lw,
                 color=color,
             )
-            color = l[0].get_color()
+            color = l_[0].get_color()
     gpl.add_hlines(0, ax)
     gpl.add_hlines(1, ax)
 
@@ -1206,8 +1205,6 @@ def plot_period_units_tuning(
 
     if not use_retro:
         base_colors_pre = (default_target_color, default_distr_color)
-    else:
-        base_colors_cue = base_colors_pre
 
     plot_single_neuron_tuning_samples(
         data,

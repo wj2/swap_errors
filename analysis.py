@@ -1,13 +1,12 @@
 import os
 import numpy as np
 import pickle
+
 # import stan
 # import pystan as ps
 import arviz as az
-import scipy.spatial.distance as spsd
 import scipy.special as spsp
 import sklearn.manifold as skm
-import sklearn.neighbors as skn
 import sklearn.model_selection as skms
 import sklearn.svm as skc
 import sklearn.linear_model as sklm
@@ -26,10 +25,14 @@ import general.data_io as dio
 import general.neural_analysis as na
 import general.stan_utility as su
 import general.utility as u
+import rsatoolbox as rsa
+
 # import general.decoders as gd
 import general.plotting as gpl
 import swap_errors.auxiliary as swa
 import pandas as pd
+import general.decoders as gd
+
 # import rsatoolbox as rsa
 
 
@@ -39,7 +42,7 @@ def average_simplices(
     simplex_key="p_err",
     model_path="swap_errors/dirich_avg.pkl",
     model_key="other",
-    **kwargs
+    **kwargs,
 ):
     samps_all = []
     for k, (fd, data) in o_dict.items():
@@ -57,7 +60,7 @@ def average_simplices(
 
 
 def smooth_dfunc(func, wid, xs, mode="valid"):
-    con = np.ones((1,)*(len(func.shape) - 1) + (wid,)) / wid
+    con = np.ones((1,) * (len(func.shape) - 1) + (wid,)) / wid
     out = ssig.convolve(func, con, mode=mode)
     new_xs = ssig.convolve(xs, np.squeeze(con), mode=mode)
     return out, new_xs
@@ -245,15 +248,15 @@ def decode_corr_swap_guess(
             n_c1 = n_c1[sub_inds]
             l_c1 = l_c1[sub_inds]
         n = np.concatenate((n_c1, n_c2), axis=0)
-        l = np.concatenate((l_c1, l_c2), axis=0)
+        l_ = np.concatenate((l_c1, l_c2), axis=0)
         pipe = na.make_model_pipeline(model=model)
         cv = cv_type(n_cv, test_size=test_prop)
-        out = skms.cross_val_score(pipe, n, l, cv=cv)
+        out = skms.cross_val_score(pipe, n, l_, cv=cv)
         out_dict[(labels[i], labels[j])] = out
 
-        inds = np.arange(len(l))
+        inds = np.arange(len(l_))
         np.random.shuffle(inds)
-        out_shuff = skms.cross_val_score(pipe, n, l[inds], cv=cv)
+        out_shuff = skms.cross_val_score(pipe, n, l_[inds], cv=cv)
         out_dict_shuff[(labels[i], labels[j])] = out_shuff
     return out_dict, out_dict_shuff
 
@@ -550,7 +553,7 @@ def nonlinear_dimred(
     regions=None,
     dim_red=skm.LocallyLinearEmbedding,
     n_components=2,
-    **kwargs
+    **kwargs,
 ):
     if twindow is None:
         twindow = tend - tbeg
@@ -578,32 +581,6 @@ def nonlinear_dimred(
     return emb_pops, drs, colors, xs
 
 
-def compute_persistent_homology_pops(
-    data,
-    tbeg=0.05,
-    tend=0.55,
-    twindow=0.1,
-    tstep=None,
-    time_key="SAMPLES_ON_diode",
-    regions=None,
-    max_pops=np.inf,
-    **kwargs
-):
-    pops, xs = data.get_populations(
-        twindow, tbeg, tend, tstep, time_zero_field=time_key
-    )
-    bettis = []
-    for i, pop in enumerate(pops):
-        if i >= max_pops:
-            break
-        pop_flat = np.concatenate(
-            list((pop[..., j] for j in range(pop.shape[-1]))), axis=0
-        )
-        bs = compute_persistent_homology(pop_flat, **kwargs)
-        bettis.append(bs)
-    return bettis
-
-
 def get_pareto_k(fit, k_thresh=0.7):
     x = az.loo(fit, pointwise=True)
     k_val = x["pareto_k"]
@@ -620,42 +597,12 @@ def get_pareto_k_dict(fit_dict, **kwargs):
     return k_dict
 
 
-def compute_persistent_homology(
-    pop,
-    dim_red=10,
-    dim_red_method=skm.Isomap,
-    neighborhood=True,
-    n_neighbors=5,
-    thresh_percent=20,
-):
-    if pop.shape[1] > dim_red:
-        dr = dim_red_method(n_components=dim_red, n_neighbors=n_neighbors)
-        pop = dr.fit_transform(pop)
-    if neighborhood:
-        dists = spsd.pdist(pop)
-        rad = np.percentile(dists, 1)
-        neigh = skn.NearestNeighbors()
-        neigh.fit(pop)
-        neigh_dists = neigh.radius_neighbors(X=pop, radius=rad, return_distance=False)
-        num_nbrs = np.array(list(map(len, neigh_dists)))
-        threshold = np.percentile(num_nbrs, thresh_percent)
-        pop = pop[num_nbrs > threshold]
-    results = {}
-    barcodes = r.ripser(pop, maxdim=1, coeff=2)["dgms"]
-    results["h0"] = barcodes[0]
-    results["h1"] = barcodes[1]
-
-    results["h2"] = r.ripser(pop, maxdim=2, coeff=2)["dgms"][2]
-    return results
-
-
 def decode_fake_data(n_times, n_neurons, n_trials, n_colors, noise_std=0.1):
     cols = np.linspace(0, 2 * np.pi, n_colors)
     x = np.sin(cols)
     y = np.cos(cols)
     x_code_m = sts.norm(0, 10).rvs((n_neurons, 1))
     x_code = x_code_m + sts.norm(0, 1).rvs((1, n_times))
-    y_code_m = sts.norm(0, 10).rvs((n_neurons, 1))
     y_code = x_code_m + sts.norm(0, 1).rvs((1, n_times))
     resp_x = np.expand_dims(x_code, -1) * np.expand_dims(x, (0, 1))
     resp_y = np.expand_dims(y_code, -1) * np.expand_dims(y, (0, 1))
@@ -806,7 +753,10 @@ def get_dist_diff_prop(corr_dist, err_dist, n_boots=1000):
         assert cd.shape[1] == 1
         ed_diff = np.squeeze(np.diff(ed, axis=2))
         diff_diff = ed_diff - cd_diff
-        func = lambda x: np.mean(x > 0, axis=0)
+
+        def func(x):
+            np.mean(x > 0, axis=0)
+
         for j, dd in enumerate(diff_diff):
             out_i[j] = u.bootstrap_list(dd, func, n=n_boots, out_shape=(ed.shape[-1],))
         outs.append(out_i)
@@ -964,18 +914,18 @@ def filter_nc_dis(
     use_dis = []
     for d1_c in use_d1s:
         if len(list(centroid_dict[d1_c].keys())[0]) > 2:
-            k_filt = lambda k: k[0] in use_range and k[1] == regions
+            def k_filt(k): return k[0] in use_range and k[1] == regions
         else:
-            k_filt = lambda k: k[0] in use_range
+            def k_filt(k): return k[0] in use_range
         d1i_use = {k: v for k, v in centroid_dict[d1_c].items() if k_filt(k)}
         use_dis.append(d1i_use)
     for use_cond in cond_types:
         if len(list(centroid_dict[d2_key].keys())[0]) > 2:
-            k_filt = lambda k: (
-                k[0] in use_range and k[1] == regions and k[2] == use_cond
+            def k_filt(k): return (
+                    k[0] in use_range and k[1] == regions and k[2] == use_cond
             )
         else:
-            k_filt = lambda k: (k[0] in use_range and k[1] == use_cond)
+            def k_filt(k): return (k[0] in use_range and k[1] == use_cond)
         d2i_use = {k: v for k, v in centroid_dict[d2_key].items() if k_filt(k)}
         use_dis.append(d2i_use)
     return use_dis
@@ -995,7 +945,6 @@ def compute_centroid_diffs(
             elmo_range=range(13), waldorf_range=range(13, 24), comb_range=range(24)
         )
 
-    ax_labels = list(use_d1s) + list(" ".join((d2_key, ct)) for ct in cond_types)
     m_labels = []
     m_out = np.zeros((len(session_dict), len(use_d1s) + len(cond_types)))
     p_out = np.zeros_like(m_out)
@@ -1088,7 +1037,7 @@ def organize_target_swapping(
     run_ind,
     sweep_keys=("decider_arg", "avg_dist"),
     res_keys=("d1_cu", "d1_cl", "d2"),
-    **kwargs
+    **kwargs,
 ):
     st_df = swa.load_fs_sweep(folder, run_ind)
     ax_vals = []
@@ -1107,8 +1056,6 @@ def organize_target_swapping(
             if av[ind[i]] is not None
         )
         mask = np.product(mask, axis=0).astype(bool)
-        st_masked = st_df[mask].iloc[0]
-        st_ind = st_masked.to_dict()
         out_arr[ind] = combine_forgetting(
             st_df[mask], include_keys=res_keys, mid_average=False, merge_keys=False
         )
@@ -1366,7 +1313,7 @@ def naive_forgetting(data_dict, cue_key="cue", flip_cue=False, cue_targ=1, **kwa
         use_cue=False,
         flip_cue=flip_cue,
         swap_mask=cue_mask,
-        **kwargs
+        **kwargs,
     )
     return out[:2]
 
@@ -1392,7 +1339,7 @@ def _compute_trl_c_dist(
         swap_vec = swap_cent - null_cent
         sv_len = np.sqrt(np.sum(swap_vec**2))
         sv_u = np.expand_dims(u.make_unit_vector(swap_vec), 0)
-        
+
         test_activity = y[corr_te]
         dist = np.dot(sv_u, (test_activity - null_cent).T) / sv_len
     else:
@@ -1429,7 +1376,7 @@ def _pseudo_split_generator(pop_dict, n_groups=100):
 
         y_sw = []
         l_sw = []
-        
+
         min_tr_c0 = np.inf
         min_tr_c1 = np.inf
 
@@ -1437,13 +1384,13 @@ def _pseudo_split_generator(pop_dict, n_groups=100):
         min_sw_c1 = np.inf
         for k, data_list in pop_dict.items():
             ind = rng.choice(len(data_list))
-            y_tr_k, l_tr_k = data_list[ind]['training']
+            y_tr_k, l_tr_k = data_list[ind]["training"]
             min_tr_c1 = np.min([np.sum(l_tr_k), min_tr_c1])
             min_tr_c0 = np.min([np.sum(~l_tr_k), min_tr_c0])
 
-            y_te_k, l_te_k = data_list[ind]['test']
+            y_te_k, l_te_k = data_list[ind]["test"]
 
-            y_sw_k, l_sw_k = data_list[ind]['swap']
+            y_sw_k, l_sw_k = data_list[ind]["swap"]
             min_sw_c1 = np.min([np.sum(l_sw_k), min_sw_c1])
             min_sw_c0 = np.min([np.sum(~l_sw_k), min_sw_c0])
 
@@ -1456,21 +1403,23 @@ def _pseudo_split_generator(pop_dict, n_groups=100):
 
         y_tr, l_tr = _subsample_categories(y_tr, l_tr, min_tr_c0, min_tr_c1, rng)
         y_sw, l_sw = _subsample_categories(y_sw, l_sw, min_sw_c0, min_sw_c1, rng)
-        yield {'training': (np.concatenate(y_tr, axis=1), l_tr),
-               'test': (np.concatenate(y_te, axis=1), l_te[0]),
-               'swap': (np.concatenate(y_sw, axis=1), l_sw)}
+        yield {
+            "training": (np.concatenate(y_tr, axis=1), l_tr),
+            "test": (np.concatenate(y_te, axis=1), l_te[0]),
+            "swap": (np.concatenate(y_sw, axis=1), l_sw),
+        }
 
 
 def color_pseudopop(
     session_dict,
-    cu_key='up_col_rads',
-    cl_key='down_col_rads',
+    cu_key="up_col_rads",
+    cl_key="down_col_rads",
     use_cue=True,
     flip_cue=False,
     no_cue_targ="up_col_rads",
     no_cue_dist="down_col_rads",
     convert_splines=True,
-    tp_key='p',
+    tp_key="p",
     activity_key="y",
     swap_decider=guess_argmax,
     corr_decider=corr_argmax,
@@ -1483,10 +1432,16 @@ def color_pseudopop(
 ):
     pop_dict = {}
     for k, data_dict in session_dict.items():
-        c_t, c_d = _organize_colors(data_dict, cu_key=cu_key, cl_key=cl_key,
-                                    use_cue=use_cue, flip_cue_centroids=flip_cue,
-                                    no_cue_targ=no_cue_targ, no_cue_dist=no_cue_dist,
-                                    convert_splines=convert_splines)
+        c_t, c_d = _organize_colors(
+            data_dict,
+            cu_key=cu_key,
+            cl_key=cl_key,
+            use_cue=use_cue,
+            flip_cue_centroids=flip_cue,
+            no_cue_targ=no_cue_targ,
+            no_cue_dist=no_cue_dist,
+            convert_splines=convert_splines,
+        )
         corr_inds, swap_inds = _get_corr_swap_inds(
             data_dict[tp_key], corr_decider, swap_decider
         )
@@ -1503,30 +1458,36 @@ def color_pseudopop(
             targ_col = c_t[corr_te]
             dist_col = c_d[corr_te]
             if col_diff(targ_col, dist_col) > col_thr and len(swap_inds):
-                labels_tr = (col_diff(tr_targ_cols, targ_col)
-                             < col_diff(tr_targ_cols, dist_col))
+                labels_tr = col_diff(tr_targ_cols, targ_col) < col_diff(
+                    tr_targ_cols, dist_col
+                )
                 labels_te = np.array([True])
                 y_tr = y[train_inds]
                 y_te = y[test_inds]
 
-                labels_swap = (col_diff(targ_col_swap, targ_col)
-                               < col_diff(targ_col_swap, dist_col))
-                if (np.sum(labels_swap) >= min_swaps
-                    and np.sum(~labels_swap) >= min_swaps):
+                labels_swap = col_diff(targ_col_swap, targ_col) < col_diff(
+                    targ_col_swap, dist_col
+                )
+                if (
+                    np.sum(labels_swap) >= min_swaps
+                    and np.sum(~labels_swap) >= min_swaps
+                ):
                     set_list = pop_dict.get(k, [])
-                    data_split = {'training': (y_tr, labels_tr),
-                                  'test': (y_te, labels_te),
-                                  'swap': (y_swap, labels_swap)}
+                    data_split = {
+                        "training": (y_tr, labels_tr),
+                        "test": (y_te, labels_te),
+                        "swap": (y_swap, labels_swap),
+                    }
                     set_list.append(data_split)
                     pop_dict[k] = set_list
     corr_score = np.zeros(n_reps)
     swap_score = np.zeros(n_reps)
     for i, data_split in enumerate(_pseudo_split_generator(pop_dict, n_groups=n_reps)):
-        m = na.make_model_pipeline(model=model, pca=.95)
-        m.fit(*data_split['training'])
-        
-        corr_score[i] = m.score(*data_split['test'])
-        swap_score[i] = m.score(*data_split['swap'])
+        m = na.make_model_pipeline(model=model, pca=0.95)
+        m.fit(*data_split["training"])
+
+        corr_score[i] = m.score(*data_split["test"])
+        swap_score[i] = m.score(*data_split["swap"])
     return corr_score, swap_score
 
 
@@ -1580,10 +1541,16 @@ def naive_guessing(
     shuffle_nulls=False,
     shuffle_swaps=False,
 ):
-    c_t, c_d = _organize_colors(data_dict, cu_key=cu_key, cl_key=cl_key,
-                                use_cue=use_cue, flip_cue_guess=flip_cue,
-                                no_cue_targ=no_cue_targ, no_cue_dist=no_cue_dist,
-                                convert_splines=convert_splines)
+    c_t, c_d = _organize_colors(
+        data_dict,
+        cu_key=cu_key,
+        cl_key=cl_key,
+        use_cue=use_cue,
+        flip_cue_guess=flip_cue,
+        no_cue_targ=no_cue_targ,
+        no_cue_dist=no_cue_dist,
+        convert_splines=convert_splines,
+    )
     # if flip_cue:
     #     no_cue_targ = "down_col_rads"
     #     no_cue_dist = "resp_rads"
@@ -1625,11 +1592,20 @@ def naive_guessing(
     )
 
 
-def _organize_colors(data_dict, cu_key="up_col_rads", cl_key="down_col_rads",
-                     cue_key="cue", no_cue_targ="up_col_rads",
-                     no_cue_dist="down_col_rads", convert_splines=True,
-                     use_cue=True, flip_cue_centroids=False, flip_cue_guess=False,
-                     use_guess=True, guess_key="resp_rads"):
+def _organize_colors(
+    data_dict,
+    cu_key="up_col_rads",
+    cl_key="down_col_rads",
+    cue_key="cue",
+    no_cue_targ="up_col_rads",
+    no_cue_dist="down_col_rads",
+    convert_splines=True,
+    use_cue=True,
+    flip_cue_centroids=False,
+    flip_cue_guess=False,
+    use_guess=True,
+    guess_key="resp_rads",
+):
     if flip_cue_centroids:
         no_cue_targ = "down_col_rads"
         no_cue_dist = "up_col_rads"
@@ -1682,10 +1658,16 @@ def _naive_centroids_inner(
     shuffle_nulls=False,
     shuffle_swaps=False,
 ):
-    c_t, c_d = _organize_colors(data_dict, cu_key=cu_key, cl_key=cl_key,
-                                use_cue=use_cue, flip_cue_centroids=flip_cue,
-                                no_cue_targ=no_cue_targ, no_cue_dist=no_cue_dist,
-                                convert_splines=convert_splines)
+    c_t, c_d = _organize_colors(
+        data_dict,
+        cu_key=cu_key,
+        cl_key=cl_key,
+        use_cue=use_cue,
+        flip_cue_centroids=flip_cue,
+        no_cue_targ=no_cue_targ,
+        no_cue_dist=no_cue_dist,
+        convert_splines=convert_splines,
+    )
     # if flip_cue:
     #     no_cue_targ = "down_col_rads"
     #     no_cue_dist = "up_col_rads"
@@ -1741,6 +1723,7 @@ def _compute_centroid_dists(
     shuffle_swaps=False,
     shuffle_nulls=False,
 ):
+    rng = np.random.default_rng()
     null_dists = np.zeros(len(corr_inds))
     swap_dists = np.zeros((len(corr_inds), len(swap_inds)))
 
@@ -1756,7 +1739,6 @@ def _compute_centroid_dists(
         null_ps[i] = data_dict[tp_key][corr_inds[test_inds]]
         corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
         tr_targ_cols = c_t[corr_tr]
-        tr_dist_cols = c_d[corr_tr]
         targ_col = c_t[corr_te]
         if shuffle_nulls:
             dist_col = rng.choice(c_d)
@@ -1806,7 +1788,7 @@ def _project_preds(preds, samps, use_center=False):
     """
     n_preds = len(preds)
     out = np.zeros((n_preds, n_preds, len(samps)))
-    for (i, j) in it.product(range(n_preds), repeat=2):
+    for i, j in it.product(range(n_preds), repeat=2):
         if i != j:
             p_i, p_j = preds[i], preds[j]
             swap_vec = p_j - p_i
@@ -1823,14 +1805,16 @@ def _project_preds(preds, samps, use_center=False):
     return out
 
 
-def _fit_cn_lm_tc(tr_pair, coeff_pair, y_pair, model=sklm.Ridge, pre_pipe=None):
-    tr_coeffs, tr_y = tr_pair
+def _fit_cn_lm_tc(tr_data, te_data, model=sklm.Ridge, pre_pipe=None):
+    tr_coeffs, tr_y = tr_data
     n_ts = tr_y.shape[-1]
+
+    te_coeffs, te_y = te_data
 
     dists = np.zeros(n_ts)
     for i in range(n_ts):
         tr_y_i = tr_y[..., i]
-        y_pair_i = y_pair[..., i]
+        y_pair_i = te_y[..., i]
 
         if pre_pipe is not None:
             tr_y_i = pre_pipe.fit_transform(tr_y_i)
@@ -1838,16 +1822,14 @@ def _fit_cn_lm_tc(tr_pair, coeff_pair, y_pair, model=sklm.Ridge, pre_pipe=None):
         m = model()
         m.fit(tr_coeffs, tr_y_i)
 
-        y_te_pred = m.predict(coeff_pair)
+        y_te_pred = m.predict(te_coeffs)
         v1 = np.diff(y_pair_i, axis=0)[0]
         v2 = np.diff(y_te_pred, axis=0)[0]
         dists[i] = v1 @ v2
+    return dists
 
-    return dists    
 
-
-def _fit_lm_tc_model(tr_pair, null_pairs, swap_pairs, model=sklm.Ridge,
-                     pre_pipe=None):
+def _fit_lm_tc_model(tr_pair, null_pairs, swap_pairs, model=sklm.Ridge, pre_pipe=None):
     tr_coeffs, tr_y = tr_pair
 
     n_ts = tr_y.shape[-1]
@@ -1872,42 +1854,51 @@ def _fit_lm_tc_model(tr_pair, null_pairs, swap_pairs, model=sklm.Ridge,
         m = model()
         m.fit(tr_coeffs, tr_y_i)
 
-        null_preds = list(
-            m.predict(ap) for ap in null_pairs_i[0]
-        )
+        null_preds = list(m.predict(ap) for ap in null_pairs_i[0])
         null_proj[..., i] = _project_preds(null_preds, null_pairs_i[1])
-        swap_preds = list(
-            m.predict(ap) for ap in swap_pairs_i[0]
-        )
+        swap_preds = list(m.predict(ap) for ap in swap_pairs_i[0])
         swap_proj[..., i] = _project_preds(swap_preds, swap_pairs_i[1])
     return null_proj, swap_proj
 
 
 retro_sequences = {
-    'color presentation': (-.75, 1, 'SAMPLES_ON_diode', False, True),
-    'pre-cue presentation': (-.8, 0, 'CUE2_ON_diode', False, True,),
-    'post-cue presentation': (-.5, .8, 'CUE2_ON_diode', True, True,),
-    'wheel presentation': (-1, 0, 'WHEEL_ON_diode', True, True),
+    "color presentation": (-0.75, 1, "SAMPLES_ON_diode", False, True),
+    "pre-cue presentation": (
+        -0.8,
+        0,
+        "CUE2_ON_diode",
+        False,
+        True,
+    ),
+    "post-cue presentation": (
+        -0.5,
+        0.8,
+        "CUE2_ON_diode",
+        True,
+        True,
+    ),
+    "wheel presentation": (-1, 0, "WHEEL_ON_diode", True, True),
 }
 pro_sequences = {
-    'cue presentation': (-.5, .5, 'CUE1_ON_diode', True, False,),
-    'pre-color presentation': (-.5, 0, 'SAMPLES_ON_diode', True, False),
-    'post-color presentation': (-.5, 1.5, 'SAMPLES_ON_diode', True, True),
-    'wheel presentation': (-1, 0, 'WHEEL_ON_diode', True, True),
+    "cue presentation": (
+        -0.5,
+        0.5,
+        "CUE1_ON_diode",
+        True,
+        False,
+    ),
+    "pre-color presentation": (-0.5, 0, "SAMPLES_ON_diode", True, False),
+    "post-color presentation": (-0.5, 1.5, "SAMPLES_ON_diode", True, True),
+    "wheel presentation": (-1, 0, "WHEEL_ON_diode", True, True),
 }
 
 
 all_regions = ("7ab", "fef", "motor", "pfc", "tpot", "v4pit")
-single_region_subsets = {
-    r: (r,) for r in all_regions
-}
+single_region_subsets = {r: (r,) for r in all_regions}
 sub_region_subsets = {
-    "no_{}".format(r): tuple(x for x in all_regions if x != r)
-    for r in all_regions
+    "no_{}".format(r): tuple(x for x in all_regions if x != r) for r in all_regions
 }
-all_region_subset = {
-    "all": all_regions
-}
+all_region_subset = {"all": all_regions}
 
 
 def prepare_lm_tc_pops(
@@ -1915,12 +1906,15 @@ def prepare_lm_tc_pops(
     region_subsets=single_region_subsets,
     **kwargs,
 ):
-    for (k, sub) in region_subsets.items():
+    for k, sub in region_subsets.items():
         retro_dict = make_lm_tc_pops(*args, regions=sub, **kwargs)
         save_lm_tc_pops(retro_dict, add="retro_{}".format(k))
 
         pro_dict = make_lm_tc_pops(
-            *args, regions=sub, use_pro=True, **kwargs,
+            *args,
+            regions=sub,
+            use_pro=True,
+            **kwargs,
         )
         save_lm_tc_pops(pro_dict, add="pro_{}".format(k))
 
@@ -1928,14 +1922,14 @@ def prepare_lm_tc_pops(
 def make_lm_tc_pops(
     data,
     use_pro=False,
-    winsize=.5,
-    tstep=.05,
+    winsize=0.5,
+    tstep=0.05,
     pro_sequences=pro_sequences,
     retro_sequences=retro_sequences,
-    upper_key='upper_color',
-    lower_key='lower_color',
-    cue_key='IsUpperSample',
-    p_keys=('corr_prob', 'swap_prob', 'guess_prob'),
+    upper_key="upper_color",
+    lower_key="lower_color",
+    cue_key="IsUpperSample",
+    p_keys=("corr_prob", "swap_prob", "guess_prob"),
     **kwargs,
 ):
     if use_pro:
@@ -1959,7 +1953,7 @@ def make_lm_tc_pops(
         if cue_on:
             cue = data[cue_key]
         else:
-            cue = (None,)*len(spks)
+            cue = (None,) * len(spks)
         ps = data[list(p_keys)]
         pop_dict[k] = (spks, uc, lc, ps, cue, xs)
     return pop_dict
@@ -1968,67 +1962,69 @@ def make_lm_tc_pops(
 def save_lm_tc_pops(
     pop_dict,
     add="retro",
-    out_path='swap_errors/lm_data/lmtc_{}_{}_{}.pkl',
+    out_path="swap_errors/lm_data/lmtc_{}_{}_{}.pkl",
 ):
     for k, (spks, uc, lc, probs, cue, xs) in pop_dict.items():
-        k_save = k.replace(' ', '-')
+        k_save = k.replace(" ", "-")
         n_sessions = len(spks)
         for i in range(n_sessions):
             path = out_path.format(add, k_save, i)
             sd = {
-                'spks': spks[i],
-                'uc': uc[i].to_numpy(),
-                'lc': lc[i].to_numpy(),
-                'ps': probs[i].to_numpy(),
-                'cues': cue[i],
-                'other': {'xs': xs, 'sequence': k},
+                "spks": spks[i],
+                "uc": uc[i].to_numpy(),
+                "lc": lc[i].to_numpy(),
+                "ps": probs[i].to_numpy(),
+                "cues": cue[i],
+                "other": {"xs": xs, "sequence": k},
             }
-            pickle.dump(sd, open(path, 'wb'))
+            pickle.dump(sd, open(path, "wb"))
 
 
 def distance_lm_tc_frompickle(
-        path, out_folder=".", prefix="fit_dist_", jobid="0000", **kwargs,
+    path,
+    out_folder=".",
+    prefix="fit_dist_",
+    jobid="0000",
+    **kwargs,
 ):
-    sd = pd.read_pickle(open(path, 'rb'))
+    sd = pd.read_pickle(open(path, "rb"))
     _, name = os.path.split(path)
     name, ext = os.path.splitext(name)
     new_name = prefix + name + "_{}".format(jobid) + ext
     out_path = os.path.join(out_folder, new_name)
 
-    use_keys = ('spks', 'uc', 'lc', 'ps', 'cues')
+    use_keys = ("spks", "uc", "lc", "ps", "cues")
     args = list(sd.pop(uk) for uk in use_keys)
     spks, uc, lc, ps, cues = args
-    other_info = sd.pop('other')
-    xs = other_info['xs']
+    other_info = sd.pop("other")
+    xs = other_info["xs"]
 
     dist_mat = distance_lm_tc(*args, **sd, **kwargs)
 
     out_dict = {
-        'dist_mat': dist_mat,
-        'args': args,
-        'kwargs': kwargs,
-        'xs': xs,
-        'other': other_info,
-        'sd': sd,
+        "dist_mat": dist_mat,
+        "args": args,
+        "kwargs": kwargs,
+        "xs": xs,
+        "other": other_info,
+        "sd": sd,
     }
-    pickle.dump(out_dict, open(out_path, 'wb'))
+    pickle.dump(out_dict, open(out_path, "wb"))
     return out_path, out_dict
 
 
-
-def swap_lm_tc_frompickle(path, out_folder='.', prefix='fit_', jobid="0000",
-                          **kwargs):
-    sd = pickle.load(open(path, 'rb'))
+def swap_lm_tc_frompickle(path, out_folder=".", prefix="fit_", jobid="0000", **kwargs):
+    sd = pickle.load(open(path, "rb"))
     _, name = os.path.split(path)
     name, ext = os.path.splitext(name)
     new_name = prefix + name + "_{}".format(jobid) + ext
     out_path = os.path.join(out_folder, new_name)
 
-    use_keys = ('spks', 'uc', 'lc', 'ps', 'cues')
+    use_keys = ("spks", "uc", "lc", "ps", "cues")
     args = list(sd.pop(uk) for uk in use_keys)
     spks, uc, lc, ps, cues = args
-    other_info = sd.pop('other')
-    xs = other_info['xs']
+    other_info = sd.pop("other")
+    xs = other_info["xs"]
 
     null_color, swap_color = swap_lm_tc(*args, **sd, **kwargs)
 
@@ -2038,46 +2034,46 @@ def swap_lm_tc_frompickle(path, out_folder='.', prefix='fit_', jobid="0000",
         null_cue, swap_cue = np.zeros((0, 0, len(xs))), np.zeros((0, 0, len(xs)))
 
     out_dict = {
-        'null_color': null_color,
-        'swap_color': swap_color,
-        'null_cue': null_cue,
-        'swap_cue': swap_cue,
-        'args': args,
-        'kwargs': kwargs,
-        'xs': xs,
-        'other': other_info,
-        'sd': sd,
+        "null_color": null_color,
+        "swap_color": swap_color,
+        "null_cue": null_cue,
+        "swap_cue": swap_cue,
+        "args": args,
+        "kwargs": kwargs,
+        "xs": xs,
+        "other": other_info,
+        "sd": sd,
     }
-    pickle.dump(out_dict, open(out_path, 'wb'))
+    pickle.dump(out_dict, open(out_path, "wb"))
     return out_path, out_dict
 
 
 def swap_lm_tc_null_frompickle(
     region_path,
     null_path,
-    out_folder='.',
-    prefix='fit_nulls_',
+    out_folder=".",
+    prefix="fit_nulls_",
     jobid="0000",
     n_reps=2,
-    **kwargs
+    **kwargs,
 ):
-    sd = pickle.load(open(region_path, 'rb'))
-    sd_null = pickle.load(open(null_path, 'rb'))
+    sd = pickle.load(open(region_path, "rb"))
+    sd_null = pickle.load(open(null_path, "rb"))
     _, name = os.path.split(region_path)
     name, ext = os.path.splitext(name)
     new_name = prefix + name + "_{}".format(jobid) + ext
     out_path = os.path.join(out_folder, new_name)
 
-    use_keys = ('spks', 'uc', 'lc', 'ps', 'cues')
+    use_keys = ("spks", "uc", "lc", "ps", "cues")
     args = list(sd.pop(uk) for uk in use_keys)
     spks, uc, lc, ps, cues = args
-    other_info = sd.pop('other')
-    xs = other_info['xs']
+    other_info = sd.pop("other")
+    xs = other_info["xs"]
 
     args_null = list(sd_null.pop(uk) for uk in use_keys)
     spks_null, uc_null, lc_null, ps_null, cues_null = args_null
-    other_info = sd_null.pop('other')
-    xs_null = other_info['xs']
+    other_info = sd_null.pop("other")
+    xs_null = other_info["xs"]
 
     subsample_neurs = spks.shape[1]
     tot_neurs = spks_null.shape[1]
@@ -2104,26 +2100,26 @@ def swap_lm_tc_null_frompickle(
             ncue_null, scue_null = np.zeros((0, 0, len(xs))), np.zeros((0, 0, len(xs)))
         ncue_nulls[i] = np.mean(ncue_null, axis=(0, 1))
         scue_nulls[i] = np.mean(scue_null, axis=(0, 1))
-        
+
     out_dict = {
-        'null_color': nc_nulls,
-        'swap_color': sc_nulls,
-        'null_cue': ncue_nulls,
-        'swap_cue': scue_nulls,
-        'args': args,
-        'kwargs': kwargs,
-        'xs': xs,
-        'other': other_info,
-        'sd': sd,
+        "null_color": nc_nulls,
+        "swap_color": sc_nulls,
+        "null_cue": ncue_nulls,
+        "swap_cue": scue_nulls,
+        "args": args,
+        "kwargs": kwargs,
+        "xs": xs,
+        "other": other_info,
+        "sd": sd,
     }
-    pickle.dump(out_dict, open(out_path, 'wb'))
+    pickle.dump(out_dict, open(out_path, "wb"))
     return out_path, out_dict
 
 
 def fit_lm_tc_all(full_pd, **kwargs):
     outs = {}
-    for k, pd in full_pd.items():
-        outs[k] = fit_lm_tc_pop_dicts(pd)
+    for k, pd_ in full_pd.items():
+        outs[k] = fit_lm_tc_pop_dicts(pd_)
     return outs
 
 
@@ -2185,8 +2181,8 @@ def _fit_cue_tc_model(train_pair, null_pair, swap_pair, model=None):
     te_cues, te_y = null_pair
     swap_cues, swap_y = swap_pair
 
-    null_flipper = np.sign(te_cues - .5)
-    swap_flipper = np.sign(swap_cues - .5)
+    null_flipper = np.sign(te_cues - 0.5)
+    swap_flipper = np.sign(swap_cues - 0.5)
 
     n_ts = tr_y.shape[-1]
 
@@ -2197,8 +2193,8 @@ def _fit_cue_tc_model(train_pair, null_pair, swap_pair, model=None):
     swap_proj = np.zeros((n_swap_trls, n_ts))
     for i in range(n_ts):
         model.fit(tr_y[..., i], tr_cues)
-        null_proj[:, i] = null_flipper*model.decision_function(te_y[..., i])
-        swap_proj[:, i] = swap_flipper*model.decision_function(swap_y[..., i])
+        null_proj[:, i] = null_flipper * model.decision_function(te_y[..., i])
+        swap_proj[:, i] = swap_flipper * model.decision_function(swap_y[..., i])
     return null_proj, swap_proj
 
 
@@ -2218,7 +2214,9 @@ def swap_cue_tc(
     **kwargs,
 ):
     corr_inds, swap_inds = _get_corr_swap_inds(
-        ps, corr_decider, swap_decider,
+        ps,
+        corr_decider,
+        swap_decider,
     )
     n_trls, n_neurs, n_ts = y.shape
 
@@ -2226,7 +2224,10 @@ def swap_cue_tc(
     swap_dists = np.zeros((len(corr_inds), len(swap_inds), n_ts))
 
     model = na.make_model_pipeline(
-        model, norm=norm, pca=pre_pca, max_iter=max_iter,
+        model,
+        norm=norm,
+        pca=pre_pca,
+        max_iter=max_iter,
     )
     swap_pair = (cues[swap_inds], y[swap_inds])
 
@@ -2237,7 +2238,7 @@ def swap_cue_tc(
         cv_gen = cv()
         for i, (train_inds, test_inds) in enumerate(cv_gen.split(corr_inds)):
             corr_tr, corr_te = corr_inds[train_inds], corr_inds[test_inds]
-            
+
             tr_labels = cues[corr_tr]
             te_labels = cues[corr_te]
 
@@ -2308,7 +2309,10 @@ def lm_tc(
         spline_degree=spline_order,
         use_spliner=spliner,
     )
-    alternates = (null_coeffs, color_swap_coeffs,)
+    alternates = (
+        null_coeffs,
+        color_swap_coeffs,
+    )
     if cues is not None:
         cue_swap_coeffs = make_lm_coefficients(
             *swap_colors,
@@ -2328,7 +2332,10 @@ def lm_tc(
 
     col_dist_mask = col_diff(lower_col, upper_col) > col_thr
     corr_inds, swap_inds = _get_corr_swap_inds(
-        ps, corr_decider, swap_decider, and_mask=col_dist_mask,
+        ps,
+        corr_decider,
+        swap_decider,
+        and_mask=col_dist_mask,
     )
 
     pipe = na.make_model_pipeline(norm=norm, pca=pre_pca, post_norm=False)
@@ -2347,7 +2354,7 @@ def lm_tc(
     return null_coeffs, resp_gen
 
 
-def coeff_threshold(fg1, fg2, col_thr=np.pi/4, col_diff=_col_diff_rad):
+def coeff_threshold(fg1, fg2, col_thr=np.pi / 4, col_diff=_col_diff_rad):
     c11, c21, cue1 = fg1
     c12, c22, cue2 = fg2
 
@@ -2365,7 +2372,8 @@ def coeff_threshold(fg1, fg2, col_thr=np.pi/4, col_diff=_col_diff_rad):
 
     mask = c1_close * c2_close * same_cue
     inds = np.stack(np.where(mask), axis=1)
-    
+    mask = np.squeeze(np.diff(inds, axis=1) > 0)
+    inds = inds[mask]
     return inds
 
 
@@ -2412,7 +2420,7 @@ def distance_lm_tc(
         lower_col = dist_col
         try:
             cues = cues.to_numpy()
-        except:
+        except AttributeError:
             pass
 
     n_trls, n_neurs, n_ts = y.shape
@@ -2437,7 +2445,10 @@ def distance_lm_tc(
         spline_degree=spline_order,
         use_spliner=spliner,
     )
-    alternates = (null_coeffs, color_swap_coeffs,)
+    alternates = (
+        null_coeffs,
+        color_swap_coeffs,
+    )
     alternates_raw = (null_colors + (cues,), swap_colors + (cues,))
     if cues is not None:
         cue_swap_coeffs = make_lm_coefficients(
@@ -2460,7 +2471,10 @@ def distance_lm_tc(
 
     col_dist_mask = col_diff(lower_col, upper_col) > col_thr
     corr_inds, _ = _get_corr_swap_inds(
-        ps, corr_decider, swap_decider, and_mask=col_dist_mask,
+        ps,
+        corr_decider,
+        swap_decider,
+        and_mask=col_dist_mask,
     )
     alternates = list(alt[corr_inds] for alt in alternates)
     alternates_raw = list(
@@ -2473,10 +2487,7 @@ def distance_lm_tc(
     dists = np.zeros((n_alts, n_alts), dtype=object)
 
     trl_inds = set(np.arange(n_trls))
-    pipe = na.make_model_pipeline(norm=norm, pca=pre_pca)
-    cv_gen = cv()
     for i_alt, j_alt in it.combinations(range(n_alts), 2):
-        alt_i, alt_j = alternates[i_alt], alternates[j_alt]
         ar_i, ar_j = alternates_raw[i_alt], alternates_raw[j_alt]
         close_inds = close_coeffs_decider(ar_i, ar_j)
         dists_ij = np.zeros((len(close_inds), n_ts))
@@ -2488,8 +2499,9 @@ def distance_lm_tc(
 
             c_pair = null_coeffs[te_inds]
             y_te = y[te_inds]
-
-            dists_ij[i] = _fit_cn_lm_tc((coeff_tr, y_tr), c_pair, y_te, pre_pipe=pipe)
+            
+            pipe = na.make_model_pipeline(norm=norm, pca=pre_pca)
+            dists_ij[i] = _fit_cn_lm_tc((coeff_tr, y_tr), (c_pair, y_te), pre_pipe=pipe)
         dists[i_alt, j_alt] = dists_ij
         dists[j_alt, i_alt] = dists_ij
     return dists
@@ -2566,7 +2578,10 @@ def swap_lm_tc(
         spline_degree=spline_order,
         use_spliner=spliner,
     )
-    alternates = (null_coeffs, color_swap_coeffs,)
+    alternates = (
+        null_coeffs,
+        color_swap_coeffs,
+    )
     if cues is not None:
         cue_swap_coeffs = make_lm_coefficients(
             *swap_colors,
@@ -2586,7 +2601,10 @@ def swap_lm_tc(
 
     col_dist_mask = col_diff(lower_col, upper_col) > col_thr
     corr_inds, swap_inds = _get_corr_swap_inds(
-        ps, corr_decider, swap_decider, and_mask=col_dist_mask,
+        ps,
+        corr_decider,
+        swap_decider,
+        and_mask=col_dist_mask,
     )
 
     n_alts = len(alternates)
@@ -2692,13 +2710,12 @@ def _resample_equal_conds(resps, conds, rng=None):
 
 
 def rdm_similarity(resps, cols, n_bins=8):
-    bins = np.linspace(0, np.pi*2, n_bins + 1)
-    bin_cents = bins[:-1] + np.diff(bins)[0]/2
+    bins = np.linspace(0, np.pi * 2, n_bins + 1)
+    bin_cents = bins[:-1] + np.diff(bins)[0] / 2
     conds = np.digitize(cols, bins)
     resps, conds = _resample_equal_conds(resps, conds)
-    data = rsa.data.Dataset(resps, obs_descriptors={'stimulus': conds})
-    rdm = rsa.rdm.calc_rdm(data, descriptor='stimulus', noise=None,
-                           method='crossnobis')
+    data = rsa.data.Dataset(resps, obs_descriptors={"stimulus": conds})
+    rdm = rsa.rdm.calc_rdm(data, descriptor="stimulus", noise=None, method="crossnobis")
     mat = rdm.get_matrices()[0]
     return bin_cents, mat
 
@@ -2708,7 +2725,9 @@ def negative_euclidean_distances(*args, **kwargs):
 
 
 def compute_similarity_curve(
-    resps, cols, similarity_metric=negative_euclidean_distances,
+    resps,
+    cols,
+    similarity_metric=negative_euclidean_distances,
 ):
     dists = u.normalize_periodic_range(
         np.expand_dims(cols, 1) - np.expand_dims(cols, 0)
@@ -2721,25 +2740,25 @@ def compute_similarity_curve(
 
 
 def norm_distr_func(x, sig, norm=False):
-    c_hat = np.exp(-x**2/(2*sig**2))
+    c_hat = np.exp(-(x**2) / (2 * sig**2))
     if norm:
         c_hat_zeroed = c_hat - np.nanmin(c_hat)
-        c_hat = c_hat_zeroed/np.nanmax(c_hat_zeroed)
+        c_hat = c_hat_zeroed / np.nanmax(c_hat_zeroed)
     return c_hat
 
 
 def fit_similarity_dispersion(dists, corrs, return_func=True, **kwargs):
     d_cents, c_cents = gpl.digitize_vars(dists, corrs, ret_all_y=False, **kwargs)
     c_zeroed = c_cents - np.nanmin(c_cents)
-    norm_cs = c_zeroed/np.nanmax(c_zeroed)
+    norm_cs = c_zeroed / np.nanmax(c_zeroed)
 
     def _min_func(sig):
         c_hat = norm_distr_func(d_cents, sig, norm=True)
 
-        loss = np.nansum((norm_cs - c_hat)**2)
+        loss = np.nansum((norm_cs - c_hat) ** 2)
         return loss
 
-    res = sopt.minimize(_min_func, .1, bounds=((0, None),))
+    res = sopt.minimize(_min_func, 0.1, bounds=((0, None),))
     out = res.x
     if return_func:
         out = (res.x, (norm_cs, d_cents, norm_distr_func(d_cents, res.x, norm=True)))
@@ -2752,22 +2771,21 @@ def simulate_emp_err(sig, dprime, n_samps=10000, n_pts=100, norm=True):
 
     noise = sts.norm(0, 1).rvs((n_samps, n_pts))
 
-    inds = np.argmax(np.expand_dims(sim_func*dprime, 0) + noise,
-                     axis=1)
+    inds = np.argmax(np.expand_dims(sim_func * dprime, 0) + noise, axis=1)
     errs = func_dists[inds]
     return errs
 
 
-def simulate_emp_errs(sig, min_dp=.2, max_dp=2, n_dp=10, n_pts=100,
-                      n_samps=10000, norm=True):
+def simulate_emp_errs(
+    sig, min_dp=0.2, max_dp=2, n_dp=10, n_pts=100, n_samps=10000, norm=True
+):
     func_dists = np.linspace(-np.pi, np.pi, n_pts)
     sim_func = norm_distr_func(func_dists, sig, norm=norm)
 
     frozen_noise = sts.norm(0, 1).rvs((n_samps, n_pts))
 
     def _min_func(dprime):
-        inds = np.argmax(np.expand_dims(sim_func*dprime, 0) + frozen_noise,
-                         axis=1)
+        inds = np.argmax(np.expand_dims(sim_func * dprime, 0) + frozen_noise, axis=1)
         errs = func_dists[inds]
         return errs
 
@@ -2777,9 +2795,16 @@ def simulate_emp_errs(sig, min_dp=.2, max_dp=2, n_dp=10, n_pts=100,
     return errs_ds
 
 
-def dprime_sig_sweep(emp_errs, min_dp=.2, max_dp=3, n_dp=25,
-                     min_sigma=.1, max_sigma=5, n_sigma=20,
-                     n_bins=10):
+def dprime_sig_sweep(
+    emp_errs,
+    min_dp=0.2,
+    max_dp=3,
+    n_dp=25,
+    min_sigma=0.1,
+    max_sigma=5,
+    n_sigma=20,
+    n_bins=10,
+):
     sigmas = np.linspace(min_sigma, max_sigma, n_sigma)
     dps = np.linspace(min_dp, max_dp, n_dp)
     hist_bins = np.linspace(-np.pi, np.pi, n_bins)
@@ -2806,15 +2831,14 @@ def fit_tcc_dprime(resps, targs, cols, n_pts=100, n_samps=10000, **kwargs):
     frozen_noise = sts.norm(0, 1).rvs((n_samps, n_pts))
 
     def _min_func(dprime):
-        inds = np.argmax(np.expand_dims(sim_func*dprime, 0) + frozen_noise,
-                         axis=1)
+        inds = np.argmax(np.expand_dims(sim_func * dprime, 0) + frozen_noise, axis=1)
         errs = func_dists[inds]
         return errs
 
-    dprimes = np.linspace(.1, 2, 10)
+    dprimes = np.linspace(0.1, 2, 10)
     errs_ds = np.stack(list(_min_func(dp) for dp in dprimes), axis=0)
     return emp_errs, errs_ds
-    
+
 
 def get_color_means(
     data,
@@ -2911,7 +2935,7 @@ def fit_tccish_model(col_cents, pops, err, max_dp=5, shuffle=False):
     sigs_emp, funcs = estimate_distance_decay(col_cents, pops)
 
     sigs_sweep, dps_sweep, kls = dprime_sig_sweep(err)
-    inds = np.argmin((sigs_emp[None] - sigs_sweep[:, None])**2, axis=0)
+    inds = np.argmin((sigs_emp[None] - sigs_sweep[:, None]) ** 2, axis=0)
     dps_emp = dps_sweep[np.argmin(kls[inds], axis=1)]
 
     out_dict = {}
@@ -2946,8 +2970,11 @@ def make_all_color_pseudopops(
     tbeg,
     tend,
     monkeys=("Elmo", "Waldorf"),
-    trls=("retro", "pro",),
-    filter_swap_prob=.3,
+    trls=(
+        "retro",
+        "pro",
+    ),
+    filter_swap_prob=0.3,
     resamples=200,
     min_trials=10,
     cue_filter=None,
@@ -2956,7 +2983,7 @@ def make_all_color_pseudopops(
     out_dict = {}
     for m in monkeys:
         out_dict[m] = {}
-        data_m = data.session_mask(data['animal'] == m)
+        data_m = data.session_mask(data["animal"] == m)
         if cue_filter is not None:
             data_m = data_m.mask(data_m["IsUpperSample"] == cue_filter)
         for trl in trls:
@@ -2978,28 +3005,28 @@ def make_color_pseudopops(
     data,
     tbeg,
     tend,
-    time_key='WHEEL_ON_diode',
-    color_key='LABthetaTarget',
-    error_key='err',
-    trl_type='retro',
-    swap_prob_key='swap_prob',
+    time_key="WHEEL_ON_diode",
+    color_key="LABthetaTarget",
+    error_key="err",
+    trl_type="retro",
+    swap_prob_key="swap_prob",
     n_col_bins=11,
     trl_ax=3,
     filter_swap_prob=None,
     **kwargs,
 ):
-    if trl_type == 'retro':
+    if trl_type == "retro":
         data = retro_mask(data)
-    elif trl_type == 'pro':
+    elif trl_type == "pro":
         data = pro_mask(data)
-    elif trl_type == 'single':
+    elif trl_type == "single":
         data = single_mask(data)
     else:
-        raise IOError('trl_type {} is not recognized'.format(trl_type))
+        raise IOError("trl_type {} is not recognized".format(trl_type))
     if filter_swap_prob is not None:
         data = data.mask(data[swap_prob_key] < filter_swap_prob)
-    col_bins = np.linspace(0, np.pi*2, n_col_bins + 1)
-    bin_cents = col_bins[:-1] + np.diff(col_bins)[0]/2
+    col_bins = np.linspace(0, np.pi * 2, n_col_bins + 1)
+    bin_cents = col_bins[:-1] + np.diff(col_bins)[0] / 2
     errs = np.concatenate(data[error_key])
     masks = []
     for i, cb_beg in enumerate(col_bins[:-1]):
@@ -3019,15 +3046,15 @@ def make_color_pseudopops(
         tend,
         tend - tbeg,
         *masks,
-        tzfs=(time_key,)*n_col_bins,
+        tzfs=(time_key,) * n_col_bins,
         shuffle_trials=True,
         **kwargs,
     )
-    t_cent = (tbeg + tend)/2
-    t_ind = np.argmin((xs - t_cent)**2)
+    t_cent = (tbeg + tend) / 2
+    t_ind = np.argmin((xs - t_cent) ** 2)
     cols_all = []
     for i, pp in enumerate(pops_pseudo):
-        cols_all.append(bin_cents[i]*np.ones(pp.shape[trl_ax]))
+        cols_all.append(bin_cents[i] * np.ones(pp.shape[trl_ax]))
     cols_all = np.concatenate(cols_all)
 
     resps_t = list(pp[..., t_ind] for pp in pops_pseudo)
@@ -3037,13 +3064,13 @@ def make_color_pseudopops(
     return cols_all, resps_all, errs
 
 
-def _preprocess_dist_pop(pop, norm=True, pre_pca=.99, **kwargs):
+def _preprocess_dist_pop(pop, norm=True, pre_pca=0.99, **kwargs):
     pipe = na.make_model_pipeline(norm=norm, pca=pre_pca, **kwargs)
     pop_pre = pipe.fit_transform(pop)
     return pop_pre
 
 
-def estimate_distance_decay(bin_cents, pops, pre_pca=.99, **kwargs):
+def estimate_distance_decay(bin_cents, pops, pre_pca=0.99, **kwargs):
     sigs = np.zeros(len(pops))
     cents_u = np.unique(bin_cents)
     n_bins = len(cents_u)
@@ -3052,8 +3079,9 @@ def estimate_distance_decay(bin_cents, pops, pre_pca=.99, **kwargs):
     for i, pop in enumerate(pops):
         pop_i_pre = _preprocess_dist_pop(pops[i], norm=True, pre_pca=pre_pca)
         dists, corrs = compute_similarity_curve(pop_i_pre, bin_cents, **kwargs)
-        sigs[i], func = fit_similarity_dispersion(dists, corrs, n_bins=n_bins,
-                                                  return_func=True)
+        sigs[i], func = fit_similarity_dispersion(
+            dists, corrs, n_bins=n_bins, return_func=True
+        )
         funcs[i] = func[0]
         cents = func[1]
         fits[i] = func[2]
@@ -3079,7 +3107,7 @@ def decode_color(
     pseudo=False,
     min_trials_pseudo=1,
     resample_pseudo=10,
-    **kwargs
+    **kwargs,
 ):
     regs = data[color_key]
     if pseudo:
@@ -3141,8 +3169,6 @@ def quantify_swap_loo(
     data_ind=1,
     comb_func=np.sum,
 ):
-    loo_i_dict = {}
-    sum_loo_dict = {}
     new_m = {}
     for k, model in mdict.items():
         m_copy = model.copy()
@@ -3166,7 +3192,6 @@ def quantify_swap_loo(
 
 def despline_color(cols, eps=0.001, ret_err=False):
     u_cols = np.unique(cols, axis=0)
-    num_bins = cols.shape[1]
 
     float_cols = np.linspace(0, 2 * np.pi, len(u_cols) + 1)[:-1]
     o_cols = spline_color(float_cols, cols.shape[1]).T
@@ -3271,7 +3296,7 @@ def generate_fake_data_from_model(
     use_t=True,
     make_new_dict=True,
     keep_keys=_sd_keys,
-    **kwargs
+    **kwargs,
 ):
     use_type = len(np.unique(stan_data["type"])) > 1
     y_new = np.zeros_like(stan_data["y"])
@@ -3293,8 +3318,6 @@ def generate_fake_data_from_model(
         )
 
         std = np.sqrt(np.mean(model.posterior["vars"], axis=(0, 1)))
-        if use_t:
-            nu = np.mean(model.posterior["nu"], axis=(0, 1))
         y_new[i] = sts.norm(r_mean, std).rvs()
     if make_new_dict:
         new_dict = {k: v for k, v in stan_data.items() if k in keep_keys}
@@ -3370,7 +3393,7 @@ def retro_mask(data):
 
 
 def single_mask(data):
-    bhv_single = (data["is_one_sample_displayed"] == 1)
+    bhv_single = data["is_one_sample_displayed"] == 1
     bhv_single = bhv_single.rs_and(data["StopCondition"] > -2)
     data_single = data.mask(bhv_single)
     return data_single
@@ -3501,7 +3524,7 @@ def fit_bhv_model(
     arviz=mixture_arviz,
     adapt_delta=0.9,
     diagnostics=True,
-    **stan_params
+    **stan_params,
 ):
     if prior_dict is None:
         prior_dict = default_prior_dict
@@ -3530,7 +3553,7 @@ def fit_bhv_model(
         dist_err=dist_errs,
         run_ind=session_nums,
         dist_loc=dists_per,
-        **prior_dict
+        **prior_dict,
     )
     control = {
         "adapt_delta": stan_params.pop("adapt_delta", 0.8),
@@ -3542,10 +3565,10 @@ def fit_bhv_model(
         iter=stan_iters,
         chains=stan_chains,
         control=control,
-        **stan_params
+        **stan_params,
     )
     if diagnostics:
-        diag = ps.diagnostics.check_hmc_diagnostics(fit)
+        diag = az.diagnostics.check_hmc_diagnostics(fit)
     else:
         diag = None
     fit_av = az.from_pystan(posterior=fit, **arviz)
