@@ -418,29 +418,28 @@ class LMFigure(SwapErrorFigure):
         )
 
     def _plot_cue_dict(
-            self,
-            trial_type,
-            data_dict,
-            colors_null,
-            colors_alt,
-            mat_inds_all,
-            axs,
-            plot_func=swv.plot_cue_tc,
-            set_ticks=False,
+        self,
+        trial_type,
+        data_dict,
+        colors_null,
+        colors_alt,
+        mat_inds_all,
+        axs,
+        plot_func=swv.plot_cue_tc,
+        set_ticks=False,
     ):
         key_order = {
-            'pro': ('cue', 'pre-color', 'post-color', 'wheel'),
-            'retro': ('color', 'pre-cue', 'post-cue', 'wheel'),
+            "pro": ("cue", "pre-color", "post-color", "wheel"),
+            "retro": ("color", "pre-cue", "post-cue", "wheel"),
         }
 
         e_name = self.params.get("Elmo_name")
         w_name = self.params.get("Waldorf_name")
 
-        print(data_dict["Wald"]["pro"].keys())
         m_names = (e_name, w_name)
         monkeys = ("Elmo", "Wald")
         for i, m in enumerate(monkeys):
-            fj = len(mat_inds_all)*i
+            fj = len(mat_inds_all) * i
             for j, mat_inds in enumerate(mat_inds_all):
                 ind = fj + j
                 plot_func(
@@ -455,41 +454,42 @@ class LMFigure(SwapErrorFigure):
                     list(gpl.clean_plot_bottom(ax) for ax in axs[ind])
                     list(ax.set_xlabel("") for ax in axs[ind])
             if set_ticks:
-                axs[ind, 0].set_yticks([0, .5, 1])
+                axs[ind, 0].set_yticks([0, 0.5, 1])
                 axs[ind, 0].set_ylim([0, 1])
             self._save_cv_stats(
-                data_dict[m][trial_type], m_names[i],
+                data_dict[m][trial_type],
+                m_names[i],
             )
         return axs
 
     def _save_cv_stats(self, data, monkey):
         if self.trial_type == "pro":
             stat_dict = {
-                ("cue", "correct", "none"): (.25, (0, 1)),
-                ("cue", "correct", "mis-interpreted"): (.25, (0, 1)),
-                ("pre-color", "correct", "none"): (-.25, (0, 1)),
-                ("pre-color", "correct", "mis-interpreted"): (-.25, (0, 1)),
-                ("post-color", "correct", "misbound"): (.25, (0, 1)),
-                ("post-color", "correct", "mis-selected"): (.25, (0, 2)),
-                ("wheel", "correct", "misbound"): (-.25, (0, 1)),
-                ("wheel", "correct", "mis-selected"): (-.25, (0, 2)),
+                ("cue", "correct", "none"): (0.25, (0, 1)),
+                ("cue", "correct", "mis-interpreted"): (0.25, (0, 1)),
+                ("pre-color", "correct", "none"): (-0.25, (0, 1)),
+                ("pre-color", "correct", "mis-interpreted"): (-0.25, (0, 1)),
+                ("post-color", "correct", "misbound"): (0.25, (0, 1)),
+                ("post-color", "correct", "mis-selected"): (0.25, (0, 2)),
+                ("wheel", "correct", "misbound"): (-0.25, (0, 1)),
+                ("wheel", "correct", "mis-selected"): (-0.25, (0, 2)),
             }
         else:
             stat_dict = {
-                ("color", "correct", "misbound"): (.25, (0, 1)),
-                ("color", "correct", "none"): (.25, (0, 1)),
-                ("pre-cue", "correct", "misbound"): (-.25, (0, 1)),
-                ("pre-cue", "correct", "none"): (-.25, (0, 1)),
-                ("post-cue", "correct", "mis-selected"): (.25, (0, 1)),
-                ("post-cue", "correct", "mis-interpreted"): (.25, (0, 2)),
-                ("wheel", "correct", "mis-selected"): (-.25, (0, 1)),
-                ("wheel", "correct", "mis-interpreted"): (-.25, (0, 2)),
+                ("color", "correct", "misbound"): (0.25, (0, 1)),
+                ("color", "correct", "none"): (0.25, (0, 1)),
+                ("pre-cue", "correct", "misbound"): (-0.25, (0, 1)),
+                ("pre-cue", "correct", "none"): (-0.25, (0, 1)),
+                ("post-cue", "correct", "mis-selected"): (0.25, (0, 1)),
+                ("post-cue", "correct", "mis-interpreted"): (0.25, (0, 2)),
+                ("wheel", "correct", "mis-selected"): (-0.25, (0, 1)),
+                ("wheel", "correct", "mis-interpreted"): (-0.25, (0, 2)),
             }
 
         for (k, t1, t2), (t_pt, pt) in stat_dict.items():
             t2_save = t2.split(" ")[0]
             (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = data[k]
-            t_ind = np.argmin((xs - t_pt)**2)
+            t_ind = np.argmin((xs - t_pt) ** 2)
             nc_comb = nc_comb[..., t_ind]
             sc_comb = sc_comb[..., t_ind]
             if len(nc_comb.shape) == 1 or nc_comb.shape[0] == 0:
@@ -499,8 +499,7 @@ class LMFigure(SwapErrorFigure):
                 diff_str = "correct cue than on correct trials"
             else:
                 nc_plot = list(
-                    np.squeeze(np.mean(nc_indiv_i, axis=0))
-                    for nc_indiv_i in nc_indiv
+                    np.squeeze(np.mean(nc_indiv_i, axis=0)) for nc_indiv_i in nc_indiv
                 )
                 nc_plot = np.stack(nc_plot, axis=2)
 
@@ -530,38 +529,39 @@ class LMFigure(SwapErrorFigure):
                 s_only = "{monkey}: {diffs}"
                 s_only = s_only.format(monkey=monkey, diffs=diff_range)
                 self.save_stats_string(s_only, cv_only_name)
-                
-    
+
     def make_gss(self):
         gss = {}
 
         horiz_gap = 5
         vert_gap = 10
 
-        vert_pt = int(200/3)
-        
+        vert_pt = int(200 / 3)
+
         lm_gs = pu.make_mxn_gridspec(
-            self.gs, 4, 4, 0, vert_pt - vert_gap/2, 0, 100, 5, horiz_gap
+            self.gs, 4, 4, 0, vert_pt - vert_gap / 2, 0, 100, 5, horiz_gap
         )
         lm_axs = self.get_axs(lm_gs, sharey="all", sharex="vertical")
 
         cue_gs = pu.make_mxn_gridspec(
-            self.gs, 2, 4, vert_pt + vert_gap/2, 100, 0, 100, 5, horiz_gap
+            self.gs, 2, 4, vert_pt + vert_gap / 2, 100, 0, 100, 5, horiz_gap
         )
         cue_axs = self.get_axs(cue_gs, sharey="horizontal", sharex="vertical")
 
         gss["panel_color_cue"] = (lm_axs, cue_axs)
 
         self.gss = gss
-        
+
     def panel_color_cue(self):
         key = "panel_color_cue"
         color_axs, cue_axs = self.gss[key]
         fd, color_dict, cue_dict = self.load_all_runs()
 
         colors_null, colors_alt = self.get_lm_plot_colors()
-        mat_inds_lm = (((0, 1), (0, 1), (0, 1), (0, 1)),
-                       ((0, 1), (0, 1), (0, 2), (0, 2)))
+        mat_inds_lm = (
+            ((0, 1), (0, 1), (0, 1), (0, 1)),
+            ((0, 1), (0, 1), (0, 2), (0, 2)),
+        )
 
         self._plot_lm_dict(
             self.trial_type,
@@ -572,7 +572,7 @@ class LMFigure(SwapErrorFigure):
             color_axs,
         )
 
-        colors_null, colors_alt = self.get_cue_plot_colors()        
+        colors_null, colors_alt = self.get_cue_plot_colors()
         mat_inds_cue = (((0, 1), (0, 1), (0, 1), (0, 1)),)
         self._plot_cue_dict(
             self.trial_type,
@@ -586,7 +586,7 @@ class LMFigure(SwapErrorFigure):
 
 class SIRegionDropping(SwapErrorFigure):
     def __init__(
-            self, fig_key="lm_region_dropping", trial_type="pro", colors=colors, **kwargs
+        self, fig_key="lm_region_dropping", trial_type="pro", colors=colors, **kwargs
     ):
         fsize = (4, 10)
         cf = u.ConfigParserColor()
@@ -603,12 +603,28 @@ class SIRegionDropping(SwapErrorFigure):
 
         vert_space = 8
         lm_gs = pu.make_mxn_gridspec(
-            self.gs, 6, 2, 0, 100, 0, 80, vert_space, 5,
+            self.gs,
+            6,
+            2,
+            0,
+            100,
+            0,
+            80,
+            vert_space,
+            5,
         )
         lm_axs = self.get_axs(lm_gs, sharey="all", sharex="vertical")
 
         comp_gs = pu.make_mxn_gridspec(
-            self.gs, 6, 1, 0, 100, 90, 100, vert_space, 5,
+            self.gs,
+            6,
+            1,
+            0,
+            100,
+            90,
+            100,
+            vert_space,
+            5,
         )
         comp_axs = self.get_axs(comp_gs, sharey="all", sharex="vertical", squeeze=True)
 
@@ -621,12 +637,11 @@ class SIRegionDropping(SwapErrorFigure):
         if self.data.get((region, time)) is None or reload_data:
             null_inds = self.params.getlist("{}_null_{}".format(region, time))
             null_out = swa.load_lm_results(null_inds, folder, swap_mean=False)
-        
+
             full_inds = self.params.getlist("{}_{}".format(region, time))
             full_out = swa.load_lm_results(full_inds, folder, swap_mean=True)
             self.data[(region, time)] = (null_out, full_out)
         return self.data[(region, time)]
-
 
     def panel_plot_differences(self, reload_data=False):
         key = "panel_plot_differences"
@@ -637,17 +652,17 @@ class SIRegionDropping(SwapErrorFigure):
         self._plot_differences(
             lm_axs, comp_axs, regions, times, plot_ind, reload_data=reload_data
         )
-    
+
     def _plot_differences(
-            self,
-            axs,
-            comp_axs,
-            regions,
-            times,
-            plot_ind,
-            reload_data=False,
-            comp_t=-.25,
-            minor_tick=.1,
+        self,
+        axs,
+        comp_axs,
+        regions,
+        times,
+        plot_ind,
+        reload_data=False,
+        comp_t=-0.25,
+        minor_tick=0.1,
     ):
         n_sessions = {"Wald": 10, "Elmo": 13}
         x_labels = {
@@ -657,25 +672,26 @@ class SIRegionDropping(SwapErrorFigure):
         }
         for i, j in u.make_array_ind_iterator((len(regions), len(times))):
             null_data, full_data = self.load_null_runs(
-                regions[i], times[j], reload_data=reload_data, 
+                regions[i],
+                times[j],
+                reload_data=reload_data,
             )
             nd = null_data[0][self.trial_type][times[j]]
             fd = full_data[0][self.trial_type][times[j]]
             for k, (m, nd_m) in enumerate(nd.items()):
                 (null_corr, null_swap), _, xs = nd_m[0]
                 (full_corr, full_swap), _, xs = fd[m][0]
-                
+
                 # positive is more swap error evidence
                 null_diff = null_swap - null_corr
                 full_diff = np.mean(full_swap, axis=2) - np.mean(full_corr, axis=2)
 
                 # positive means region neurons more important
-                single_trace = (
-                    null_diff[:, plot_ind[0], plot_ind[1]]
-                    - np.expand_dims(full_diff[plot_ind[0], plot_ind[1]], 0)
+                single_trace = null_diff[:, plot_ind[0], plot_ind[1]] - np.expand_dims(
+                    full_diff[plot_ind[0], plot_ind[1]], 0
                 )
 
-                t_ind = np.argmin((xs - comp_t)**2)
+                t_ind = np.argmin((xs - comp_t) ** 2)
                 if i == 0 and j == 0:
                     label = "Monkey {}".format(m[0])
                 else:
@@ -690,8 +706,8 @@ class SIRegionDropping(SwapErrorFigure):
                 )
 
                 gpl.plot_trace_werr(
-                    [j + minor_tick*(k - .5)],
-                    single_trace[..., t_ind:t_ind+1],
+                    [j + minor_tick * (k - 0.5)],
+                    single_trace[..., t_ind : t_ind + 1],
                     ax=comp_axs[i],
                     sem_n=n_sessions[m],
                     label=label,
@@ -714,31 +730,31 @@ class SIRegionDropping(SwapErrorFigure):
     def _save_cv_stats(self, data, monkey):
         if self.trial_type == "pro":
             stat_dict = {
-                ("cue", "correct", "none"): (.25, (0, 1)),
-                ("cue", "correct", "mis-interpreted"): (.25, (0, 1)),
-                ("pre-color", "correct", "none"): (-.25, (0, 1)),
-                ("pre-color", "correct", "mis-interpreted"): (-.25, (0, 1)),
-                ("post-color", "correct", "misbound"): (.25, (0, 1)),
-                ("post-color", "correct", "mis-selected"): (.25, (0, 2)),
-                ("wheel", "correct", "misbound"): (-.25, (0, 1)),
-                ("wheel", "correct", "mis-selected"): (-.25, (0, 2)),
+                ("cue", "correct", "none"): (0.25, (0, 1)),
+                ("cue", "correct", "mis-interpreted"): (0.25, (0, 1)),
+                ("pre-color", "correct", "none"): (-0.25, (0, 1)),
+                ("pre-color", "correct", "mis-interpreted"): (-0.25, (0, 1)),
+                ("post-color", "correct", "misbound"): (0.25, (0, 1)),
+                ("post-color", "correct", "mis-selected"): (0.25, (0, 2)),
+                ("wheel", "correct", "misbound"): (-0.25, (0, 1)),
+                ("wheel", "correct", "mis-selected"): (-0.25, (0, 2)),
             }
         else:
             stat_dict = {
-                ("color", "correct", "misbound"): (.25, (0, 1)),
-                ("color", "correct", "none"): (.25, (0, 1)),
-                ("pre-cue", "correct", "misbound"): (-.25, (0, 1)),
-                ("pre-cue", "correct", "none"): (-.25, (0, 1)),
-                ("post-cue", "correct", "mis-selected"): (.25, (0, 1)),
-                ("post-cue", "correct", "mis-interpreted"): (.25, (0, 2)),
-                ("wheel", "correct", "mis-selected"): (-.25, (0, 1)),
-                ("wheel", "correct", "mis-interpreted"): (-.25, (0, 2)),
+                ("color", "correct", "misbound"): (0.25, (0, 1)),
+                ("color", "correct", "none"): (0.25, (0, 1)),
+                ("pre-cue", "correct", "misbound"): (-0.25, (0, 1)),
+                ("pre-cue", "correct", "none"): (-0.25, (0, 1)),
+                ("post-cue", "correct", "mis-selected"): (0.25, (0, 1)),
+                ("post-cue", "correct", "mis-interpreted"): (0.25, (0, 2)),
+                ("wheel", "correct", "mis-selected"): (-0.25, (0, 1)),
+                ("wheel", "correct", "mis-interpreted"): (-0.25, (0, 2)),
             }
 
         for (k, t1, t2), (t_pt, pt) in stat_dict.items():
             t2_save = t2.split(" ")[0]
             (nc_comb, sc_comb), (nc_indiv, sc_indiv), xs = data[k]
-            t_ind = np.argmin((xs - t_pt)**2)
+            t_ind = np.argmin((xs - t_pt) ** 2)
             nc_comb = nc_comb[..., t_ind]
             sc_comb = sc_comb[..., t_ind]
             if len(nc_comb.shape) == 1 or nc_comb.shape[0] == 0:
@@ -748,8 +764,7 @@ class SIRegionDropping(SwapErrorFigure):
                 diff_str = "correct cue than on correct trials"
             else:
                 nc_plot = list(
-                    np.squeeze(np.mean(nc_indiv_i, axis=0))
-                    for nc_indiv_i in nc_indiv
+                    np.squeeze(np.mean(nc_indiv_i, axis=0)) for nc_indiv_i in nc_indiv
                 )
                 nc_plot = np.stack(nc_plot, axis=2)
 
@@ -785,7 +800,7 @@ class SIRegionDroppingPro(SIRegionDropping):
     def __init__(self, trial_type="pro", **kwargs):
         super().__init__(trial_type=trial_type, **kwargs)
 
-    
+
 class SIRegionDroppingRetro(SIRegionDropping):
     def __init__(self, trial_type="retro", **kwargs):
         super().__init__(trial_type=trial_type, **kwargs)
@@ -800,7 +815,7 @@ class SIRegionDroppingRetro(SIRegionDropping):
             lm_axs, comp_axs, regions, times, plot_ind, reload_data=reload_data
         )
 
-        
+
 class NeuronNumFigure(SwapErrorFigure):
     def __init__(self, fig_key="nnf", colors=colors, **kwargs):
         fsize = (4, 7)
@@ -840,19 +855,22 @@ class NeuronNumFigure(SwapErrorFigure):
         }
         s_base = "{label}: \SIrange{{{min_num}}}{{{max_num}}}{{}} units"
         s_list = list(
-            s_base.format(label=l,
-                          min_num=np.min(region_counts[k]),
-                          max_num=np.max(region_counts[k]))
-            for k, l in label_dict.items()
+            s_base.format(
+                label=l_,
+                min_num=np.min(region_counts[k]),
+                max_num=np.max(region_counts[k]),
+            )
+            for k, l_ in label_dict.items()
         )
         full_str = "; ".join(s_list)
         self.save_stats_string(full_str, "neuron_numbers_regions")
 
         s_total = "combined: \SIrange{{{min_num}}}{{{max_num}}}{{}} units"
-        s_total = s_total.format(min_num=np.min(total_counts),
-                                 max_num=np.max(total_counts))
+        s_total = s_total.format(
+            min_num=np.min(total_counts), max_num=np.max(total_counts)
+        )
         self.save_stats_string(s_total, "neuron_numbers_total")
-        
+
 
 class RetroLMFigure(LMFigure):
     def __init__(self, fig_key="retro_lm", colors=colors, **kwargs):
@@ -870,10 +888,10 @@ class RetroLMFigure(LMFigure):
         corr_color = self.params.getcolor("correct_color")
         cue_interp_color = self.params.getcolor("cue_interp_color")
 
-        colors_alt = ((cue_interp_color, cue_interp_color,
-                       cue_interp_color, cue_interp_color),)
-        colors_null = ((corr_color, corr_color,
-                        corr_color, corr_color),)
+        colors_alt = (
+            (cue_interp_color, cue_interp_color, cue_interp_color, cue_interp_color),
+        )
+        colors_null = ((corr_color, corr_color, corr_color, corr_color),)
         return colors_null, colors_alt
 
     def get_lm_plot_colors(self):
@@ -883,10 +901,14 @@ class RetroLMFigure(LMFigure):
         color22 = self.params.getcolor("cue_interp_color")
         color31 = self.params.getcolor("selection_color")
         color32 = self.params.getcolor("cue_interp_color")
-        colors_alt = ((color11, color11, color21, color31),
-                      (color11, color11, color22, color32))
-        colors_null = ((corr_color, corr_color, corr_color, corr_color),
-                       (corr_color, corr_color, corr_color, corr_color))
+        colors_alt = (
+            (color11, color11, color21, color31),
+            (color11, color11, color22, color32),
+        )
+        colors_null = (
+            (corr_color, corr_color, corr_color, corr_color),
+            (corr_color, corr_color, corr_color, corr_color),
+        )
         return colors_null, colors_alt
 
 
@@ -906,9 +928,10 @@ class ProLMFigure(LMFigure):
         corr_color = self.params.getcolor("correct_color")
         cue_interp_color = self.params.getcolor("cue_interp_color")
         cue_sel_color = self.params.getcolor("selection_color")
-        
-        colors_alt = ((cue_interp_color, cue_interp_color,
-                       cue_sel_color, cue_sel_color),)
+
+        colors_alt = (
+            (cue_interp_color, cue_interp_color, cue_sel_color, cue_sel_color),
+        )
         colors_null = ((corr_color, corr_color, corr_color, corr_color),)
         return colors_null, colors_alt
 
@@ -919,14 +942,18 @@ class ProLMFigure(LMFigure):
         color22 = self.params.getcolor("selection_color")
         color31 = self.params.getcolor("misbinding_color")
         color32 = self.params.getcolor("selection_color")
-        
-        colors_alt = ((color11, color11, color21, color31),
-                      (color11, color11, color22, color32))
-        colors_null = ((corr_color, corr_color, corr_color, corr_color),
-                       (corr_color, corr_color, corr_color, corr_color))
+
+        colors_alt = (
+            (color11, color11, color21, color31),
+            (color11, color11, color22, color32),
+        )
+        colors_null = (
+            (corr_color, corr_color, corr_color, corr_color),
+            (corr_color, corr_color, corr_color, corr_color),
+        )
         return colors_null, colors_alt
 
-    
+
 class ModelBasedFigure(SwapErrorFigure):
     def _get_d1_pro_fits(self):
         n_colors = self.params.get("d1_load_n_colors")
@@ -968,14 +995,20 @@ class ModelBasedFigure(SwapErrorFigure):
         }
         return full_dict, elmo_data, wald_data
 
-    def _save_kind_diff_stats(self, fits, monkey, task, 
-                              pos_ind=0, neg_ind=1,
-                              type1="mis-selected colors",
-                              type2="mis-interpreted cue"):
+    def _save_kind_diff_stats(
+        self,
+        fits,
+        monkey,
+        task,
+        pos_ind=0,
+        neg_ind=1,
+        type1="mis-selected colors",
+        type2="mis-interpreted cue",
+    ):
         kind_diffs = []
         nz = 0
         for k, (fit, data) in fits.items():
-            probs = np.concatenate(fit['other'].posterior["p_err"])
+            probs = np.concatenate(fit["other"].posterior["p_err"])
             type_ind = swa.get_type_ind(task, data)
             probs = probs[:, type_ind]
             diff = probs[:, pos_ind] - probs[:, neg_ind]
@@ -985,23 +1018,26 @@ class ModelBasedFigure(SwapErrorFigure):
         avg_diffs = u.bootstrap_list(np.array(kind_diffs), np.nanmean)
         ad_interv = u.conf_interval(avg_diffs, withmean=True)[:, 0]
         avg_diffs_str = u.format_sirange(*ad_interv)
-        s = ("{monkey}: {avg_diffs} greater probability of "
-             "{type1} than {type2} representation")
-        s = s.format(monkey=monkey, avg_diffs=avg_diffs_str,
-                     type1=type1, type2=type2)
+        s = (
+            "{monkey}: {avg_diffs} greater probability of "
+            "{type1} than {type2} representation"
+        )
+        s = s.format(monkey=monkey, avg_diffs=avg_diffs_str, type1=type1, type2=type2)
         mname = monkey.replace(" ", "_")
         self.save_stats_string(s, "kind-diff_{}_{}".format(task, mname))
         s_only = "{monkey}: {avg_diffs}".format(
-            monkey=monkey, avg_diffs=avg_diffs_str,
+            monkey=monkey,
+            avg_diffs=avg_diffs_str,
         )
         self.save_stats_string(s_only, "kind-diff_{}_{}_onlyrange".format(task, mname))
 
-    def _save_rate_stats(self, fits, monkey, delay, task, t_ind=True,
-                         thresh=.1, use_ind=-1):
+    def _save_rate_stats(
+        self, fits, monkey, delay, task, t_ind=True, thresh=0.1, use_ind=-1
+    ):
         no_zero = 0
         probs_all = []
         for k, (fit, data) in fits.items():
-            probs = np.concatenate(fit['other'].posterior["p_err"])
+            probs = np.concatenate(fit["other"].posterior["p_err"])
             if t_ind:
                 type_ind = swa.get_type_ind(task, data)
                 probs = probs[:, type_ind]
@@ -1015,13 +1051,13 @@ class ModelBasedFigure(SwapErrorFigure):
         s1 = "{monkey}: {ps_range} probability of alternate rep. on swap trials"
         s1 = s1.format(monkey=monkey, ps_range=ps_range)
         self.save_stats_string(s1, "range-rate_{}_{}_{}".format(task, delay, mname))
-        
+
         s1_only = "{monkey}: {ps_range}"
         s1_only = s1_only.format(monkey=monkey, ps_range=ps_range)
         self.save_stats_string(
             s1_only, "range-rate_{}_{}_{}_onlyrange".format(task, delay, mname)
         )
-        
+
         s2 = "{monkey}: significantly greater than {thresh} in {nz}/{tot} sessions"
         s2 = s2.format(monkey=monkey, nz=no_zero, thresh=thresh, tot=len(fits))
         self.save_stats_string(s2, "nz-rate_{}_{}_{}".format(task, delay, mname))
@@ -1035,7 +1071,7 @@ class ModelBasedFigure(SwapErrorFigure):
     def _save_rate_diff_stats(self, diff_bootstrap, monkey, task):
         high, low = u.conf_interval(diff_bootstrap, withmean=True)[:, 0]
         diff = u.format_sirange(high, low)
-        
+
         s = "{monkey}: {diff} greater in delay 2 than delay 1"
         s = s.format(monkey=monkey, diff=diff)
         mname = monkey.replace(" ", "_")
@@ -1043,9 +1079,7 @@ class ModelBasedFigure(SwapErrorFigure):
 
         s_only = "{monkey}: {diff}"
         s_only = s_only.format(monkey=monkey, diff=diff)
-        self.save_stats_string(
-            s_only, "nz-rate_{}_{}_onlyrange".format(task, mname)
-        )
+        self.save_stats_string(s_only, "nz-rate_{}_{}_onlyrange".format(task, mname))
 
     def _save_decoding_rates(self, rates, monkey, key, task):
         diffs = []
@@ -1059,15 +1093,25 @@ class ModelBasedFigure(SwapErrorFigure):
         s = s.format(monkey=monkey, diff=dec_diff)
         mname = monkey.replace(" ", "_")
         self.save_stats_string(s, "dec-diff_{}_{}_{}".format(mname, key, task))
-        
+
         s_only = "{monkey}: {diff}"
         s_only = s_only.format(monkey=monkey, diff=dec_diff)
         self.save_stats_string(
             s_only, "dec-diff_{}_{}_{}_onlyrange".format(mname, key, task)
         )
 
-    def _save_monkey_dec_diff(self, m1_rates, m2_rates, key, task, m1="Monkey E",
-                              m2="W", m_name=None, t_ind=0, suffix=""):
+    def _save_monkey_dec_diff(
+        self,
+        m1_rates,
+        m2_rates,
+        key,
+        task,
+        m1="Monkey E",
+        m2="W",
+        m_name=None,
+        t_ind=0,
+        suffix="",
+    ):
         m1_mus = []
         for k, err_tuple in m1_rates.items():
             c_err = err_tuple[t_ind]
@@ -1090,7 +1134,8 @@ class ModelBasedFigure(SwapErrorFigure):
         if m_name is not None:
             s_only = "{monkey}: {diff}".format(monkey=m_name, diff=diff_str)
             self.save_stats_string(
-                s_only, "dec-mdiff_{}_{}_onlyrange".format(key, task),
+                s_only,
+                "dec-mdiff_{}_{}_onlyrange".format(key, task),
             )
 
     def get_model_dict(self, ri, period):
@@ -1194,7 +1239,6 @@ class ModelBasedFigure(SwapErrorFigure):
 
     def _get_model_dict(self, ri, period):
         n_colors = self.params.get("n_colors")
-        spline_order = self.params.get("spline_order")
         session_split = self.params.getint("session_split")
         total_sessions = self.params.getint("total_sessions")
         fp = self.params.get("model_fit_folder")
@@ -1253,7 +1297,6 @@ class ModelBasedFigure(SwapErrorFigure):
         precomputed_data=None,
         cue_time=False
     ):
-        p_thr = self.params.getfloat("model_plot_pthr")
         n_bins = self.params.getint("model_plot_n_bins")
 
         corr_color = self.params.getcolor("correct_color")
@@ -1473,9 +1516,13 @@ class ProSwapFigure(ModelBasedFigure):
         axs[1].set_yticks([0, -0.2, -0.4])
 
     def panel_d2(self):
-        self._panel_d2(type_str="pro", pos_ind=1, neg_ind=0,
-                       type1="mis-selected cue",
-                       type2="misbound colors")
+        self._panel_d2(
+            type_str="pro",
+            pos_ind=1,
+            neg_ind=0,
+            type1="mis-selected cue",
+            type2="misbound colors",
+        )
 
     def panel_decoding_comparison(self):
         key = "panel_decoding_comparison"
@@ -1490,18 +1537,48 @@ class ProSwapFigure(ModelBasedFigure):
         e_color = self.monkey_colors["Elmo"]
         w_color = self.monkey_colors["Waldorf"]
 
-        self._save_monkey_dec_diff(d1_e_rates, d2_e_rates, key, "pro", m1="delay 1",
-                                   m2="2", m_name="Monkey E",
-                                   suffix=" on correct trials")
-        self._save_monkey_dec_diff(d1_e_rates, d2_e_rates, key, "pro", m1="delay 1",
-                                   m2="2", t_ind=1, m_name="Monkey E",
-                                   suffix=" on swap trials")
-        self._save_monkey_dec_diff(d1_w_rates, d2_w_rates, key, "pro", m1="delay 1",
-                                   m2="2", m_name="Monkey W",
-                                   suffix=" on correct trials")
-        self._save_monkey_dec_diff(d1_w_rates, d2_w_rates, key, "pro", m1="delay 1",
-                                   m2="2", t_ind=1, m_name="Monkey W",
-                                   suffix=" on swap trials")
+        self._save_monkey_dec_diff(
+            d1_e_rates,
+            d2_e_rates,
+            key,
+            "pro",
+            m1="delay 1",
+            m2="2",
+            m_name="Monkey E",
+            suffix=" on correct trials",
+        )
+        self._save_monkey_dec_diff(
+            d1_e_rates,
+            d2_e_rates,
+            key,
+            "pro",
+            m1="delay 1",
+            m2="2",
+            t_ind=1,
+            m_name="Monkey E",
+            suffix=" on swap trials",
+        )
+        self._save_monkey_dec_diff(
+            d1_w_rates,
+            d2_w_rates,
+            key,
+            "pro",
+            m1="delay 1",
+            m2="2",
+            m_name="Monkey W",
+            suffix=" on correct trials",
+        )
+        self._save_monkey_dec_diff(
+            d1_w_rates,
+            d2_w_rates,
+            key,
+            "pro",
+            m1="delay 1",
+            m2="2",
+            t_ind=1,
+            m_name="Monkey W",
+            suffix=" on swap trials",
+        )
         swv.plot_decoding_comparison(
             d1_e_rates,
             d2_e_rates,
@@ -1539,7 +1616,6 @@ class GuessFigure(ModelBasedFigure):
         gss = {}
 
         lb = 45
-        wb = 50
         gap = 10
         post_wid = 12
         scatt_wid = 15
@@ -1775,7 +1851,6 @@ class RetroSwapFigure(ModelBasedFigure):
         )
         d1_post_axs = self.get_axs(post_grids, squeeze=True, sharey="all")
 
-        avg_grids = pu.make_mxn_gridspec(self.gs, 1, 1, lb, 100, 0, 30, 2, 2)
         sess_bars_grid = self.gs[lb + gap : 100, 0:20]
         sess_diff_grid = self.gs[lb + gap : 100, 28:35]
         sess_ax, sess_diff_ax = self.get_axs(
@@ -1986,7 +2061,7 @@ class RetroSwapFigure(ModelBasedFigure):
 
 
 class NaiveSwapFigure(SwapErrorFigure):
-    def __init__(self, fig_key='naive_swapping', colors=colors, **kwargs):
+    def __init__(self, fig_key="naive_swapping", colors=colors, **kwargs):
         fsize = (6, 5)
         cf = u.ConfigParserColor()
         cf.read(config_path)
@@ -1997,43 +2072,51 @@ class NaiveSwapFigure(SwapErrorFigure):
 
     def make_gss(self):
         gss = {}
-        
+
         dist_grids = pu.make_mxn_gridspec(
             self.gs,
-            8, 3,
-            0, 100,
-            20, 80,
-            2, 4,
+            8,
+            3,
+            0,
+            100,
+            20,
+            80,
+            2,
+            4,
         )
         dist_axs = self.get_axs(dist_grids, squeeze=True, sharex="all")
 
         gap = 5
         diff_grids = pu.make_mxn_gridspec(
             self.gs,
-            4, 1,
-            gap, 100 - 2*gap,
-            90, 100,
-            gap*2, 4,
+            4,
+            1,
+            gap,
+            100 - 2 * gap,
+            90,
+            100,
+            gap * 2,
+            4,
         )
         diff_axs = self.get_axs(diff_grids, squeeze=True, sharey="all")
-        gss['panel_dists'] = (dist_axs, diff_axs)
+        gss["panel_dists"] = (dist_axs, diff_axs)
 
         self.gss = gss
 
     def panel_dists(self):
-        key = 'panel_dists'
+        key = "panel_dists"
         dist_axs, diff_axs = self.gss[key]
 
-        nc_run = self.params.get('nc_run')
-        folder = self.params.get('nc_folder')
-        regions = self.params.get('regions')
+        nc_run = self.params.get("nc_run")
+        folder = self.params.get("nc_folder")
+        regions = self.params.get("regions")
 
-        null_color = self.params.getcolor('correct_color')
-        swap_color = self.params.getcolor('swap_color')
+        null_color = self.params.getcolor("correct_color")
+        swap_color = self.params.getcolor("swap_color")
 
         c_dict = swa.load_naive_results(nc_run, folder)
 
-        dr_axs = np.reshape(dist_axs, (int(dist_axs.shape[0]/2), 2, -1))
+        dr_axs = np.reshape(dist_axs, (int(dist_axs.shape[0] / 2), 2, -1))
         dr_axs = np.swapaxes(dr_axs, 0, 2)
 
         _, info_groups = swv.plot_all_nc_dict(
@@ -2043,19 +2126,19 @@ class NaiveSwapFigure(SwapErrorFigure):
             plot_inverted=True,
             c_color=null_color,
             s_color=swap_color,
-            limit_bins=(-1, 2)
+            limit_bins=(-1, 2),
         )
 
         colors = {
-            'elmo_range':self.params.getcolor('elmo_color'),
-            'waldorf_range':self.params.getcolor('waldorf_color'),
+            "elmo_range": self.params.getcolor("elmo_color"),
+            "waldorf_range": self.params.getcolor("waldorf_color"),
         }
         swv.plot_nc_diffs(info_groups, diff_axs, colors=colors)
         for ax in diff_axs[:-1]:
             ax.set_xticks([0, 1, 2])
-            ax.set_xticklabels(['', '', ''])
+            ax.set_xticklabels(["", "", ""])
         diff_axs[-1].set_xticks([0, 1, 2])
-        diff_axs[-1].set_xticklabels(['E', 'W', 'combined'], rotation=45)
+        diff_axs[-1].set_xticklabels(["E", "W", "combined"], rotation=45)
 
 
 class ForgettingFigure(ModelBasedFigure):
