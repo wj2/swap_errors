@@ -26,6 +26,7 @@ def create_parser():
     parser.add_argument("--jobid", default="0000", type=str)
     parser.add_argument("--single_color", default=False, action='store_true')
     parser.add_argument("--region_str", default=None, type=str)
+    parser.add_argument("--use_means", default=False, action="store_true")
     return parser
 
 
@@ -54,5 +55,6 @@ if __name__ == "__main__":
         pre_pca=args.pre_pca,
         jobid=args.jobid,
         single_color=args.single_color,
+        model_based=not args.use_means,
         **kwargs,
     )

@@ -914,18 +914,28 @@ def filter_nc_dis(
     use_dis = []
     for d1_c in use_d1s:
         if len(list(centroid_dict[d1_c].keys())[0]) > 2:
-            def k_filt(k): return k[0] in use_range and k[1] == regions
+
+            def k_filt(k):
+                return k[0] in use_range and k[1] == regions
+
         else:
-            def k_filt(k): return k[0] in use_range
+
+            def k_filt(k):
+                return k[0] in use_range
+
         d1i_use = {k: v for k, v in centroid_dict[d1_c].items() if k_filt(k)}
         use_dis.append(d1i_use)
     for use_cond in cond_types:
         if len(list(centroid_dict[d2_key].keys())[0]) > 2:
-            def k_filt(k): return (
-                    k[0] in use_range and k[1] == regions and k[2] == use_cond
-            )
+
+            def k_filt(k):
+                return k[0] in use_range and k[1] == regions and k[2] == use_cond
+
         else:
-            def k_filt(k): return (k[0] in use_range and k[1] == use_cond)
+
+            def k_filt(k):
+                return k[0] in use_range and k[1] == use_cond
+
         d2i_use = {k: v for k, v in centroid_dict[d2_key].items() if k_filt(k)}
         use_dis.append(d2i_use)
     return use_dis
@@ -2391,12 +2401,12 @@ def distance_lm_tc(
     swap_decider=swap_argmax,
     close_coeffs_decider=coeff_threshold,
     col_thr=np.pi / 4,
-    cv=skms.LeaveOneOut,
     col_diff=_col_diff_rad,
     model=sklm.Ridge,
     single_color=False,
     norm=True,
     pre_pca=None,
+    model_based=True,
 ):
     """
     Parameters
@@ -2424,22 +2434,23 @@ def distance_lm_tc(
             pass
 
     n_trls, n_neurs, n_ts = y.shape
-    null_colors = (upper_col, lower_col)
+    main_colors = (upper_col, lower_col)
+    null_colors_use = main_colors
     if single_color:
-        null_colors = null_colors[:1]
+        null_colors_use = main_colors[:1]
     null_coeffs, spliner = make_lm_coefficients(
-        *null_colors,
+        *null_colors_use,
         cues=cues,
         spline_knots=n_knots,
         spline_degree=spline_order,
         return_spliner=True,
     )
 
-    swap_colors = null_colors[::-1]
+    swap_colors_use = main_colors[::-1]
     if single_color:
-        swap_colors = swap_colors[:1]
+        swap_colors_use = swap_colors_use[:1]
     color_swap_coeffs = make_lm_coefficients(
-        *swap_colors,
+        *swap_colors_use,
         cues=cues,
         spline_knots=n_knots,
         spline_degree=spline_order,
@@ -2449,27 +2460,27 @@ def distance_lm_tc(
         null_coeffs,
         color_swap_coeffs,
     )
-    alternates_raw = (null_colors + (cues,), swap_colors + (cues,))
+    alternates_raw = (null_colors_use + (cues,), swap_colors_use + (cues,))
     if cues is not None:
         cue_swap_coeffs = make_lm_coefficients(
-            *swap_colors,
+            *swap_colors_use,
             cues=1 - cues,
             spline_knots=n_knots,
             spline_degree=spline_order,
             use_spliner=spliner,
         )
         cue_swap_null_coeffs = make_lm_coefficients(
-            *null_colors,
+            *null_colors_use,
             cues=1 - cues,
             spline_knots=n_knots,
             spline_degree=spline_order,
             use_spliner=spliner,
         )
         alternates = alternates + (cue_swap_coeffs, cue_swap_null_coeffs)
-        add = (swap_colors + (1 - cues,), null_colors + (1 - cues,))
+        add = (swap_colors_use + (1 - cues,), null_colors_use + (1 - cues,))
         alternates_raw = alternates_raw + add
 
-    col_dist_mask = col_diff(lower_col, upper_col) > col_thr
+    col_dist_mask = col_diff(*main_colors) > col_thr
     corr_inds, _ = _get_corr_swap_inds(
         ps,
         corr_decider,
@@ -2486,32 +2497,54 @@ def distance_lm_tc(
     n_trls = len(corr_inds)
     dists = np.zeros((n_alts, n_alts), dtype=object)
 
+    null_coeffs_raw = np.array(alternates_raw[0])
     trl_inds = set(np.arange(n_trls))
     for i_alt, j_alt in it.combinations(range(n_alts), 2):
         ar_i, ar_j = alternates_raw[i_alt], alternates_raw[j_alt]
         close_inds = close_coeffs_decider(ar_i, ar_j)
         dists_ij = np.zeros((len(close_inds), n_ts))
         for i, te_inds in enumerate(close_inds):
+            pipe = na.make_model_pipeline(norm=norm, pca=pre_pca, tc=not model_based)
             tr_inds = np.array(list(trl_inds.difference(te_inds)))
+            if model_based:
+                coeff_tr = null_coeffs[tr_inds]
+                y_tr = y[tr_inds]
 
-            coeff_tr = null_coeffs[tr_inds]
-            y_tr = y[tr_inds]
+                c_pair = null_coeffs[te_inds]
+                y_te = y[te_inds]
 
-            c_pair = null_coeffs[te_inds]
-            y_te = y[te_inds]
-            
-            pipe = na.make_model_pipeline(norm=norm, pca=pre_pca)
-            dists_ij[i] = _fit_cn_lm_tc((coeff_tr, y_tr), (c_pair, y_te), pre_pipe=pipe)
+                dists_ij[i] = _fit_cn_lm_tc(
+                    (coeff_tr, y_tr), (c_pair, y_te), pre_pipe=pipe
+                )
+            else:
+                y_tr = y[tr_inds]
+                y_tr = pipe.fit_transform(y_tr)
+                y_te = pipe.transform(y[te_inds])
+                t0, t1 = te_inds
+                t0_tr_inds = close_coeffs_decider(
+                    null_coeffs_raw[:, t0:t0+1],
+                    null_coeffs_raw[:, tr_inds],
+                )
+                t1_tr_inds = close_coeffs_decider(
+                    null_coeffs_raw[:, t1:t1+1],
+                    null_coeffs_raw[:, tr_inds],
+                )
+                y_tr0 = np.mean(y_tr[t0_tr_inds[:, 1]], axis=0)
+                y_tr1 = np.mean(y_tr[t1_tr_inds[:, 1]], axis=0)
+                y_te0 = y_te[0]
+                y_te1 = y_te[1]
+                dists_ij[i] = np.sum((y_tr0 - y_tr1) * (y_te0 - y_te1), axis=0)
+                
         dists[i_alt, j_alt] = dists_ij
         dists[j_alt, i_alt] = dists_ij
     return dists
 
 
-def make_mean_dist_mat(trl_dist_mat, xs):
+def make_mean_dist_mat(trl_dist_mat, xs, central=np.nanmean):
     dm_mu = np.zeros(trl_dist_mat.shape + (len(xs),))
     for session, i, j in u.make_array_ind_iterator(trl_dist_mat.shape):
         if i != j:
-            dm_mu[session, i, j] = np.mean(trl_dist_mat[session, i, j], axis=0)
+            dm_mu[session, i, j] = central(trl_dist_mat[session, i, j], axis=0)
     return dm_mu, xs
 
 
