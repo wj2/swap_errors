@@ -536,10 +536,10 @@ class LMFigure(SwapErrorFigure):
         horiz_gap = 5
         vert_gap = 10
 
-        vert_pt = int(200 / 3)
-
+        vert_pt = int(325/4)
+        
         lm_gs = pu.make_mxn_gridspec(
-            self.gs, 4, 4, 0, vert_pt - vert_gap / 2, 0, 100, 5, horiz_gap
+            self.gs, 6, 4, 0, vert_pt - vert_gap/2, 0, 100, 5, horiz_gap
         )
         lm_axs = self.get_axs(lm_gs, sharey="all", sharex="vertical")
 
@@ -561,6 +561,7 @@ class LMFigure(SwapErrorFigure):
         mat_inds_lm = (
             ((0, 1), (0, 1), (0, 1), (0, 1)),
             ((0, 1), (0, 1), (0, 2), (0, 2)),
+            ((0, 1), (0, 1), (1, 2), (1, 2)),
         )
 
         self._plot_lm_dict(
@@ -874,7 +875,7 @@ class NeuronNumFigure(SwapErrorFigure):
 
 class RetroLMFigure(LMFigure):
     def __init__(self, fig_key="retro_lm", colors=colors, **kwargs):
-        fsize = (4, 7)
+        fsize = (4, 9.3)
         cf = u.ConfigParserColor()
         cf.read(config_path)
 
@@ -904,8 +905,10 @@ class RetroLMFigure(LMFigure):
         colors_alt = (
             (color11, color11, color21, color31),
             (color11, color11, color22, color32),
+            (color11, color11, color22, color32),
         )
         colors_null = (
+            (corr_color, corr_color, corr_color, corr_color),
             (corr_color, corr_color, corr_color, corr_color),
             (corr_color, corr_color, corr_color, corr_color),
         )
@@ -914,7 +917,7 @@ class RetroLMFigure(LMFigure):
 
 class ProLMFigure(LMFigure):
     def __init__(self, fig_key="pro_lm", colors=colors, **kwargs):
-        fsize = (4, 7)
+        fsize = (4, 9.3)
         cf = u.ConfigParserColor()
         cf.read(config_path)
 
@@ -946,8 +949,10 @@ class ProLMFigure(LMFigure):
         colors_alt = (
             (color11, color11, color21, color31),
             (color11, color11, color22, color32),
+            (color11, color11, color22, color32),
         )
         colors_null = (
+            (corr_color, corr_color, corr_color, corr_color),
             (corr_color, corr_color, corr_color, corr_color),
             (corr_color, corr_color, corr_color, corr_color),
         )
@@ -1393,9 +1398,11 @@ class ModelBasedFigure(SwapErrorFigure):
         e_d2_color = self.params.getcolor("elmo_color")
         w_d2_color = self.params.getcolor("waldorf_color")
 
+        thresh = self.params.getfloat("strong_assoc_param")
+
         full_dict, elmo_fits, wald_fits = self.get_d2_fits()
-        self._save_rate_stats(elmo_fits, "Monkey E", "d2", type_str)
-        self._save_rate_stats(wald_fits, "Monkey W", "d2", type_str)
+        self._save_rate_stats(elmo_fits, "Monkey E", "d2", type_str, thresh=thresh,)
+        self._save_rate_stats(wald_fits, "Monkey W", "d2", type_str, thresh=thresh,)
         self._save_kind_diff_stats(elmo_fits, "Monkey E", type_str, **kwargs)
         self._save_kind_diff_stats(wald_fits, "Monkey W", type_str, **kwargs)
 
@@ -1938,8 +1945,14 @@ class RetroSwapFigure(ModelBasedFigure):
         #                colors=(e_d2_color, w_d2_color),
         #                diff=.1)
 
-        self._save_rate_stats(e_d1_fits, "Monkey E", "d1", "retro", t_ind=False)
-        self._save_rate_stats(w_d1_fits, "Monkey W", "d1", "retro", t_ind=False)
+        thresh = self.params.getfloat("strong_assoc_param")
+
+        self._save_rate_stats(
+            e_d1_fits, "Monkey E", "d1", "retro", t_ind=False, thresh=thresh,
+        )
+        self._save_rate_stats(
+            w_d1_fits, "Monkey W", "d1", "retro", t_ind=False, thresh=thresh,
+        )
         swv.plot_rate_differences(e_d1_fits, e_d2_fits, ax=sess_ax, color=e_color)
         swv.plot_rate_differences(w_d1_fits, w_d2_fits, ax=sess_ax, color=w_color)
         gpl.clean_plot(sess_ax, 0)
