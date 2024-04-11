@@ -2407,6 +2407,7 @@ def distance_lm_tc(
     norm=True,
     pre_pca=None,
     model_based=True,
+    min_trls=2,
 ):
     """
     Parameters
@@ -2529,11 +2530,14 @@ def distance_lm_tc(
                     null_coeffs_raw[:, t1:t1+1],
                     null_coeffs_raw[:, tr_inds],
                 )
-                y_tr0 = np.mean(y_tr[t0_tr_inds[:, 1]], axis=0)
-                y_tr1 = np.mean(y_tr[t1_tr_inds[:, 1]], axis=0)
-                y_te0 = y_te[0]
-                y_te1 = y_te[1]
-                dists_ij[i] = np.sum((y_tr0 - y_tr1) * (y_te0 - y_te1), axis=0)
+                if len(t0_tr_inds) > min_trls and len(t1_tr_inds) > min_trls:
+                    y_tr0 = np.mean(y_tr[t0_tr_inds[:, 1]], axis=0)
+                    y_tr1 = np.mean(y_tr[t1_tr_inds[:, 1]], axis=0)
+                    y_te0 = y_te[0]
+                    y_te1 = y_te[1]
+                    dists_ij[i] = np.sum((y_tr0 - y_tr1) * (y_te0 - y_te1), axis=0)
+                else:
+                    dists_ij[i] = np.nan
                 
         dists[i_alt, j_alt] = dists_ij
         dists[j_alt, i_alt] = dists_ij
