@@ -61,23 +61,34 @@ def plot_distance_projection(
     ax=None,
     n_components=2,
     ind_pairs=((0, 1), (0, 2), (1, 2)),
-    colors=None,
-    pt_color=None,
+    line_color=None,
+    pt_colors=None,
     cut_last=True,
+    outline=1.5,
+    ms=8,
+    make_scale_bar=True,
 ):
     ind_pairs = np.array(ind_pairs)
-    if colors is None:
-        colors = (None,) * len(ind_pairs)
+    if pt_colors is None:
+        pt_colors = (None,) * len(dm)
     t_ind = np.argmin(np.abs(xs - t_targ))
     if cut_last:
         dm = dm[:, :-1, :-1]
-    mu_dm = np.mean(dm, axis=0)[..., t_ind]
+    mu_dm = np.sqrt(np.mean(dm, axis=0)[..., t_ind])
     m = skm.MDS(n_components=n_components, dissimilarity="precomputed")
     pts = m.fit_transform(mu_dm)
     for i, inds in enumerate(ind_pairs):
-        ax.plot(*pts[inds].T, color=colors[i])
-    ax.plot(*pts.T, "o", color=pt_color)
+        ax.plot(*pts[inds].T, color=line_color, linestyle="dashed")
+    for i, pt in enumerate(pts):
+        if outline > 1:
+            ax.plot(*pt.T, "*", color="k", ms=ms * outline)
+        ax.plot(*pt.T, "*", color=pt_colors[i], ms=ms)
     ax.set_aspect("equal")
+    gpl.clean_plot(ax, 1)
+    gpl.clean_plot_bottom(ax)
+    if make_scale_bar:
+        gpl.make_xaxis_scale_bar(ax, magnitude=1, double=False, label="distance")
+        gpl.make_yaxis_scale_bar(ax, magnitude=1, double=False, label="distance")
 
 
 def visualize_rf_properties(w_distrib, n_units=2000, total_pwr=10, axs=None, skip=0.2):
@@ -2541,8 +2552,8 @@ def plot_proj_p_scatter(
         mask = mem == members
         t_pt = cent_func(td[mask])
         p_pt = cent_func(p[mask])
-        l = ax.plot(t_pt, p_pt, "o", color=color)
-        color = l[0].get_color()
+        l_ = ax.plot(t_pt, p_pt, "o", color=color)
+        color = l_[0].get_color()
 
     if bounds is not None:
         ax.set_xlim(bounds)
