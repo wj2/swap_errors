@@ -608,10 +608,10 @@ class LMFigure(SwapErrorFigure):
                 ("pre-cue", "correct", "none"): (-0.25, (0, 1)),
                 ("post-cue", "correct", "mis-selected"): (0.25, (0, 1)),
                 ("post-cue", "correct", "mis-interpreted"): (0.25, (0, 2)),
-                ("post-cue", "mis-selected", "mis-interpreted"): (0.25, (0, 2)),
+                ("post-cue", "mis-selected", "mis-interpreted"): (0.25, (1, 2)),
                 ("wheel", "correct", "mis-selected"): (-0.25, (0, 1)),
                 ("wheel", "correct", "mis-interpreted"): (-0.25, (0, 2)),
-                ("wheel", "mis-selected", "mis-interpreted"): (-0.25, (0, 2)),
+                ("wheel", "mis-selected", "mis-interpreted"): (-0.25, (1, 2)),
             }
 
         for (k, t1, t2), (t_pt, pt) in stat_dict.items():
@@ -634,9 +634,15 @@ class LMFigure(SwapErrorFigure):
                 r_proto = nc_plot[pt]
                 l_proto = sc_comb[pt]
                 t1_t2_str = "{}-{}".format(t1, t2_save)
-                diff_str = "{type2} rep. than on correct trials".format(
-                    type2=t2, type1=t1
-                )
+                if t1 == "correct":
+                    diff_str = "{type2} rep. than on correct trials".format(
+                        type2=t2,
+                    )
+                else:
+                    diff_str = (
+                        "{type2} rep. than on correct trials, along the {type2} "
+                        "to {type1} axis"
+                    ).format(type1=t1, type2=t2)
 
             if nc_comb.shape[0] != 0:
                 diffs = u.bootstrap_diff(l_proto, r_proto)
