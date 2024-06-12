@@ -18,6 +18,107 @@ import general.neural_analysis as na
 import swap_errors.analysis as swan
 import swap_errors.auxiliary as swaux
 
+import torch
+
+
+@gpl.ax_adder()
+def plot_conditional_bhv(
+    session_dict, targ, targ_wid=np.pi / 2, ax=None, p_ind=1, p_thr=0.3, **kwargs
+):
+    errs = []
+    for sd in session_dict.values():
+        err_sd = u.normalize_periodic_range(sd["rc"] - sd["c_targ"])
+        mask1 = sd["ps"][:, p_ind] < p_thr
+        diff = np.abs(u.normalize_periodic_range(sd["c_targ"] - targ))
+        mask2 = diff <= (targ_wid / 2)
+        mask = np.logical_and(mask1, mask2)
+        errs.append(err_sd[mask])
+    errs_all = np.concatenate(errs)
+    ax.hist(errs_all, **kwargs)
+
+
+@gpl.ax_adder()
+def plot_joint_gp(
+    model,
+    ax=None,
+    flip=True,
+    cmap="hsv",
+    var_range=(-np.pi, np.pi),
+    n_bins=11,
+    circularize_conditional=True,
+    circularize_diff=True,
+    sub_color=False,
+    **kwargs,
+):
+    cm = plt.get_cmap()
+    p_cols = np.linspace(*var_range, n_bins)
+    if circularize_diff:
+        d_cols = np.stack((np.sin(p_cols), np.cos(p_cols)), axis=1)
+    else:
+        d_cols = np.expand_dims(p_cols, 1)
+    if circularize_conditional:
+        c_cols = np.stack((np.sin(p_cols), np.cos(p_cols)), axis=1)
+    else:
+        c_cols = np.expand_dims(p_cols, 1)
+    for i, cc in enumerate(c_cols):
+        color = cm(i / n_bins)
+
+        x_i = np.concatenate(
+            (d_cols, np.ones((p_cols.shape[0], c_cols.shape[1])) * cc), axis=1
+        )
+        if sub_color:
+            plot_cols = u.normalize_periodic_range(p_cols - p_cols[i])
+            inds = np.argsort(plot_cols)
+            plot_cols = plot_cols[inds]
+            x_i = x_i[inds]
+        else:
+            plot_cols = p_cols
+        _plot_gp_werr(plot_cols, x_i, model, ax, color=color)
+
+
+@gpl.ax_adder()
+def plot_pyro_gp(
+    x,
+    model,
+    ax=None,
+    **kwargs,
+):
+    x = np.unique(x, axis=0)
+    if x.shape[1] == 2:
+        x_ax = np.arctan2(x[:, 0], x[:, 1])
+    else:
+        x_ax = np.squeeze(x)
+    inds = np.argsort(x_ax, axis=0)
+    x_ax = x_ax[inds]
+    x = x[inds]
+    _plot_gp_werr(x_ax, x, model, ax, **kwargs)
+
+
+def _plot_gp_werr(x, inp, model, ax, flip=True, norm=False, **kwargs):
+    mu, cov = model(torch.tensor(inp), full_cov=True, noiseless=True)
+    mu = mu.detach().numpy()
+    cov = cov.detach().numpy()
+    if flip:
+        mu = -mu
+    if norm:
+        mu = mu - np.min(mu)
+        mu = mu / np.max(mu)
+    sd = np.sqrt(np.diag(cov))
+    l_ = ax.plot(x, mu, **kwargs)
+    kwargs["color"] = l_[0].get_color()
+    ax.fill_between(x, (mu - 2.0 * sd), (mu + 2.0 * sd), alpha=0.3, **kwargs)
+    if "label" in kwargs:
+        ax.legend(frameon=False)
+
+
+@gpl.ax_adder()
+def plot_all_kernels(xs, kernel_dict, cmap="hsv", ax=None, **kwargs):
+    cm = plt.get_cmap("hsv")
+
+    for i, (col, kd) in enumerate(kernel_dict.items()):
+        color = cm(i / len(kernel_dict))
+        plot_pyro_gp(xs, kd["model"], color=color, ax=ax)
+
 
 def plot_sigma_vs_emp(
     tcc_dict,
@@ -3180,35 +3281,53 @@ def plot_tcc_behavioral_params(samples, axs=None, fwid=2):
         gpl.clean_plot(axs[i], i)
 
 
-def plot_tcc_behavioral_fit(out, axs=None, fwid=2):
+def plot_tcc_behavioral_fit(out, axs=None, fwid=2, bin_cent=None, bin_wid=np.pi / 2):
     if axs is None:
         f, axs = plt.subplots(
             1,
-            2,
-            figsize=(fwid * 2, fwid),
+            3,
+            figsize=(fwid * 3, fwid),
             sharey=True,
             sharex=True,
         )
-    ax1, ax2 = axs
+    ax1, ax2, ax3 = axs
+
+    if bin_cent is not None:
+        mask_corr = (
+            np.abs(u.normalize_periodic_range(out["targs"] - bin_cent)) < bin_wid / 2
+        )
+        mask_dist = (
+            np.abs(u.normalize_periodic_range(out["dists"] - bin_cent)) < bin_wid / 2
+        )
+    else:
+        mask_corr = np.ones(len(out["targs"]), dtype=bool)
+        mask_dist = np.ones(len(out["targs"]), dtype=bool)
     errs_sim = u.normalize_periodic_range(
         out["predictive_samples"] - np.expand_dims(out["targs"], 0)
-    ).flatten()
+    )[:, mask_corr].flatten()
 
     _, bins, _ = ax1.hist(errs_sim, density=True, histtype="step")
-    errs = u.normalize_periodic_range(out["resps"] - out["targs"].detach().numpy())
+    errs = u.normalize_periodic_range(out["resps"] - out["targs"])[mask_corr]
     ax1.hist(errs, bins=bins, density=True)
 
     swaps_sim = u.normalize_periodic_range(
         out["predictive_samples"] - np.expand_dims(out["dists"], 0)
-    ).flatten()
-    swaps = u.normalize_periodic_range(out["resps"] - out["dists"].detach().numpy())
+    )[:, mask_dist].flatten()
+    swaps = u.normalize_periodic_range(out["resps"] - out["dists"])[mask_dist]
     ax2.hist(swaps_sim, bins=bins, density=True, histtype="step")
     ax2.hist(swaps, bins=bins, density=True)
+
+    ax3.hist(
+        out["predictive_samples"].flatten(), bins=bins, histtype="step", density=True
+    )
+    ax3.hist(out["resps"], bins=bins, density=True)
     gpl.clean_plot(ax1, 0)
     gpl.clean_plot(ax2, 1)
+    gpl.clean_plot(ax3, 1)
     ax1.set_ylabel("density")
     ax1.set_xlabel("distance from target")
     ax2.set_xlabel("distance from distractor")
+    ax3.set_xlabel("response")
 
 
 def make_color_circle(ax=None, px=1000, r_cent=350, r_wid=100):
