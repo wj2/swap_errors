@@ -76,6 +76,10 @@ lm_targ_template = (
 session_to_monkey_dict = {k: "Elmo" for k in range(13)}
 session_to_monkey_dict.update({k: "Waldorf" for k in range(13, 23)})
 
+monkey_session_range = {
+    "Elmo": tuple(range(13)),
+    "Waldorf": tuple(range(13, 23))
+}
 
 def make_lm_lists(*args, **kwargs):
     regions = ("pfc", "fef", "7ab", "motor", "tpot", "v4pit")

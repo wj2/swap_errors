@@ -12,6 +12,7 @@ import general.utility as u
 import pyro.distributions as distribs
 import gpytorch as gpt
 import logging
+import swap_errors.auxiliary as swa
 
 
 def similarity_model(
@@ -232,8 +233,8 @@ def fit_similarity_gp_combined(
         dists, c_diffs, c1, c2 = prepare_data_continuous(
             data_use["spks"],
             data_use["c_targ"],
-            data_use["ps"],
-            xs,
+            ps=data_use["ps"],
+            xs=xs,
             pre_pca=pre_pca,
             norm=False,
             p_thr=p_thr,
@@ -343,7 +344,9 @@ def similarity_model_hierarchical(
         return x, y
 
 
-def fit_single_neuron_gps(pickles, xs, norm=True, pca=None, color_key="c_targ", **kwargs):
+def fit_single_neuron_gps(
+    pickles, xs, norm=True, pca=None, color_key="c_targ", **kwargs
+):
     out_models = {}
     out_full = {}
     for key, pickle in pickles.items():
@@ -532,13 +535,13 @@ class GPWrapper:
             self.train()
         return mu, cov
 
-    
+
 def _mu_cov_gp(gp, likelihood, inp):
     with torch.no_grad():
         predictions = likelihood(gp(inp))
         mu = predictions.mean
         cov = predictions.variance
-    return mu, cov  
+    return mu, cov
 
 
 class MultitaskGPModel(gpt.models.ExactGP):
@@ -843,8 +846,62 @@ def _compute_average_kernel(bins, full_kernel, rescale=True):
     return kernel
 
 
+def compute_continuous_distance_matrix(
+    data_dict,
+    xs,
+    color_key="rc",
+    second_color_key=None,
+    ps_key="ps",
+    spk_key="spks",
+    cue_key="cues",
+    **kwargs,
+):
+    out_dict = {}
+    for sess, sess_dict in data_dict.items():
+        resps = sess_dict[spk_key]
+        if second_color_key is None:
+            second_color_key = color_key
+        colors1 = sess_dict[color_key]
+        colors2 = sess_dict[second_color_key]
+        ps = sess_dict[ps_key]
+        dists, c_diffs, c1, c2 = prepare_data_continuous(
+            resps,
+            colors1,
+            colors2,
+            xs=xs,
+            **kwargs,
+        )
+        out_dict[sess] = {
+            "dists": dists,
+            "c_diffs": c_diffs,
+            "c1": c1,
+            "c2": c2,
+            "ps": ps,
+        }
+    return out_dict
+
+
+def compute_continuous_distance_masks(dist_dict, p_thr=0.4):
+    mask_dict = {}
+    for sess, sess_dist_dict in dist_dict.items():
+        dists = sess_dist_dict["dists"]
+        cds = sess_dist_dict["c_diffs"]
+        ps = sess_dist_dict["ps"]
+        corr_mask = ps[:, 0] > p_thr
+        norm_ps = ps / np.sum(ps, axis=0, keepdims=True)
+        for i in range(ps.shape[1]):
+            rd_i, cd_i = mask_dict.get(i, ([], []))
+            use_mask = ps[:, i] > p_thr
+            m_dists = dists[use_mask][:, corr_mask]
+            m_cds = cds[use_mask][:, corr_mask]
+            rd_i.extend(m_dists.flatten())
+            cd_i.extend(m_cds.flatten())
+            mask_dict[i] = (rd_i, cd_i)
+    return mask_dict
+
+
 def prepare_data_continuous(
-    resps, colors, ps=None, xs=None, ps_thr=0.6, p_ind=0, x_targ=-0.25, **kwargs
+    resps, c1, c2, ps=None, xs=None, ps_thr=0.6, p_ind=0, x_targ=-0.25, **kwargs
 ):
     if xs is not None:
         ind = np.argmin((xs - x_targ) ** 2)
@@ -852,19 +909,21 @@ def prepare_data_continuous(
     if ps is not None:
         mask = ps[:, p_ind] > ps_thr
         resps = resps[mask]
-        colors = colors[mask]
+        c1 = c1[mask]
+        c2 = c2[mask]
     pipe = na.make_model_pipeline(**kwargs)
     if len(pipe.steps) > 0:
         resps = pipe.fit_transform(resps)
     dists = skmp.euclidean_distances(resps)
+    dists = resps @ resps.T
     ident_mask = np.identity(len(resps), dtype=bool)
     dists[ident_mask] = np.nan
 
     c_diffs = u.normalize_periodic_range(
-        np.expand_dims(colors, 0) - np.expand_dims(colors, 1)
+        np.expand_dims(c2, 0) - np.expand_dims(c1, 1)
     )
-    c1 = np.repeat(np.expand_dims(colors, 0), len(colors), 0)
-    c2 = np.repeat(np.expand_dims(colors, 1), len(colors), 1)
+    c1 = np.repeat(np.expand_dims(c1, 1), len(c1), 1)
+    c2 = np.repeat(np.expand_dims(c2, 0), len(c2), 0)
     return dists, c_diffs, c1, c2
 
 

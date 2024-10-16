@@ -111,6 +111,45 @@ def _plot_gp_werr(x, inp, model, ax, flip=True, norm=False, **kwargs):
         ax.legend(frameon=False)
 
 
+def plot_all_color_funcs_pickles(
+    data,
+    xs,
+    t_targ=-0.25,
+    fwid=1,
+    spk_key="spks",
+    color_key="c_targ",
+    axs=None,
+    session_inds=None,
+    **kwargs,
+):
+    t_ind = np.argmin((xs - t_targ) ** 2)
+    if session_inds is not None:
+        data = {si: data[si] for si in session_inds}
+
+    col_all = []
+    resp_all = []
+    sess_all = []
+    ind_all = []
+    for ind, sess_data in data.items():
+        colors = sess_data[color_key]
+        spks = sess_data[spk_key][..., t_ind]
+        resp_all.extend(list(spks[:, i] for i in range(spks.shape[1])))
+        col_all.extend((colors,) * spks.shape[1])
+        sess_all.extend((ind,) * spks.shape[1])
+        ind_all.extend(range(spks.shape[1]))
+        
+    n_plots = len(col_all)
+    row_col = int(np.ceil(np.sqrt(n_plots)))
+    if axs is None:
+        f, axs = plt.subplots(
+            row_col, row_col, figsize=(fwid * row_col, fwid * row_col)
+        )
+    axs = axs.flatten()
+    for i, col_i in enumerate(col_all):
+        ax = axs[i]
+        gpl.plot_scatter_average(col_i, resp_all[i], ax=ax, **kwargs)
+        ax.set_title("{}-{}".format(sess_all[i], ind_all[i]))
+
 @gpl.ax_adder()
 def plot_all_kernels(xs, kernel_dict, cmap="hsv", ax=None, **kwargs):
     cm = plt.get_cmap("hsv")
