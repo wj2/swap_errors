@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "swap-errors"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+keywords = []
+authors = [
+  { name = "wj2", email = "wjeffreyjohnston@gmail.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = []
+
+[project.urls]
+Documentation = "https://github.com/wj2/swap-errors#readme"
+Issues = "https://github.com/wj2/swap-errors/issues"
+Source = "https://github.com/wj2/swap-errors"
+
+[tool.hatch.version]
+path = "swap_errors/__about__.py"
+
+[project.optional-dependencies]
+general = [
+  "general[tensorflow] @ git+https://github.com/wj2/general-neural.git",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.envs.test]
+python = "3.12"
+features = [
+  "general",
+]
