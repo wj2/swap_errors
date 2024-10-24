@@ -27,7 +27,7 @@ class KernelFigure(swf.SwapErrorFigure):
 
 class TheoryFigure(KernelFigure):
     def __init__(self, fig_key="theory", colors=swf.colors, **kwargs):
-        fsize = (7.5, 3)
+        fsize = (6, 2.5)
         cf = u.ConfigParserColor()
         cf.read(config_path)
 
@@ -64,29 +64,34 @@ class TheoryFigure(KernelFigure):
         pwrs = self.params.getlist("sim_pwrs", typefunc=float)
         n_bins = self.params.getint("n_bins")
         n_samps = self.params.getint("n_samps")
+        color_gp = self.params.getcolor("color_gp")
 
         eps = 1e-10
         bins = np.linspace(-np.pi - eps, np.pi + eps, n_bins)
         for i, pwr in enumerate(pwrs):
             ax_dist, ax_samps = axs[:, i]
             model_gp = self.get_models(pwr=pwr)[-1]
-            dec_samps = model_gp.sample_dec_gp(single_stim=single_stim, n_samps=n_samps)
-            xs = model_gp.stim[:, 0]
+            xs, dec_samps = model_gp.sample_dec_gp(
+                # single_stim=single_stim,
+                n_samps=n_samps,
+            )
             for j in range(n_dec_samps):
                 ds = dec_samps[j]
-                ax_samps.plot(xs, ds)
+                ax_samps.plot(xs, ds, color=(0.7,) * 3)
                 ind = np.argmax(ds)
-                ax_samps.plot(xs[ind], ds[ind], "o")
+                ax_samps.plot(xs[ind], ds[ind], "o", color="k")
             true, est = model_gp.simulate_decoding(
                 single_stim=single_stim, n_samps=n_samps
             )
 
-            ax_dist.hist(est[:, 0], bins=bins, density=True)
+            ax_dist.hist(est[:, 0], bins=bins, density=True, color=color_gp)
             ax_dist.hist(
                 xs[np.argmax(dec_samps, axis=1)],
                 histtype="step",
                 bins=bins,
                 density=True,
+                color="k",
+                linestyle="dashed",
             )
             ax_dist.set_xlabel("error")
             ax_samps.set_xlabel("stimulus\ndifference")
@@ -101,10 +106,18 @@ class TheoryFigure(KernelFigure):
 
         n_sns = self.params.getint("plot_n_resps")
         models = self.get_models()
+        colors = (
+            self.params.getcolor("color_rf"),
+            self.params.getcolor("color_gp"),
+        )
+        plot_theor = (
+            False,
+            True,
+        )
         for i, model in enumerate(models):
             xs = model.stim[:, 0]
             ys = model.reps[:, :n_sns]
-            axs_sn[i, 0].plot(xs, ys)
+            axs_sn[i, 0].plot(xs, ys, color=colors[i])
             gpl.clean_plot(axs_sn[i, 0], 0)
             axs_sn[i, 0].set_ylabel("unit response (au)")
             if i < len(models) - 1:
@@ -114,15 +127,16 @@ class TheoryFigure(KernelFigure):
                 axs_sn[i, 1].set_xlabel("stimulus\ndifference")
                 axs_sn[i, 0].set_xlabel("stimulus value")
             diffs, kernel = model.empirical_kernel()
-            gpl.plot_scatter_average(diffs, kernel, ax=axs_sn[i, 1])
-            diffs, kernel = model.theoretical_kernel()
-            gpl.plot_scatter_average(diffs, kernel, ax=axs_sn[i, 1])
+            gpl.plot_scatter_average(diffs, kernel, ax=axs_sn[i, 1], color=colors[i])
+            if plot_theor[i]:
+                diffs, kernel = model.theoretical_kernel()
+                axs_sn[i, 1].plot(diffs, kernel, color="k", ls="dashed")
             axs_sn[i, 1].set_ylabel("similarity")
 
 
 class ExpAverageFigure(KernelFigure):
     def __init__(self, fig_key="exp-avg", colors=swf.colors, **kwargs):
-        fsize = (7.5, 5)
+        fsize = (6.5, 4.25)
         cf = u.ConfigParserColor()
         cf.read(config_path)
 
@@ -137,7 +151,7 @@ class ExpAverageFigure(KernelFigure):
         axs = self.get_axs(single_unit_grid, sharex=True, sharey=True)
         gss["panel_neuron_responses"] = axs
 
-        kernel_grid = pu.make_mxn_gridspec(self.gs, 2, 2, 0, 100, 45, 100, 10, 4)
+        kernel_grid = pu.make_mxn_gridspec(self.gs, 2, 2, 0, 100, 50, 100, 10, 4)
         axs = self.get_axs(kernel_grid, sharey="horizontal", sharex="all", squeeze=True)
         gss["panel_bhv"] = axs[0]
         gss["panel_kernel"] = axs
@@ -173,7 +187,7 @@ class ExpAverageFigure(KernelFigure):
             gpl.plot_colored_line(x, y, cmap="hsv", ax=axs[i])
             axs[i].set_xticks([])
             axs[i].set_ylabel("spikes/s")
-            axs[i].set_xlabel("color")
+            axs[i].set_xlabel("target color")
 
     def panel_bhv(self):
         key = "panel_bhv"
@@ -182,7 +196,6 @@ class ExpAverageFigure(KernelFigure):
 
         n_bins = self.params.getint("n_bins")
         bins = np.linspace(-np.pi, np.pi, n_bins)
-        axs[0].set_ylabel("density")
         for i, monkey in enumerate(self.monkeys):
             errs = []
             for sess_data in data[monkey][0].values():
@@ -197,6 +210,9 @@ class ExpAverageFigure(KernelFigure):
             )
             gpl.clean_plot(axs[i], i)
             axs[i].set_xlabel("response error")
+        gpl.make_yaxis_scale_bar(
+            axs[0], double=False, magnitude=0.1, label="density", text_buff=0.3
+        )
 
     def panel_kernel(self, refit=False):
         key = "panel_kernel"
@@ -249,7 +265,6 @@ class ExpAverageFigure(KernelFigure):
             )
             axs_bhv[i].legend(frameon=False)
 
-            high, low = u.conf_interval(fit["samples"]["width"], withmean=True)[:, 0]
             use_bs = np.expand_dims(bins, 0)
             wids = np.expand_dims(fit["samples"]["width"], 1)
             funcs = np.exp(-(use_bs**2) / wids)
@@ -268,34 +283,31 @@ class ExpAverageFigure(KernelFigure):
             )
 
             kf_m = kern_fits[monkey]
-            rd, cd = sns.compute_continuous_distance_masks(kf_m, p_thr=p_thr)[0]
-            rd = np.array(rd)
-            cd = np.array(cd)
-            xs, ys = gpl.digitize_vars(
-                cd,
-                rd,
-                n_bins=n_bins,
-                cent_func=np.nanmean,
-                eps=1e-10,
-                ret_all_y=True,
+            ys, xs = sns.compute_continuous_distance_masks(
+                kf_m, p_thr=p_thr, n_bins=n_bins
+            )[0]
+            ys_mu = np.nanmean(ys, axis=0, keepdims=True)
+            scaler = skp.MinMaxScaler().fit(ys_mu.T)
+            ys_scale = np.squeeze(
+                np.array(list(scaler.transform(y_i.reshape((-1, 1))) for y_i in ys))
             )
-            ys_mu = np.array(list(np.mean(y_i) for y_i in ys))
-            scaler = skp.MinMaxScaler().fit(ys_mu.reshape((-1, 1)))
-            ys = list(scaler.transform(y_i.reshape((-1, 1))) for y_i in ys)
             gpl.plot_trace_werr(
-                xs,
-                ys,
-                ax=axs_kern[i],
-                jagged=True,
-                color=color,
-                label="neural kernel",
+                xs, ys_scale, ax=axs_kern[i], color=color, label="neural kernel"
             )
             axs_kern[i].set_xlabel("stimulus difference")
+            gpl.clean_plot(axs_kern[i], i)
+        gpl.make_yaxis_scale_bar(
+            axs_kern[0],
+            double=False,
+            magnitude=0.2,
+            label="similarity (au)",
+            text_buff=0.3,
+        )
 
 
 class SingleTrialFigure(KernelFigure):
     def __init__(self, fig_key="single-trial", colors=swf.colors, **kwargs):
-        fsize = (7.5, 4.5)
+        fsize = (4.5, 2.5)
         cf = u.ConfigParserColor()
         cf.read(config_path)
 
@@ -306,14 +318,14 @@ class SingleTrialFigure(KernelFigure):
     def make_gss(self):
         gss = {}
 
-        schem_grid = pu.make_mxn_gridspec(self.gs, 2, 2, 50, 100, 0, 28, 13, 8)
+        schem_grid = pu.make_mxn_gridspec(self.gs, 2, 2, 50, 100, 0, 35, 13, 4)
         axs = self.get_axs(schem_grid, sharex="all", sharey="all", squeeze=True)
-        gss["panel_schematic_random"] = axs[:, 0]
-        gss["panel_schematic_kernel"] = axs[:, 1]
+        gss["panel_schematic_random"] = axs[0]
+        gss["panel_schematic_kernel"] = axs[1]
 
-        kernels_grid = pu.make_mxn_gridspec(self.gs, 2, 2, 0, 100, 40, 100, 13, 10)
-        axs = self.get_axs(kernels_grid, sharey="vertical", sharex="all", squeeze=True)
-        gss["panel_kernels"] = axs
+        kernels_grid = pu.make_mxn_gridspec(self.gs, 2, 2, 0, 100, 50, 100, 13, 5)
+        axs = self.get_axs(kernels_grid, sharey="horizontal", sharex="all", squeeze=True)
+        gss["panel_kernels"] = axs.T
         self.gss = gss
 
     def panel_schematic_kernel(self):
@@ -333,8 +345,11 @@ class SingleTrialFigure(KernelFigure):
         ax_resp.plot(bins, func + 0.06, color=g_color)
         gpl.clean_plot(ax_resp, 1)
         gpl.clean_plot(ax_targ, 1)
-        ax_targ.set_xlabel("target color difference")
-        ax_resp.set_xlabel("response color difference")
+        ax_targ.set_xlabel("target color\ndifference")
+        ax_resp.set_xlabel("response color\ndifference")
+        gpl.make_yaxis_scale_bar(
+            ax_targ, magnitude=0.4, double=False, label="similarity"
+        )
 
     def panel_schematic_random(self):
         key = "panel_schematic_random"
@@ -354,9 +369,6 @@ class SingleTrialFigure(KernelFigure):
         gpl.clean_plot(ax_targ, 1)
         gpl.make_yaxis_scale_bar(
             ax_targ, magnitude=0.4, double=False, label="similarity"
-        )
-        gpl.make_yaxis_scale_bar(
-            ax_resp, magnitude=0.4, double=False, label="similarity"
         )
 
     def panel_kernels(self):
@@ -379,15 +391,18 @@ class SingleTrialFigure(KernelFigure):
                     color_key=ck,
                 )
 
-                mask_dict = sns.compute_continuous_distance_masks(out, p_thr=p_thr)
+                mask_dict = sns.compute_continuous_distance_masks(
+                    out, p_thr=p_thr, n_bins=n_bins
+                )
                 ax = axs[j, i]
                 if j == 0:
-                    ax.set_xlabel("target color difference")
+                    if i == len(self.monkeys) - 1:
+                        ax.set_xlabel("target color\ndifference")
+                    ax.set_ylabel("similarity")
                 else:
-                    ax.set_ylabel("response color difference")
-                ax.set_ylabel("similarity")
+                    if i == len(self.monkeys) - 1:
+                        ax.set_xlabel("response color\ndifference")
+                gpl.clean_plot(ax, j)
                 for k, (ind, label) in enumerate(plot_inds.items()):
-                    rd, cd = mask_dict[ind]
-                    gpl.plot_scatter_average(
-                        cd, rd, ax=ax, label=label, n_bins=n_bins, color=colors[k]
-                    )
+                    ys, xs = mask_dict[ind]
+                    gpl.plot_trace_werr(xs, ys, ax=ax, label=label, color=colors[k])

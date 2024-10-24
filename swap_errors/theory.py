@@ -23,6 +23,7 @@ class KernelPopulation:
         make_periodic=False,
         **kwargs,
     ):
+        self.stim_range = stim_range
         self.stim = np.expand_dims(np.linspace(*stim_range, stim_pts), 1)
         self.rng = np.random.default_rng()
         if make_periodic:
@@ -59,7 +60,8 @@ class KernelPopulation:
     def sample_dec_gp(self, **kwargs):
         inds, true_stim, use_reps = self.sample_reps(add_noise=True, **kwargs)
         dec_samps = use_reps @ self.reps.T
-        return dec_samps
+        return np.squeeze(self.stim), dec_samps
+
 
 class GPKernelPopulation(KernelPopulation):
     def make_pop(self, stim, pwr, wid, n_units):
@@ -70,16 +72,29 @@ class GPKernelPopulation(KernelPopulation):
         y = gp.sample_y(stim, n_samples=n_units, random_state=None)
         return y
 
-    def theoretical_kernel(self):
-        diffs = self.stim - self.stim.T
-        k = self.n_units * self.kernel(self.stim, self.stim)
-        return diffs.flatten(), k.flatten()        
+    def theoretical_kernel(self, n_bins=100):
+        s_diffs = np.expand_dims(np.linspace(*self.stim_range, n_bins), 1)
+        k = self.n_units * self.kernel(s_diffs, np.zeros((1, 1)))
+        return s_diffs, np.squeeze(k)
+    
+    def sample_dec_gp(self, n_samps=1000, noise_sigma=1, **kwargs):
+        s_diffs, mu = self.theoretical_kernel(**kwargs)
+        cov = self.n_units * noise_sigma**2 * self.kernel(s_diffs, s_diffs)
+        pre = self.kernel([[0]], [[0]]) + noise_sigma ** 2
+        post = (
+            self.kernel(s_diffs, s_diffs)
+            + self.kernel(s_diffs, np.zeros((1, 1))) * self.kernel(s_diffs, np.zeros((1, 1))).T
+        )
+        cov = self.n_units * pre * post
+        gp = sts.multivariate_normal(mu, cov, allow_singular=True)
+        dec_samps = gp.rvs(n_samps)
+        return s_diffs, dec_samps
 
 
 class RFKernelPopulation(KernelPopulation):
     def make_pop(self, stim, pwr, wid, n_units):
         cents = self.rng.choice(stim, size=n_units)
-        wids = np.ones_like(cents) * wid
+        wids = np.ones_like(cents) * wid ** 2
         (r, _), (_, _, scale, _) = rfm.make_gaussian_vector_rf(
             cents, wids, pwr, 0, titrate_samps=stim, return_params=True,
         )
@@ -87,13 +102,16 @@ class RFKernelPopulation(KernelPopulation):
         y = r(stim)
         return y
 
-    def theoretical_kernel(self):
-        diffs = self.stim - self.stim.T
-        k = analytic_kernel(diffs, self.scale, np.sqrt(self.wid), self.n_units)
-        return diffs.flatten(), k.flatten()
+    def theoretical_kernel(self, n_bins=100):
+        range_ = np.abs(self.stim[-1] - self.stim[0])
+        s_diffs = np.linspace(-range_, range_, n_bins)
+
+        k = analytic_kernel(s_diffs, self.scale, self.wid, self.n_units)
+        k = np.squeeze(k)
+        return s_diffs, k
 
 
-def analytic_kernel(delta, scale, wid, n_units=100):
+def analytic_kernel_periodic(delta, scale, wid, n_units=100):
     pre = (wid * scale**2) / (2 * np.sqrt(np.pi))
     a = np.exp(-(delta**2) / (4 * wid**2))
     b, c = (
@@ -101,6 +119,27 @@ def analytic_kernel(delta, scale, wid, n_units=100):
         sps.erf((delta - 2 * np.pi) / (2 * wid)),
     )
     return n_units * pre * a * (b - c) 
+
+
+def analytic_kernel(delta, scale, wid, n_units=100):
+    pre = (wid * scale**2) / (2 * np.sqrt(np.pi))
+    a = np.exp(-(delta**2) / (4 * wid**2))
+    pi = np.pi
+    spi = np.sqrt(pi)
+    b, c, d, e, f, g, h, i, j, k = (
+        1/4 * wid,
+        spi * (2 * pi - delta) * np.exp(delta ** 2 / (4 * wid ** 2)),
+        sps.erf((delta * np.pi) / (2 * wid)),
+        sps.erf((delta - 2 * np.pi) / (2 * wid)),
+        2 * wid * (np.exp(pi * (delta - pi) / wid ** 2) - 1),
+        1/4 * wid * np.exp(-pi * (delta + pi) / wid **2),
+        np.sqrt(2) * (delta + 2 * pi) * np.exp((delta + 2 * pi) ** 2 / (4 * wid ** 2)),
+        sps.erf((delta + 2 * pi) / (2 * wid)),
+        sps.erf(delta / (2 * wid)),
+        2 * wid * (np.exp(pi * (delta + pi) / wid **2) - 1),
+    )
+    second = b * (c * (d - e) + f) + g * (h * (i - j) - k)
+    return n_units * pre * a * second
 
 
 def angle_decoding(

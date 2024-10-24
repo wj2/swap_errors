@@ -13,6 +13,7 @@ import pyro.distributions as distribs
 import gpytorch as gpt
 import logging
 import swap_errors.auxiliary as swa
+import general.plotting as gpl
 
 
 def similarity_model(
@@ -881,22 +882,51 @@ def compute_continuous_distance_matrix(
     return out_dict
 
 
-def compute_continuous_distance_masks(dist_dict, p_thr=0.4):
+def session_average_kernel(mask_dict, stim_bounds=(-np.pi, np.pi), n_bins=10, **kwargs):
+    out_dict = {}
+    for ind, (rd_sess, cd_sess) in mask_dict.items():
+        kernels = np.zeros((len(rd_sess), n_bins))
+        for i, rd in enumerate(rd_sess):
+            cd = cd_sess[i]
+            min_, max_ = stim_bounds
+            xs, ys = gpl.digitize_vars(
+                cd,
+                rd,
+                n_bins=n_bins,
+                use_max=max_,
+                use_min=min_,
+                ret_all_y=False,
+                cent_func=np.nanmean,
+            )
+            kernels[i] = ys
+        out_dict[ind] = (kernels, xs)
+    return out_dict
+
+
+def compute_continuous_distance_masks(
+    dist_dict, p_thr=0.4, average_kernel=True, **kwargs
+):
     mask_dict = {}
     for sess, sess_dist_dict in dist_dict.items():
         dists = sess_dist_dict["dists"]
         cds = sess_dist_dict["c_diffs"]
         ps = sess_dist_dict["ps"]
         corr_mask = ps[:, 0] > p_thr
-        norm_ps = ps / np.sum(ps, axis=0, keepdims=True)
         for i in range(ps.shape[1]):
             rd_i, cd_i = mask_dict.get(i, ([], []))
             use_mask = ps[:, i] > p_thr
             m_dists = dists[use_mask][:, corr_mask]
             m_cds = cds[use_mask][:, corr_mask]
-            rd_i.extend(m_dists.flatten())
-            cd_i.extend(m_cds.flatten())
+            rd_i.append(m_dists.flatten())
+            cd_i.append(m_cds.flatten())
             mask_dict[i] = (rd_i, cd_i)
+    if average_kernel:
+        mask_dict = session_average_kernel(mask_dict, **kwargs)
+    else:
+        mask_dict = {
+            k: (np.concatenate(v1), np.concatenate(v2))
+            for k, (v1, v2) in mask_dict.items()
+        }
     return mask_dict
 
 
@@ -919,9 +949,7 @@ def prepare_data_continuous(
     ident_mask = np.identity(len(resps), dtype=bool)
     dists[ident_mask] = np.nan
 
-    c_diffs = u.normalize_periodic_range(
-        np.expand_dims(c2, 0) - np.expand_dims(c1, 1)
-    )
+    c_diffs = u.normalize_periodic_range(np.expand_dims(c2, 0) - np.expand_dims(c1, 1))
     c1 = np.repeat(np.expand_dims(c1, 1), len(c1), 1)
     c2 = np.repeat(np.expand_dims(c2, 0), len(c2), 0)
     return dists, c_diffs, c1, c2
