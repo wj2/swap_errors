@@ -17,7 +17,6 @@ import scipy.optimize as sopt
 import scipy.signal as ssig
 import itertools as it
 import statsmodels.stats.weightstats as smw
-import elephant as el
 import quantities as pq
 import sklearn.metrics.pairwise as skmp
 
@@ -3529,16 +3528,16 @@ mixture_arviz = {
 }
 
 
-def gpfa(data, tbeg=-0.5, tend=1, winsize=0.05, n_factors=8, tzf="CUE2_ON_diode"):
-    out = data.get_spiketrains(tbeg, tend, time_zero_field=tzf)
-    pops = out
-    fits = []
-    for i, pop in enumerate(pops):
-        pop_format = list(list(pop_j) for pop_j in pop)
-        gp = el.gpfa.GPFA(bin_size=winsize * pq.s, x_dim=n_factors)
-        gp.fit(pop_format)
-        fits.append(gp)
-    return fits, pops
+# def gpfa(data, tbeg=-0.5, tend=1, winsize=0.05, n_factors=8, tzf="CUE2_ON_diode"):
+#     out = data.get_spiketrains(tbeg, tend, time_zero_field=tzf)
+#     pops = out
+#     fits = []
+#     for i, pop in enumerate(pops):
+#         pop_format = list(list(pop_j) for pop_j in pop)
+#         gp = el.gpfa.GPFA(bin_size=winsize * pq.s, x_dim=n_factors)
+#         gp.fit(pop_format)
+#         fits.append(gp)
+#     return fits, pops
 
 
 # def latent_dynamics_analysis(data, tbeg=-.5, tend=2, winsize=.02,
