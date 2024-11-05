@@ -7,11 +7,11 @@ import swap_errors.auxiliary as swa
 import swap_errors.figures as swf
 import swap_errors.theory as swt
 import swap_errors.tcc_model as stcc
-import swap_errors.neural_similarity as sns
-import general.torch.simple as gts
+import swap_errors.visualization as swv
+from . import neural_similarity as sns
 import sklearn.preprocessing as skp
 
-config_path = "swap_errors/figures_kernel.conf"
+config_path = "swap_errors/swap_errors/figures_kernel.conf"
 
 
 class KernelFigure(swf.SwapErrorFigure):
@@ -324,7 +324,9 @@ class SingleTrialFigure(KernelFigure):
         gss["panel_schematic_kernel"] = axs[1]
 
         kernels_grid = pu.make_mxn_gridspec(self.gs, 2, 2, 0, 100, 50, 100, 13, 5)
-        axs = self.get_axs(kernels_grid, sharey="horizontal", sharex="all", squeeze=True)
+        axs = self.get_axs(
+            kernels_grid, sharey="horizontal", sharex="all", squeeze=True
+        )
         gss["panel_kernels"] = axs.T
         self.gss = gss
 
@@ -406,3 +408,98 @@ class SingleTrialFigure(KernelFigure):
                 for k, (ind, label) in enumerate(plot_inds.items()):
                     ys, xs = mask_dict[ind]
                     gpl.plot_trace_werr(xs, ys, ax=ax, label=label, color=colors[k])
+
+
+class RetroSingleTrialFigure(KernelFigure):
+    def __init__(self, fig_key="retro-single", colors=swf.colors, **kwargs):
+        fsize = (5, 6)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+        self.task = "retro"
+
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        super().__init__(fsize, params, colors=colors, **kwargs)
+
+    def make_gss(self):
+        gss = {}
+
+        kernels_grid = pu.make_mxn_gridspec(self.gs, 2, 4, 0, 45, 0, 100, 5, 5)
+        axs = self.get_axs(
+            kernels_grid, sharey="horizontal", sharex="all", squeeze=True
+        )
+        gss["panel_kernels_precue"] = axs
+
+        kernels_grid = pu.make_mxn_gridspec(self.gs, 2, 4, 55, 100, 0, 100, 5, 5)
+        axs = self.get_axs(
+            kernels_grid, sharey="horizontal", sharex="all", squeeze=True
+        )
+        gss["panel_kernels_prewheel"] = axs
+        self.gss = gss
+
+    def panel_kernels_precue(self):
+        key = "panel_kernels_precue"
+        axs = self.gss[key]
+
+        time = self.params.get("precue_time")
+        c1s = self.params.getlist("c1_precue")
+        cues = self.params.getlist("cues_precue", typefunc=int)
+        if u.check_list(cues):
+            cues = list(cue if cue >= 0 else None for cue in cues)
+        x_targ = self.params.getfloat("precue_x_targ")
+        self._plot_kernels(time, c1s, axs, cues=cues, x_targ=x_targ)
+
+    def panel_kernels_postcolor(self):
+        key = "panel_kernels_precue"
+        axs = self.gss[key]
+
+        time = self.params.get("postcolor_time")
+        c1s = self.params.getlist("c1_postcolor")
+        cues = self.params.getlist("cues_postcolor", typefunc=int)
+        if u.check_list(cues):
+            cues = list(cue if cue >= 0 else None for cue in cues)
+        x_targ = self.params.getfloat("postcolor_x_targ")
+        self._plot_kernels(time, c1s, axs, cues=cues, x_targ=x_targ, linestyle="dashed")
+
+    def panel_kernels_prewheel(self):
+        key = "panel_kernels_prewheel"
+        axs = self.gss[key]
+
+        time = self.params.get("prewheel_time")
+        c1s = self.params.getlist("c1_prewheel")
+        x_targ = self.params.getfloat("prewheel_x_targ")
+        self._plot_kernels(time, c1s, axs, x_targ=x_targ)
+
+    def _plot_kernels(self, time, c1s, axs, c2s=None, cues=None, x_targ=-.25, **kwargs):
+        out_full = self.load_pickles(time=time, task=self.task)
+        c_color = self.params.getcolor("correct_color")
+        g_color = self.params.getcolor("guess_color")
+        n_bins = self.params.getint("n_bins")
+        colors = (c_color, g_color)
+        if cues is None:
+            cues = (None,) * len(c1s)
+        if c2s is None:
+            c2s = (None,) * len(c1s)
+
+        for i, (monkey, (data, xs)) in enumerate(out_full.items()):
+            axs[i]
+            for j, c1 in enumerate(c1s):
+                if i == 0 and j == 0:
+                    labels = swv.ind_labels
+                else:
+                    labels = ("",) * len(swv.ind_labels)
+                    
+                swv.plot_kernel_targ(
+                    data,
+                    xs,
+                    c1,
+                    c2=c2s[j],
+                    cue_only=cues[j],
+                    ax=axs[i, j],
+                    inds=(0, 2),
+                    n_bins=n_bins,
+                    colors=colors,
+                    labels=labels,
+                    x_targ=x_targ,
+                    **kwargs,
+                )

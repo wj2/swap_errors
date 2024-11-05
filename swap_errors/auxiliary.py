@@ -76,10 +76,8 @@ lm_targ_template = (
 session_to_monkey_dict = {k: "Elmo" for k in range(13)}
 session_to_monkey_dict.update({k: "Waldorf" for k in range(13, 23)})
 
-monkey_session_range = {
-    "Elmo": tuple(range(13)),
-    "Waldorf": tuple(range(13, 23))
-}
+monkey_session_range = {"Elmo": tuple(range(13)), "Waldorf": tuple(range(13, 23))}
+
 
 def make_lm_lists(*args, **kwargs):
     regions = ("pfc", "fef", "7ab", "motor", "tpot", "v4pit")
@@ -106,10 +104,10 @@ def list_lm_runinds(
         m = re.match(use_templ, fl)
         if m is not None:
             si = m.group("session_ind")
-            l = inds.get(si, [])
+            l_ = inds.get(si, [])
             ji = m.group("jobid")
-            l.append(ji)
-            inds[si] = l
+            l_.append(ji)
+            inds[si] = l_
 
     inds = list(inds.values())[0]
     s = ", ".join(inds)
@@ -258,7 +256,8 @@ def load_pop_pickles(
 ):
     templ = template.format(region=region, task=task, time=time)
     file_gen = u.load_folder_regex_generator(
-        folder, templ, 
+        folder,
+        templ,
     )
     m_sessions = {"Elmo": range(13), "Waldorf": range(13, 24)}[monkey]
     out_dict = {}
@@ -267,7 +266,7 @@ def load_pop_pickles(
         if session in m_sessions:
             out_dict[session] = data_fl
             xs = data_fl["other"]["xs"]
-            mask = data_fl["cues"] == 1
+            mask = data_fl["cues_alt"] == 1
             c_targ = np.zeros(len(data_fl["uc"]))
             c_dist = np.zeros(len(data_fl["uc"]))
             c_targ[mask] = data_fl["uc"][mask]
@@ -277,6 +276,7 @@ def load_pop_pickles(
             data_fl["c_targ"] = c_targ
             data_fl["c_dist"] = c_dist
     return out_dict, xs
+
 
 def load_naive_results(
     nc_run, folder="swap_errors/naive_centroids/", templ=naive_template
@@ -381,7 +381,6 @@ def load_x_sweep(folder, run_ind, template, guess=False):
     for fl in fls:
         m = re.match(template, fl)
         if m is not None:
-            decider = m.group("decider")
             out_fl = pd.read_pickle(open(os.path.join(folder, fl), "rb"))
             args = out_fl.pop("args")
             out_fl.update(vars(args))
@@ -750,9 +749,9 @@ def transform_bhv_model(fit, mapping_dict, transform_prob=True, take_mean=True):
         key = mapping_dict[i]
         ind = key[0]
         session_ident = key[1:]
-        l = session_dict.get(session_ident, [])
-        l.append((ind, pi))
-        session_dict[session_ident] = l
+        l_ = session_dict.get(session_ident, [])
+        l_.append((ind, pi))
+        session_dict[session_ident] = l_
     return session_dict
 
 

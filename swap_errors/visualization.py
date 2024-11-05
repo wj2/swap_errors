@@ -17,6 +17,7 @@ import general.rf_models as rfm
 import general.neural_analysis as na
 import swap_errors.analysis as swan
 import swap_errors.auxiliary as swaux
+import swap_errors.neural_similarity as ns
 
 import torch
 
@@ -35,6 +36,122 @@ def plot_conditional_bhv(
         errs.append(err_sd[mask])
     errs_all = np.concatenate(errs)
     ax.hist(errs_all, **kwargs)
+
+
+@gpl.ax_adder()
+def plot_kernel_map(
+    *args,
+    ax=None,
+    cmap="Blues",
+    **kwargs,
+):
+    arr, bins = ns.make_kernel_map(*args, **kwargs)
+    arr = np.nanmean(arr, axis=0)
+    gpl.pcolormesh(*bins, arr, ax=ax, cmap=cmap)
+
+
+@gpl.ax_adder(three_dim=True)
+def plot_kernel_surface(
+    *args,
+    ax=None,
+    **kwargs,
+):
+    arr, bins = ns.make_kernel_map(*args, **kwargs)
+    arr = np.nanmean(arr, axis=0)
+    xs, ys = bins
+    for i in range(arr.shape[0]):
+        ax.plot(
+            np.ones_like(ys) * xs[i],
+            ys,
+            arr[i, :],
+            color="k",
+        )
+    for i in range(arr.shape[-1]):
+        ax.plot(
+            xs,
+            np.ones_like(xs) * ys[i],
+            arr[:, i],
+            color="k",
+        )
+
+
+ind_labels = ("correct", "swap", "guess")
+
+
+@gpl.ax_adder(three_dim=True)
+def plot_kernel_tc_3d(
+    pickles,
+    xs,
+    c1,
+    c2=None,
+    n_bins=5,
+    p_thr=0.3,
+    ax=None,
+    inds=None,
+    labels=ind_labels,
+    c_bounds=(0.2, 0.9),
+    cmaps=(
+        "Blues",
+        "Greens",
+        "Oranges",
+    ),
+    **kwargs,
+):
+    if inds is None:
+        inds = range(len(labels))
+    for ind in inds:
+        k_tc, bins = ns.make_kernel_map_tc(
+            pickles,
+            xs,
+            c1,
+            c2=c2,
+            n_bins=n_bins,
+            p_thr=p_thr,
+            row_ind=ind,
+            two_dims=False,
+            **kwargs,
+        )
+        colors = plt.get_cmap(cmaps[ind])(np.linspace(*c_bounds, len(xs)))
+        for i, x in enumerate(xs):
+            kern = np.mean(k_tc[..., i], axis=0)
+            time = np.ones_like(bins) * x
+            ax.plot(time, bins, kern, color=colors[i])
+
+
+@gpl.ax_adder()
+def plot_kernel_targ(
+    pickles,
+    xs,
+    c1,
+    c2=None,
+    n_bins=5,
+    p_thr=0.3,
+    ax=None,
+    inds=None,
+    labels=ind_labels,
+    colors=None,
+    linestyle="solid",
+    **kwargs,
+):
+    if inds is None:
+        inds = range(list(pickles.values())[0]["ps"].shape[1])
+    if colors is None:
+        colors = (None,) * len(inds)
+    for i, ind in enumerate(inds):
+        rd, cd = ns.make_kernel_map(
+            pickles,
+            xs,
+            c1,
+            c2=c2,
+            p_thr=p_thr,
+            row_ind=ind,
+            two_dims=False,
+            n_bins=n_bins,
+            **kwargs,
+        )
+        gpl.plot_trace_werr(
+            cd, rd, ax=ax, label=labels[ind], color=colors[i], linestyle=linestyle
+        )
 
 
 @gpl.ax_adder()
@@ -137,7 +254,7 @@ def plot_all_color_funcs_pickles(
         col_all.extend((colors,) * spks.shape[1])
         sess_all.extend((ind,) * spks.shape[1])
         ind_all.extend(range(spks.shape[1]))
-        
+
     n_plots = len(col_all)
     row_col = int(np.ceil(np.sqrt(n_plots)))
     if axs is None:
@@ -149,6 +266,7 @@ def plot_all_color_funcs_pickles(
         ax = axs[i]
         gpl.plot_scatter_average(col_i, resp_all[i], ax=ax, **kwargs)
         ax.set_title("{}-{}".format(sess_all[i], ind_all[i]))
+
 
 @gpl.ax_adder()
 def plot_all_kernels(xs, kernel_dict, cmap="hsv", ax=None, **kwargs):

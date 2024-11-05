@@ -1973,6 +1973,8 @@ def make_lm_tc_pops(
     cue_key="IsUpperSample",
     p_keys=("corr_prob", "swap_prob", "guess_prob"),
     report_key="LABthetaResp",
+    motor_key="ResponseTheta",
+    region_key="neur_regions",
     rt_key="ReactionTime",
     rt_thresh=None,
     **kwargs,
@@ -1999,12 +2001,15 @@ def make_lm_tc_pops(
         uc = data[upper_key]
         lc = data[lower_key]
         rc = data[report_key]
+        motor = data[motor_key]
+        cue_alt = data[cue_key]
+        regions = data[region_key]
         if cue_on:
-            cue = data[cue_key]
+            cue = cue_alt
         else:
             cue = (None,) * len(spks)
         ps = data[list(p_keys)]
-        pop_dict[k] = (spks, uc, lc, rc, ps, cue, xs)
+        pop_dict[k] = (spks, uc, lc, rc, ps, cue, cue_alt, motor, regions, xs)
     return pop_dict
 
 
@@ -2013,11 +2018,13 @@ def save_lm_tc_pops(
     add="retro",
     out_path="swap_errors/lm_data/lmtc_{}_{}_{}.pkl",
 ):
-    for k, (spks, uc, lc, rc, probs, cue, xs) in pop_dict.items():
+    for k, pd_k in pop_dict.items():
+        spks, uc, lc, rc, probs, cue, cue_alt, motor, regions, xs = pd_k
         k_save = k.replace(" ", "-")
         n_sessions = len(spks)
         for i in range(n_sessions):
             path = out_path.format(add, k_save, i)
+            regions_i = regions[i].iloc[0]
             sd = {
                 "spks": spks[i],
                 "uc": uc[i].to_numpy(),
@@ -2025,6 +2032,9 @@ def save_lm_tc_pops(
                 "rc": rc[i].to_numpy(),
                 "ps": probs[i].to_numpy(),
                 "cues": cue[i],
+                "cues_alt": cue_alt[i].to_numpy(),
+                "saccade_angle": motor[i].to_numpy(),
+                "regions": regions_i,
                 "other": {"xs": xs, "sequence": k},
             }
             pickle.dump(sd, open(path, "wb"))

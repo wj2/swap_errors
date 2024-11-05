@@ -12,7 +12,6 @@ import general.utility as u
 import pyro.distributions as distribs
 import gpytorch as gpt
 import logging
-import swap_errors.auxiliary as swa
 import general.plotting as gpl
 
 
@@ -41,7 +40,6 @@ def fit_similarity_model(c_diff_ind, diff_cents, similarities, n_samps=500, **kw
     c_diff_flat = torch.tensor(c_diff_flat[mask], dtype=torch.int)
     sim_flat = torch.tensor(sim_flat[mask], dtype=torch.float) - d_mu
 
-    use_guide = pyro.infer.autoguide.AutoNormal()
     loss = pyro.infer.TraceEnum_ELBO(max_plate_nesting=1)
     inp = (c_diff_flat, len(diff_cents))
     out = gpu.fit_model(
@@ -847,6 +845,85 @@ def _compute_average_kernel(bins, full_kernel, rescale=True):
     return kernel
 
 
+def make_kernel_map_tc(pickles, xs, *args, n_bins=5, two_dims=True, **kwargs):
+    n_sessions = len(pickles)
+    n_ts = len(xs)
+    if two_dims:
+        out_arr = np.zeros((n_sessions, n_bins, n_bins, n_ts))
+    else:
+        out_arr = np.zeros((n_sessions, n_bins, n_ts))
+    for i, x_i in enumerate(xs):
+        out_arr[..., i], bins = make_kernel_map(
+            pickles, xs, *args, n_bins=n_bins, **kwargs, two_dims=two_dims, x_targ=x_i
+        )
+    return out_arr, bins
+
+
+def make_kernel_map(
+    pickles,
+    xs,
+    c1,
+    c2=None,
+    n_bins=5,
+    p_thr=0.3,
+    row_ind=0, # doesn't matter which one changes, yields same result
+    col_ind=0,
+    cue_only=None,
+    bin_range=(-np.pi, np.pi),
+    two_dims=True,
+    **kwargs,
+):
+    out = compute_continuous_distance_matrix(
+        pickles,
+        xs,
+        color_key=c1,
+        second_color_key=c2,
+        **kwargs,
+    )
+    arr = np.zeros((len(out), n_bins, n_bins))
+    for i, dists in enumerate(out.values()):
+        dists_all = dists["dists"]
+        row_mask = dists["ps"][:, row_ind] > p_thr
+        col_mask = dists["ps"][:, col_ind] > p_thr
+        if cue_only is not None:
+            add_mask = dists["cues"] == cue_only
+            row_mask = np.logical_and(row_mask, add_mask)
+            col_mask = np.logical_and(col_mask, add_mask)
+        dist_mat = dists_all[row_mask][:, col_mask].flatten()
+        c1_mat = u.normalize_periodic_range(
+            dists["c1"][row_mask][:, col_mask].flatten(),
+        )
+        c2_mat = u.normalize_periodic_range(
+            dists["c2"][row_mask][:, col_mask].flatten(),
+        )
+        mask = ~np.isnan(dist_mat)
+        dist_mat = dist_mat[mask]
+        c1_mat = c1_mat[mask]
+        c2_mat = c2_mat[mask]
+
+        if two_dims:
+            c_group = np.stack((c1_mat, c2_mat), axis=1)
+        else:
+            c_group = np.expand_dims(u.normalize_periodic_range(c2_mat - c1_mat), 1)
+        arr_raw, bins = np.histogramdd(
+            c_group,
+            bins=n_bins,
+            range=(bin_range,) * c_group.shape[1],
+            weights=dist_mat,
+        )
+        arr_count, bins = np.histogramdd(
+            c_group,
+            bins=n_bins,
+            range=(bin_range,) * c_group.shape[1],
+        )
+        arr[i] = arr_raw / arr_count
+    bins = list(b[:-1] + np.diff(b)[0] / 2 for b in bins)
+    if not two_dims:
+        bins = bins[0]
+        arr = arr[:, 0]
+    return arr, bins
+
+
 def compute_continuous_distance_matrix(
     data_dict,
     xs,
@@ -854,7 +931,7 @@ def compute_continuous_distance_matrix(
     second_color_key=None,
     ps_key="ps",
     spk_key="spks",
-    cue_key="cues",
+    cue_key="cues_alt",
     **kwargs,
 ):
     out_dict = {}
@@ -878,6 +955,7 @@ def compute_continuous_distance_matrix(
             "c1": c1,
             "c2": c2,
             "ps": ps,
+            "cues": sess_dict[cue_key],
         }
     return out_dict
 
