@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import itertools as it
 
 import general.plotting as gpl
 import general.paper_utilities as pu
@@ -97,6 +98,21 @@ class SwapErrorFigure(pu.Figure):
     def bhv_colors(self):
         return self._make_color_dict(self.bhv_outcomes)
 
+    def _get_experimental_data(self):
+        if self.exp_data is None:
+            max_files = np.inf
+            df = "../data/swap_errors/"
+            data = gio.Dataset.from_readfunc(
+                swa.load_buschman_data,
+                df,
+                max_files=max_files,
+                seconds=True,
+                load_bhv_model="../data/swap_errors/bhv_model-pr.pkl",
+                spks_template=swa.busch_spks_templ_mua,
+            )
+            self.exp_data = data
+        return self.exp_data
+
 
 class BehaviorFigure(SwapErrorFigure):
     def __init__(self, fig_key="bhv", colors=colors, **kwargs):
@@ -133,7 +149,9 @@ class BehaviorFigure(SwapErrorFigure):
     def _get_bhv_model(self):
         bhv_model_out = self.data.get("bhv_model_out")
         if bhv_model_out is None:
-            bhv_model_out = pd.read_pickle(open(self.params.get("bhv_model_path"), "rb"))
+            bhv_model_out = pd.read_pickle(
+                open(self.params.get("bhv_model_path"), "rb")
+            )
             self.data["bhv_model_out"] = bhv_model_out
         return bhv_model_out
 
@@ -318,7 +336,7 @@ class SingleUnitFigure(SwapErrorFigure):
                 df,
                 max_files=max_files,
                 seconds=True,
-                load_bhv_model="../data/swap_errors/bhv_model.pkl",
+                load_bhv_model="../data/swap_errors/bhv_model-pr.pkl",
                 spks_template=swa.busch_spks_templ_mua,
             )
             self.exp_data = data
@@ -488,12 +506,16 @@ class NeuralGeometryFigure(SwapErrorFigure):
             "mis-selected colors and mis-interpreted cue": (1, 2),
         }
         s = (
-            "{dist} distance units further between {key} representations in "
+            "{dist} units further between {key} representations in "
             "{m1} than {m2}"
         )
+        combined_m1 = []
+        combined_m2 = []
         for dist_key, ind in inds.items():
             m1_d = dist_dict[self.monkeys[0]][:, *ind, t_ind]
+            combined_m1.extend(m1_d)
             m2_d = dist_dict[self.monkeys[1]][:, *ind, t_ind]
+            combined_m2.extend(m2_d)
             diffs = u.bootstrap_diff(m1_d, m2_d, func=mean_sqrt)
             high, low = u.conf_interval(diffs, withmean=True)[:, 0]
             diff_s = u.format_sirange(high, low)
@@ -501,6 +523,17 @@ class NeuralGeometryFigure(SwapErrorFigure):
             dk_save = dist_key.replace(" ", "-")
             f_name = "dist_{}".format(dk_save)
             self.save_stats_string(s_str, f_name)
+        diffs = u.bootstrap_diff(
+            np.array(combined_m1), np.array(combined_m2), func=mean_sqrt
+        )
+        high, low = u.conf_interval(diffs, withmean=True)[:, 0]
+        diff_s = u.format_sirange(high, low)
+        s = "{dist} units longer in {m1} than {m2}".format(
+            m1="monkey E", m2="W", dist=diff_s
+        )
+        f_name = "dist_combined"
+        self.save_stats_string(s, "dist_combined")
+        
 
         key_s = (
             "nominal and mis-interpreted cue than nominal and mis-selected " "colors"
@@ -510,8 +543,8 @@ class NeuralGeometryFigure(SwapErrorFigure):
             (0, 1),
         )
 
-        s = "{monkey}: {dist} distance units further between {key}"
-        s_reduced = "{monkey}: {dist} distance units further"
+        s = "{monkey}: {dist} units further between {key}"
+        s_reduced = "{monkey}: {dist} units further"
         for m in self.monkeys:
             d1 = dist_dict[m][:, *inds[0], t_ind]
             d2 = dist_dict[m][:, *inds[1], t_ind]
@@ -949,6 +982,119 @@ class SIRegionDroppingRetro(SIRegionDropping):
         self._plot_differences(
             lm_axs, comp_axs, regions, times, plot_ind, reload_data=reload_data
         )
+
+
+class RTFigure(SwapErrorFigure):
+    def __init__(self, fig_key="rtf", colors=colors, **kwargs):
+        fsize = (3, 3)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        self.exp_data = None
+        super().__init__(fsize, params, colors=colors, **kwargs)
+
+    def make_gss(self):
+        gss = {}
+        rt_hist_grids = pu.make_mxn_gridspec(
+            self.gs, len(self.monkeys), 2, 0, 100, 0, 100, 5, 10
+        )
+        rt_hist_axs = self.get_axs(
+            rt_hist_grids, sharex="all", sharey="all", squeeze=True
+        )
+        gss["panel_response_type_rts"] = rt_hist_axs
+
+        self.gss = gss
+
+    def panel_response_type_rts(self, data=None):
+        key = "panel_response_type_rts"
+        axs = self.gss[key]
+        if data is None:
+            data = self._get_experimental_data()
+
+        cutoff = self.params.getfloat("rt_cutoff")
+        color_dict = {
+            "correct": self.params.getcolor("correct_color"),
+            "swap": self.params.getcolor("swap_color"),
+            "guess": self.params.getcolor("guess_color"),
+        }
+        task_dict = {
+            "retrospective": swan.retro_mask,
+            "prospective": swan.pro_mask,
+        }
+        bins = np.linspace(0, 1000, 20)
+        for i, m in enumerate(self.monkeys):
+            m_use = self.monkey_names[m]
+            sm = data.session_mask(data["animal"] == m)
+            for j, (task, mask_func) in enumerate(task_dict.items()):
+                if i == 0:
+                    axs[i, j].set_title(task)
+                sm_task = mask_func(sm)
+                rts_all = swan.swap_corr_guess_rts(sm_task)
+                sub_s = []
+                for err, rts in rts_all.items():
+                    rt_con = np.concatenate(rts) * 1000
+                    color_e = color_dict[err]
+                    label = "{err} trials".format(err=err)
+                    axs[i, j].hist(
+                        rt_con,
+                        bins=bins,
+                        color=color_e,
+                        density=True,
+                        histtype="step",
+                        label=label,
+                    )
+                    samps = u.bootstrap_list(rt_con, np.nanmedian)
+                    s_range = u.format_samps_sirange(
+                        samps, units="\\milli\\second", form=":.0f"
+                    )
+                    s_err = "{trl_type} trial median RT = {range}".format(
+                        trl_type=err,
+                        range=s_range,
+                    )
+                    sub_s.append(s_err)
+                k_list = list(rts_all.keys())
+                s_comb = "; ".join(sub_s)
+                s_comb = "{monkey}, {task} trials: {comb}".format(
+                    monkey=m_use, task=task, comb=s_comb
+                )
+                fl_string = "{task}_{monkey}".format(task=task, monkey=m)
+                self.save_stats_string(s_comb, fl_string)
+                for err_i, err_j in it.combinations(range(len(k_list)), 2):
+                    ki = k_list[err_i]
+                    kj = k_list[err_j]
+                    rt_i = np.concatenate(rts_all[ki]) * 1000
+                    rt_j = np.concatenate(rts_all[kj]) * 1000
+                    diff = u.bootstrap_diff(rt_i, rt_j, func=np.nanmedian)
+                    ij_range = u.format_samps_sirange(
+                        diff, units="\\milli\\second", form=":.0f"
+                    )
+                    s_diff_ij = "{t1} - {t2} median difference = {diff}".format(
+                        t1=ki,
+                        t2=kj,
+                        diff=ij_range,
+                    )
+                    s_full = "{monkey}, {task} trials: {diff}".format(
+                        monkey=m_use, task=task, diff=s_diff_ij
+                    )
+                    fl_ij = "_".join((m, task, ki, kj))
+                    self.save_stats_string(s_full, fl_ij)
+
+                gpl.clean_plot(axs[i, j], j)
+                if j == 0:
+                    gpl.make_yaxis_scale_bar(
+                        axs[i, j],
+                        double=False,
+                        anchor=0,
+                        magnitude=0.005,
+                        label="density",
+                        text_buff=0.4,
+                    )
+                gpl.add_vlines(cutoff, axs[i, j])
+                if i == len(self.monkeys) - 1:
+                    axs[i, j].set_xlabel("trial reaction time (ms)")
+        axs[i, j].legend(frameon=False)
 
 
 class NeuronNumFigure(SwapErrorFigure):
@@ -2440,7 +2586,7 @@ class EphysIntroFigure(SwapErrorFigure):
                 df,
                 max_files=max_files,
                 seconds=True,
-                load_bhv_model="../data/swap_errors/bhv_model.pkl",
+                load_bhv_model="../data/swap_errors/bhv_model-pr.pkl",
                 spks_template=swa.busch_spks_templ_mua,
             )
             self.exp_data = data

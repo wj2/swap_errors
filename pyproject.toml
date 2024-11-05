@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "swap-errors"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+keywords = []
+authors = [
+  { name = "wj2", email = "wjeffreyjohnston@gmail.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+  "numpy~=1.26.4",
+  "scipy~=1.14.1",
+  "matplotlib~=3.9.2",
+  "scikit-learn~=1.5.1",
+  "pandas~=2.2.2",
+  "arviz~=0.20.0",
+  "statsmodels~=0.14.4",
+  "quantities~=0.15.0",
+  "rsatoolbox~=0.1.5",
+  "pyro-ppl~=1.9.0",
+  "gpytorch~=1.11",
+  "torch~=2.2.2",
+  "seaborn~=0.13.2",
+]
+
+[project.urls]
+Documentation = "https://github.com/wj2/swap-errors#readme"
+Issues = "https://github.com/wj2/swap-errors/issues"
+Source = "https://github.com/wj2/swap-errors"
+
+[tool.hatch.version]
+path = "swap_errors/__about__.py"
+
+[project.optional-dependencies]
+general = [
+  "general[torch] @ git+https://github.com/wj2/general-neural.git",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.envs.test]
+python = "3.12"
+features = [
+  "general",
+]

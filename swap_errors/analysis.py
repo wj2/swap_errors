@@ -17,7 +17,6 @@ import scipy.optimize as sopt
 import scipy.signal as ssig
 import itertools as it
 import statsmodels.stats.weightstats as smw
-import elephant as el
 import quantities as pq
 import sklearn.metrics.pairwise as skmp
 
@@ -1166,6 +1165,34 @@ def _get_corr_swap_inds(
     return corr_inds, swap_inds
 
 
+def swap_corr_guess_rts(
+    data,
+    p_keys=("corr_prob", "swap_prob", "guess_prob"),
+    rt_key="ReactionTime",
+    decider_dict=None,
+):
+    if decider_dict is None:
+        decider_dict = {
+            "correct": corr_plurality,
+            "swap": swap_plurality,
+            "guess": guess_plurality,
+        }
+
+    ps = data[list(p_keys)]
+    rts = data[rt_key]
+
+    out_session_dict = {}
+    for k, func in decider_dict.items():
+        for i, rt_i in enumerate(rts):
+            ps_i = ps[i].to_numpy()
+            mask = func(ps_i)
+            rt_group = rt_i[mask]
+            group_collection = out_session_dict.get(k, [])
+            group_collection.append(rt_group)
+            out_session_dict[k] = group_collection
+    return out_session_dict
+
+
 def naive_swapping(
     data_dict,
     cu_key="up_col_rads",
@@ -1914,11 +1941,16 @@ all_region_subset = {"all": all_regions}
 def prepare_lm_tc_pops(
     *args,
     region_subsets=single_region_subsets,
+    rt_thresh=None,
     **kwargs,
 ):
+    if rt_thresh is not None:
+        add_orig = "rt{}_".format(rt_thresh)
+    else:
+        add_orig = ""
     for k, sub in region_subsets.items():
         retro_dict = make_lm_tc_pops(*args, regions=sub, **kwargs)
-        save_lm_tc_pops(retro_dict, add="retro_{}".format(k))
+        save_lm_tc_pops(retro_dict, add=add_orig + "retro_{}".format(k))
 
         pro_dict = make_lm_tc_pops(
             *args,
@@ -1926,7 +1958,7 @@ def prepare_lm_tc_pops(
             use_pro=True,
             **kwargs,
         )
-        save_lm_tc_pops(pro_dict, add="pro_{}".format(k))
+        save_lm_tc_pops(pro_dict, add=add_orig + "pro_{}".format(k))
 
 
 def make_lm_tc_pops(
@@ -1940,6 +1972,11 @@ def make_lm_tc_pops(
     lower_key="lower_color",
     cue_key="IsUpperSample",
     p_keys=("corr_prob", "swap_prob", "guess_prob"),
+    report_key="LABthetaResp",
+    motor_key="ResponseTheta",
+    region_key="neur_regions",
+    rt_key="ReactionTime",
+    rt_thresh=None,
     **kwargs,
 ):
     if use_pro:
@@ -1948,6 +1985,9 @@ def make_lm_tc_pops(
     else:
         data = retro_mask(data)
         sequence = retro_sequences
+    if rt_thresh is not None:
+        mask = data[rt_key] < rt_thresh
+        data = data.mask(mask)
     pop_dict = {}
     for k, (tbeg, tend, tzf, cue_on, color_on) in sequence.items():
         spks, xs = data.get_populations(
@@ -1960,12 +2000,16 @@ def make_lm_tc_pops(
         )
         uc = data[upper_key]
         lc = data[lower_key]
+        rc = data[report_key]
+        motor = data[motor_key]
+        cue_alt = data[cue_key]
+        regions = data[region_key]
         if cue_on:
-            cue = data[cue_key]
+            cue = cue_alt
         else:
             cue = (None,) * len(spks)
         ps = data[list(p_keys)]
-        pop_dict[k] = (spks, uc, lc, ps, cue, xs)
+        pop_dict[k] = (spks, uc, lc, rc, ps, cue, cue_alt, motor, regions, xs)
     return pop_dict
 
 
@@ -1974,17 +2018,23 @@ def save_lm_tc_pops(
     add="retro",
     out_path="swap_errors/lm_data/lmtc_{}_{}_{}.pkl",
 ):
-    for k, (spks, uc, lc, probs, cue, xs) in pop_dict.items():
+    for k, pd_k in pop_dict.items():
+        spks, uc, lc, rc, probs, cue, cue_alt, motor, regions, xs = pd_k
         k_save = k.replace(" ", "-")
         n_sessions = len(spks)
         for i in range(n_sessions):
             path = out_path.format(add, k_save, i)
+            regions_i = regions[i].iloc[0]
             sd = {
                 "spks": spks[i],
                 "uc": uc[i].to_numpy(),
                 "lc": lc[i].to_numpy(),
+                "rc": rc[i].to_numpy(),
                 "ps": probs[i].to_numpy(),
                 "cues": cue[i],
+                "cues_alt": cue_alt[i].to_numpy(),
+                "saccade_angle": motor[i].to_numpy(),
+                "regions": regions_i,
                 "other": {"xs": xs, "sequence": k},
             }
             pickle.dump(sd, open(path, "wb"))
@@ -2523,11 +2573,11 @@ def distance_lm_tc(
                 y_te = pipe.transform(y[te_inds])
                 t0, t1 = te_inds
                 t0_tr_inds = close_coeffs_decider(
-                    null_coeffs_raw[:, t0:t0+1],
+                    null_coeffs_raw[:, t0 : t0 + 1],
                     null_coeffs_raw[:, tr_inds],
                 )
                 t1_tr_inds = close_coeffs_decider(
-                    null_coeffs_raw[:, t1:t1+1],
+                    null_coeffs_raw[:, t1 : t1 + 1],
                     null_coeffs_raw[:, tr_inds],
                 )
                 if len(t0_tr_inds) > min_trls and len(t1_tr_inds) > min_trls:
@@ -2538,7 +2588,7 @@ def distance_lm_tc(
                     dists_ij[i] = np.sum((y_tr0 - y_tr1) * (y_te0 - y_te1), axis=0)
                 else:
                     dists_ij[i] = np.nan
-                
+
         dists[i_alt, j_alt] = dists_ij
         dists[j_alt, i_alt] = dists_ij
     return dists
@@ -3001,6 +3051,14 @@ def save_color_pseudopops_regions(
             print(e)
     return out_data
 
+
+def load_color_pseudopops_regions(
+        region_key,
+        folder="swap_errors/color_pseudo_data/",
+        template="m_{region_key}_pseudos.pkl",
+):
+    path = os.path.join(folder, template.format(region_key=region_key))
+    return pd.read_pickle(path)
 
 def make_all_color_pseudopops(
     data,
@@ -3480,16 +3538,16 @@ mixture_arviz = {
 }
 
 
-def gpfa(data, tbeg=-0.5, tend=1, winsize=0.05, n_factors=8, tzf="CUE2_ON_diode"):
-    out = data.get_spiketrains(tbeg, tend, time_zero_field=tzf)
-    pops = out
-    fits = []
-    for i, pop in enumerate(pops):
-        pop_format = list(list(pop_j) for pop_j in pop)
-        gp = el.gpfa.GPFA(bin_size=winsize * pq.s, x_dim=n_factors)
-        gp.fit(pop_format)
-        fits.append(gp)
-    return fits, pops
+# def gpfa(data, tbeg=-0.5, tend=1, winsize=0.05, n_factors=8, tzf="CUE2_ON_diode"):
+#     out = data.get_spiketrains(tbeg, tend, time_zero_field=tzf)
+#     pops = out
+#     fits = []
+#     for i, pop in enumerate(pops):
+#         pop_format = list(list(pop_j) for pop_j in pop)
+#         gp = el.gpfa.GPFA(bin_size=winsize * pq.s, x_dim=n_factors)
+#         gp.fit(pop_format)
+#         fits.append(gp)
+#     return fits, pops
 
 
 # def latent_dynamics_analysis(data, tbeg=-.5, tend=2, winsize=.02,

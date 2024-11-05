@@ -58,6 +58,58 @@ import general.plotting as gpl
 import general.utility as u
 import fixed_point_analysis.analyzer as fpa
 
+
+def _cos_sin_col(col):
+    return np.cos(col), np.sin(col)
+
+def decompose_colors(*cols, decomp_func=_cos_sin_col, **kwargs):
+    all_cols = []
+    for col in cols:
+        all_cols.extend(decomp_func(col, **kwargs))
+    return np.stack(all_cols, axis=1)
+
+def _rf_decomp(col, n_units=10, wid=2):
+    cents = np.linspace(0, 2*np.pi - (1/n_units)*2*np.pi, n_units)
+    cents = np.expand_dims(cents, 0)
+    col = np.expand_dims(col, 1)
+    r = np.exp(wid*np.cos(col - cents))/np.exp(wid)
+    return list(r[:, i] for i in range(n_units))
+
+def rf_colors(*cols, n_units=10):
+    return decompose_colors(*cols, decomp_func=_rf_decomp,
+                            n_units=n_units)
+
+def decode_color(model, trl_gen, n_train_trls=2000, n_test_trls=100,
+                 decode_cue_uncue=True, jitter=0,
+                 decode_up_low=False, dec_model=sklm.Ridge, **trl_kwargs):
+    train_inputs, _, train_comps = trl_gen(n_train_trls, jitter=jitter,
+                                           **trl_kwargs)
+    test_inputs, _, test_comps = trl_gen(n_test_trls, jitter=jitter,
+                                         **trl_kwargs)
+    if decode_up_low:
+        train_cols = decompose_colors(*train_comps[:2])
+        test_cols = decompose_colors(*test_comps[:2])
+        flip_test_cols = decompose_colors(*test_comps[:2][::-1])
+    elif decode_cue_uncue:
+        train_cols = decompose_colors(*train_comps[-2:])
+        test_cols = decompose_colors(*test_comps[-2:])
+        flip_test_cols = decompose_colors(*test_comps[-2:][::-1])
+    else:
+        raise IOError('one of decode_cue_uncue or decode_up_low must be true')
+    m = dec_model()
+    train_rep = model.eval_net(train_inputs)[1].detach().numpy()
+    test_rep = model.eval_net(test_inputs)[1].detach().numpy()
+    n_ts = train_rep.shape[0]
+    dec_perf = np.zeros((n_ts, n_ts))
+    flip_perf = np.zeros((n_ts, n_ts))
+    for i in range(n_ts):
+        m.fit(train_rep[i], train_cols)
+        for j in range(n_ts):
+            score = m.score(test_rep[j], test_cols)
+            dec_perf[i, j] = score
+            flip_perf[i, j] = m.score(test_rep[j], flip_test_cols)
+    return dec_perf, flip_perf
+
 class Task(object):
     
     def __init__(self, num_cols, T_inp1, T_inp2, T_resp, T_tot, go_cue=False):
@@ -518,56 +570,6 @@ def compute_diffs(theta, *cols, theta_func=cos_sin_decode):
         diffs.append(diff)
     return theta, diffs
 
-def _cos_sin_col(col):
-    return np.cos(col), np.sin(col)
-
-def _rf_decomp(col, n_units=10, wid=2):
-    cents = np.linspace(0, 2*np.pi - (1/n_units)*2*np.pi, n_units)
-    cents = np.expand_dims(cents, 0)
-    col = np.expand_dims(col, 1)
-    r = np.exp(wid*np.cos(col - cents))/np.exp(wid)
-    return list(r[:, i] for i in range(n_units))
-
-def decompose_colors(*cols, decomp_func=_cos_sin_col, **kwargs):
-    all_cols = []
-    for col in cols:
-        all_cols.extend(decomp_func(col, **kwargs))
-    return np.stack(all_cols, axis=1)
-
-def rf_colors(*cols, n_units=10):
-    return decompose_colors(*cols, decomp_func=_rf_decomp,
-                            n_units=n_units)
-
-def decode_color(model, trl_gen, n_train_trls=2000, n_test_trls=100,
-                 decode_cue_uncue=True, jitter=0,
-                 decode_up_low=False, dec_model=sklm.Ridge, **trl_kwargs):
-    train_inputs, _, train_comps = trl_gen(n_train_trls, jitter=jitter,
-                                           **trl_kwargs)
-    test_inputs, _, test_comps = trl_gen(n_test_trls, jitter=jitter,
-                                         **trl_kwargs)
-    if decode_up_low:
-        train_cols = decompose_colors(*train_comps[:2])
-        test_cols = decompose_colors(*test_comps[:2])
-        flip_test_cols = decompose_colors(*test_comps[:2][::-1])
-    elif decode_cue_uncue:
-        train_cols = decompose_colors(*train_comps[-2:])
-        test_cols = decompose_colors(*test_comps[-2:])
-        flip_test_cols = decompose_colors(*test_comps[-2:][::-1])
-    else:
-        raise IOError('one of decode_cue_uncue or decode_up_low must be true')
-    m = dec_model()
-    train_rep = model.eval_net(train_inputs)[1].detach().numpy()
-    test_rep = model.eval_net(test_inputs)[1].detach().numpy()
-    n_ts = train_rep.shape[0]
-    dec_perf = np.zeros((n_ts, n_ts))
-    flip_perf = np.zeros((n_ts, n_ts))
-    for i in range(n_ts):
-        m.fit(train_rep[i], train_cols)
-        for j in range(n_ts):
-            score = m.score(test_rep[j], test_cols)
-            dec_perf[i, j] = score
-            flip_perf[i, j] = m.score(test_rep[j], flip_test_cols)
-    return dec_perf, flip_perf
                 
 def plot_decoding_map(*maps, fwid=5, thresh=True, ts=(5, 15, 25)):
     n_plots = len(maps)
