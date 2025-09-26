@@ -25,26 +25,30 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-  "numpy~=1.26.4",
-  "scipy~=1.14.1",
+  "numpy>=1.26.4",
+  "scipy>=1.14.1",
   "matplotlib>=3.9.2",
   "scikit-learn>=1.5.1",
   "pandas>=2.2.2",
-  "arviz~=0.20.0",
-  "statsmodels~=0.14.4",
-  "quantities~=0.15.0",
-  "rsatoolbox~=0.1.5",
-  "pyro-ppl~=1.9.0",
-  "gpytorch~=1.11",
-  "torch~=2.2.2",
-  "seaborn~=0.13.2",
-  "mat73~=0.65",
+  "arviz>=0.20.0",
+  "statsmodels>=0.14.4",
+  "quantities>=0.15.0",
+  "rsatoolbox>=0.1.5",
+  "pyro-ppl>=1.9.0",
+  "gpytorch>=1.11",
+  "torch>=2.2.2",
+  "seaborn>=0.13.2",
+  "mat73>=0.65",
 ]
 
 [project.urls]
 Documentation = "https://github.com/wj2/swap-errors#readme"
 Issues = "https://github.com/wj2/swap-errors/issues"
 Source = "https://github.com/wj2/swap-errors"
+
+[project.scripts]
+make_swap_pickles = "swap_errors.make_pickle_script:main"
+
 
 [tool.hatch.version]
 path = "swap_errors/__about__.py"

@@ -2140,6 +2140,8 @@ panichello_save_keys = {
     "ps": ("corr_prob", "swap_prob", "guess_prob"),
     "rt": "ReactionTime",
 }
+motoaki_unique_keys = {"block": "COL_BLOCK", "colortemp": "COLORTEMP"}
+motoaki_save_keys = dict(**panichello_save_keys, **motoaki_unique_keys)
 
 
 def make_lm_tc_pops(
