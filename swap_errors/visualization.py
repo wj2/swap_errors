@@ -10,6 +10,7 @@ import arviz as az
 import itertools as it
 import seaborn as sns
 import functools as ft
+import sklearn.neighbors as skn
 
 import general.plotting as gpl
 import general.utility as u
@@ -125,7 +126,7 @@ def plot_kernel_targ(
     c1,
     c2=None,
     n_bins=5,
-    p_thr=0.3,
+    p_thr=0.5,
     ax=None,
     inds=None,
     labels=ind_labels,
@@ -150,8 +151,141 @@ def plot_kernel_targ(
             **kwargs,
         )
         gpl.plot_trace_werr(
-            cd, rd, ax=ax, label=labels[ind], color=colors[i], linestyle=linestyle
+            cd, rd, ax=ax, label=labels[ind], color=colors[ind], linestyle=linestyle
         )
+
+
+def make_colored_scale_bars(
+    ax, n_bins=100, tb=0.5, lw=1, x_label="target color", y_label="target color"
+):
+    make_colored_x_scale_bar(ax, n_bins=n_bins, tb=tb, lw=lw, label=x_label)
+    make_colored_y_scale_bar(ax, n_bins=n_bins, tb=tb, lw=lw, label=y_label)
+
+
+def make_colored_x_scale_bar(
+    ax,
+    n_bins=100,
+    tb=0.5,
+    lw=1,
+    label="target color",
+):
+    ax.set_xticks([-np.pi, 0, np.pi])
+    ax.set_xticklabels([r"$-\pi$", r"$0$", r"$\pi$"])
+    gpl.make_xaxis_scale_bar(ax, np.pi, label="target color", text_buff=tb * 0.5)
+    c_pred = np.linspace(-np.pi, np.pi, n_bins)
+    y_ext, _ = ax.get_ylim()
+    gpl.plot_colored_line(
+        c_pred,
+        np.ones_like(c_pred) * y_ext,
+        cmap="hsv",
+        ax=ax,
+        lw=lw,
+    )
+
+
+def make_colored_y_scale_bar(ax, n_bins=100, tb=0.5, lw=1, label="target color"):
+    ax.set_yticks([-np.pi, 0, np.pi])
+    ax.set_yticklabels([r"$-\pi$", r"$0$", r"$\pi$"])
+    gpl.make_yaxis_scale_bar(ax, np.pi, label="target color", text_buff=tb * 0.5)
+    x_ext, _ = ax.get_xlim()
+    c_pred = np.linspace(-np.pi, np.pi, n_bins)
+    gpl.plot_colored_line(
+        np.ones_like(c_pred) * x_ext,
+        c_pred,
+        cmap="hsv",
+        ax=ax,
+        label=label,
+        lw=lw,
+    )
+
+
+@gpl.ax_adder()
+def plot_corr_guess_histogram(
+    m_pickle,
+    targ_key="c_targ",
+    resp_key="rc",
+    ps_key="ps",
+    p_thr=0.3,
+    c_ind=0,
+    g_ind=2,
+    ax=None,
+    bins=None,
+    corr_color=(1, 0, 0),
+    guess_color=(0, 1, 0),
+    other_color=(0, 0, 1),
+    x_label=r"$\Delta$ target",
+    y_label="trials",
+    **kwargs,
+):
+    targs = u.normalize_periodic_range(
+        np.concatenate(list(x[targ_key] for x in m_pickle.values()))
+    )
+    resps = u.normalize_periodic_range(
+        np.concatenate(list(x[resp_key] for x in m_pickle.values()))
+    )
+    ps = np.concatenate(list(x[ps_key] for x in m_pickle.values()))
+    g_mask = ps[:, g_ind] > p_thr
+    c_mask = ps[:, c_ind] > p_thr
+    errs = u.normalize_periodic_range(targs - resps)
+    guesses = errs[g_mask]
+    corrs = errs[c_mask]
+    others = errs[np.logical_not(np.logical_or(g_mask, c_mask))]
+
+    _, bins, _ = ax.hist(
+        (guesses, others, corrs),
+        bins=bins,
+        color=(guess_color, other_color, corr_color,),
+        stacked=True,
+        label=("guess", "other", "correct"),
+        **kwargs,
+    )
+    gpl.clean_plot(ax, 0)
+    ax.legend(frameon=False)
+    ax.set_xlabel(x_label)
+    scale = np.round(len(errs) * 0.05, -2)
+    gpl.make_yaxis_scale_bar(ax, int(scale), double=False, label=y_label)
+
+
+@gpl.ax_adder()
+def plot_target_response_scatter_direct(
+    targs,
+    resps,
+    n_plot_bins=20,
+    bandwidth="scott",
+    cmap="Grays",
+    ax=None,
+    **kwargs,
+):
+    kd = skn.KernelDensity(
+        bandwidth=bandwidth,
+    )
+    comb_periodic = u.make_periodic_features(np.stack((targs, resps), axis=1))
+
+    kd.fit(comb_periodic)
+    pts = np.linspace(-np.pi, np.pi, n_plot_bins)
+    xs, ys = np.meshgrid(pts, pts)
+    feat_periodic = u.make_periodic_features(
+        np.stack((xs.flatten(), ys.flatten()), axis=1)
+    )
+    densities = kd.score_samples(feat_periodic)
+    heat = np.reshape(densities, (n_plot_bins, n_plot_bins))
+    gpl.pcolormesh(pts, pts, heat, cmap=cmap, ax=ax, **kwargs)
+
+
+@gpl.ax_adder()
+def plot_target_response_scatter(
+    pickles,
+    target_key="c_targ",
+    response_key="rc",
+    **kwargs,
+):
+    targs = u.normalize_periodic_range(
+        np.concatenate(list(x[target_key] for x in pickles.values()))
+    )
+    resps = u.normalize_periodic_range(
+        np.concatenate(list(x[response_key] for x in pickles.values()))
+    )
+    plot_target_response_scatter_direct(targs, resps, **kwargs)
 
 
 @gpl.ax_adder()
@@ -1539,7 +1673,8 @@ def plot_period_units_trace(
         base_colors_pre = (default_upper_color, default_lower_color)
         base_colors_wh = (default_target_color, default_distr_color)
     else:
-        base_colors = (default_cue_color,)
+        base_colors_wh = (default_cue_color,)
+        base_colors_pre = (default_cue_color,)
     if axs is None:
         figsize = (fwid * 3, fwid * len(neur_inds))
         f, axs = plt.subplots(
@@ -1879,8 +2014,6 @@ def plot_population_torus(
         mask = data[error_field] >= -1
         data = data.mask(mask)
 
-    regions = data[region_key][0].iloc[0]
-
     cols = list(data[col][0] for col in colors)
     if use_cues:
         cues = data[cue][0]
@@ -1902,7 +2035,6 @@ def plot_population_torus(
     pop_act = preproc.fit_transform(pop[0][..., 0])
     m = sklm.Ridge()
     m.fit(coeffs, pop_act)
-    m_predictive = m.predict(coeffs)
 
     color_tr = np.linspace(0, np.pi * 2, n_pts)
     color_const = np.zeros(n_pts)
@@ -2015,8 +2147,6 @@ def plot_single_neuron_tuning(
         mask = data[error_field] >= -1
         data = data.mask(mask)
 
-    regions = data[region_key][0].iloc[0]
-
     cols = list(data[col][0] for col in colors)
     if use_cues:
         cues = data[cue][0]
@@ -2110,7 +2240,6 @@ def plot_single_neuron_trace(
         data = data.mask(mask)
 
     cond_masks = list(cf(data) for cf in cond_funcs)
-    regions = data[region_key][0].iloc[0]
 
     pop, xs = data.get_neural_activity(
         winsize, start, end, stepsize=winstep, time_zero_field=tzf
@@ -2277,8 +2406,8 @@ def plot_color_means(cmeans, ax=None, dimred=3, t_ind=5, links=2):
     ax.plot(*lower_trans[:, :dimred].T, "o")
     ax.plot(*lower_trans[:, :dimred].T)
     links = np.linspace(0, len(cmeans) - 1, links, dtype=int)
-    for l in links:
-        up_low = np.stack((upper_trans[l, :dimred], lower_trans[l, :dimred]), axis=0)
+    for l_ in links:
+        up_low = np.stack((upper_trans[l_, :dimred], lower_trans[l_, :dimred]), axis=0)
         ax.plot(*up_low.T, color=(0.8, 0.8, 0.8))
     print(u.pr_only(p.explained_variance_ratio_))
     return ax
@@ -2317,8 +2446,8 @@ def _plot_mu(
                 markersize=ms,
             )
     else:
-        l = ax.plot(*plot_mu_append[:3], color=color, ls=style, **kwargs)
-        col = l[0].get_color()
+        l_ = ax.plot(*plot_mu_append[:3], color=color, ls=style, **kwargs)
+        col = l_[0].get_color()
         ax.plot(*plot_mu_append[:3], "o", color=col, ls=style, markersize=ms)
     return ax, col
 
@@ -2404,7 +2533,7 @@ def _compute_common_dimred(
     dim_red_model=skd.PCA,
     **kwargs,
 ):
-    l = []
+    l_ = []
     for fit_az in mdict.values():
         for k in use_keys:
             d_ak = fit_az.posterior[k]
@@ -2414,15 +2543,21 @@ def _compute_common_dimred(
             cols = np.linspace(0, 2 * np.pi, n_cols + 1)[:-1]
             m_cols = swan.spline_color(cols, m_ak.shape[-1])
             trs_mu = np.dot(m_ak, m_cols)
-            l.append(trs_mu)
-    m_collection = np.concatenate(l, axis=1)
+            l_.append(trs_mu)
+    m_collection = np.concatenate(l_, axis=1)
     ptrs = dim_red_model(n_components=3)
     if truncate_dim is None:
         ptrs.fit(m_collection.T)
-        trs = lambda x: ptrs.transform(x.T).T
+
+        def trs(x):
+            return ptrs.transform(x.T).T
+
     else:
         ptrs.fit(m_collection[:truncate_dim].T)
-        trs = lambda x: ptrs.transform(x[:truncate_dim].T).T
+
+        def trs(x):
+            return ptrs.transform(x[:truncate_dim].T).T
+
     return trs
 
 
@@ -2513,9 +2648,15 @@ def visualize_fit_torus(
         ptrs = dim_red_model(n_components=3, **kwargs)
         con_data = np.concatenate(tot_reps, axis=0)
         ptrs.fit(con_data)
-        trs = lambda x: ptrs.transform(x)
+
+        def trs(x):
+            return ptrs.transform(x)
+
     elif trs is None:
-        trs = lambda x: x
+
+        def trs(x):
+            return x
+
     col_r = None
     col_c = None
     all_trs = np.zeros(tot_reps.shape[:2] + (3,))
@@ -2525,10 +2666,10 @@ def visualize_fit_torus(
         trs_row = np.concatenate((trs_row, trs_row[:1]), axis=0)
         trs_col = trs(tot_reps[:, i])
         trs_col = np.concatenate((trs_col, trs_col[:1]), axis=0)
-        l = ax.plot(*trs_row.T, color=col_r)
-        col_r = l[0].get_color()
-        l = ax.plot(*trs_col.T, color=col_c)
-        col_c = l[0].get_color()
+        l_ = ax.plot(*trs_row.T, color=col_r)
+        col_r = l_[0].get_color()
+        l_ = ax.plot(*trs_col.T, color=col_c)
+        col_c = l_[0].get_color()
     if plot_surface:
         all_trs = np.concatenate((all_trs, all_trs[:1]), axis=0)
         all_trs = np.concatenate((all_trs, all_trs[:, :1]), axis=1)
@@ -2593,6 +2734,37 @@ def save_all_dists(
         return figs_g, figs_l
 
 
+@gpl.ax_adder(three_dim=True)
+def visualize_joint_decoding(info, xs, x_targ=-0.25, ax=None):
+    x_ind = np.argmin(np.abs(xs - x_targ))
+    proj_all = []
+    labels_all = []
+    for session in info.values():
+        projs = session["projection"][:, x_ind]
+        tcs = session["targs_continuous"]
+        inds = session["test_inds"]
+        inds = inds[:, x_ind]
+        tcs_s = tcs[inds]
+        tcs_flat = np.concatenate(tcs_s, axis=0)
+        proj_flat = np.concatenate(projs, axis=0)
+        proj_all.append(proj_flat)
+        labels_all.append(tcs_flat)
+
+    projs = np.concatenate(proj_all, axis=0)
+    labels = np.concatenate(labels_all, axis=0)
+
+    projs_avg = gpl.average_similar_stimuli(
+        projs,
+        labels[:, :2],
+        weight_func=gpl.periodic_boxcar,
+    )
+    ax.scatter(*projs_avg.T, c=labels[:, 1], cmap="hsv", s=1, alpha=labels[:, 0])
+    ax.set_aspect("equal")
+    ax.set_xlabel("correct axis")
+    ax.set_ylabel("color 1")
+    ax.set_zlabel("color 2")
+
+
 def plot_dists(
     p_thrs,
     types,
@@ -2619,11 +2791,6 @@ def plot_dists(
     **kwargs,
 ):
     figsize = (fwid * len(mistakes) * mult, fwid)
-    if color_dict is None:
-        spatial_color = np.array([36, 123, 160]) / 256
-        hybrid_color = np.array([37, 49, 94]) / 256
-
-        colors_dict = {"spatial": spatial_color, "hybrid": hybrid_color}
 
     figs = []
     out_data = {}
@@ -2673,8 +2840,8 @@ def plot_dists(
                 if simple_label:
                     axs[k].set_ylabel("density")
                 else:
-                    l = r"density | $p_{swp} > " + "{}$".format(p_thr)
-                    axs[k].set_ylabel(l)
+                    l_ = r"density | $p_{swp} > " + "{}$".format(p_thr)
+                    axs[k].set_ylabel(l_)
             else:
                 axs[k].set_ylabel("")
             axs[k].set_xlabel("prototype distance (au)")
@@ -2709,8 +2876,8 @@ def plot_dists(
 def plot_sig_comparison(emp_func, bins, theor_func, ax=None):
     if ax is None:
         f, ax = plt.subplots(1, 1)
-    l = ax.plot(bins, emp_func.T)
-    _ = ax.plot(bins, theor_func.T, linestyle="dashed", color=l[0].get_color())
+    l_ = ax.plot(bins, emp_func.T)
+    _ = ax.plot(bins, theor_func.T, linestyle="dashed", color=l_[0].get_color())
     return ax
 
 
@@ -3299,7 +3466,7 @@ def visualize_fit_results(
         ax = f.add_subplot(1, 1, 1, projection="3d")
     all_keys = mu_u_keys + mu_l_keys
     if dim_red and trs is None:
-        l = []
+        l_ = []
         for i, ak in enumerate(all_keys):
             d_ak = fit_az.posterior[ak]
             if convert:
@@ -3308,17 +3475,26 @@ def visualize_fit_results(
             cols = np.linspace(0, 2 * np.pi, n_cols + 1)[:-1]
             m_cols = swan.spline_color(cols, m_ak.shape[-1])
             trs_mu = np.dot(m_ak, m_cols)
-            l.append(trs_mu)
-        m_collection = np.concatenate(l, axis=1)
+            l_.append(trs_mu)
+        m_collection = np.concatenate(l_, axis=1)
         ptrs = dim_red_model(n_components=3, **kwargs)
         if truncate_dim is None:
             ptrs.fit(m_collection.T)
-            trs = lambda x: ptrs.transform(x.T).T
+
+            def trs(x):
+                return ptrs.transform(x.T).T
+
         else:
             ptrs.fit(m_collection[:truncate_dim].T)
-            trs = lambda x: ptrs.transform(x[:truncate_dim].T).T
+
+            def trs(x):
+                return ptrs.transform(x[:truncate_dim].T).T
+
     elif trs is None:
-        trs = lambda x: x
+
+        def trs(x):
+            return x
+
     for i, mu_k in enumerate(mu_u_keys):
         mu_ak = fit_az.posterior[mu_k]
         if convert:
@@ -3491,7 +3667,6 @@ def make_color_circle(ax=None, px=1000, r_cent=350, r_wid=100):
     if ax is None:
         f, ax = plt.subplots(1, 1)
 
-    surface = np.zeros((px, px))
     x, y = np.meshgrid(np.arange(px), np.arange(px))
     full = np.stack((x, y), axis=2)
     cent = full - px / 2
@@ -3537,7 +3712,7 @@ def plot_error_swap_distribs_err(
     if axs is None:
         fsize = (2 * fwid, fwid)
         f, axs = plt.subplots(1, 2, figsize=fsize, sharey=True, sharex=True)
-    l = axs[0].hist(errs, density=True, color=color)
+    axs[0].hist(errs, density=True, color=color)
     if model_data is not None:
         axs[0].hist(
             model_data.flatten(),
@@ -3655,7 +3830,6 @@ def plot_barcode(
 def plot_single_neuron_color(
     neur_dict, xs, plot_x, filter_keys=None, axs=None, n_shuffs=100
 ):
-    x_ind = np.argmin(np.abs(xs - plot_x))
     mi_cs = []
     for i, (k, v) in enumerate(neur_dict.items()):
         if filter_keys is not None and k[-1] in filter_keys:

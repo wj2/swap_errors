@@ -505,10 +505,7 @@ class NeuralGeometryFigure(SwapErrorFigure):
             "nominal and mis-interpreted cue": (0, 2),
             "mis-selected colors and mis-interpreted cue": (1, 2),
         }
-        s = (
-            "{dist} units further between {key} representations in "
-            "{m1} than {m2}"
-        )
+        s = "{dist} units further between {key} representations in " "{m1} than {m2}"
         combined_m1 = []
         combined_m2 = []
         for dist_key, ind in inds.items():
@@ -533,7 +530,6 @@ class NeuralGeometryFigure(SwapErrorFigure):
         )
         f_name = "dist_combined"
         self.save_stats_string(s, "dist_combined")
-        
 
         key_s = (
             "nominal and mis-interpreted cue than nominal and mis-selected " "colors"
@@ -682,7 +678,8 @@ class LMFigure(SwapErrorFigure):
                 high, low = u.conf_interval(diffs, withmean=True)[:, 0]
                 diff_range = u.format_sirange(high, low)
 
-                s = "{monkey}: activity on swap trials is {diffs} closer to the {diff_str}"
+                s = ("{monkey}: activity on swap trials "
+                     "is {diffs} closer to the {diff_str}")
                 s = s.format(monkey=monkey, diffs=diff_range, diff_str=diff_str)
                 cv_name = "cv_{}_{}_{}_{}".format(
                     self.trial_type, monkey.replace(" ", "_"), k, t1_t2_str

@@ -32,7 +32,162 @@ import swap_errors.auxiliary as swa
 import pandas as pd
 import general.decoders as gd
 
-# import rsatoolbox as rsa
+
+def decode_error(pickle, p_key="ps", p_thr=0.5, p_ind=0, **kwargs):
+    def field_func(session, no_thr=False):
+        t = session[p_key][:, p_ind]
+        if not no_thr:
+            t = t > p_thr
+        return t
+
+    return decode_pickle_func(pickle, field_func, balance_targ=True, **kwargs)
+
+
+def decode_color_pickle(pickle, c_key="c_targ", c_offset=0, **kwargs):
+    def field_func(session, no_thr=False):
+        t = u.normalize_periodic_range(session[c_key] - c_offset)
+        if not no_thr:
+            t = t > 0
+        return t
+
+    return decode_pickle_func(pickle, c_key, field_func, **kwargs)
+
+
+def joint_decode_color_pickle(
+    pickle,
+    p_thr=0.33,
+    p_ind=0,
+    p_key="ps",
+    c_key="rc",
+    **kwargs,
+):
+    def field_func(session, no_thr=False):
+        t2 = u.normalize_periodic_range(session[c_key])
+        t3 = u.normalize_periodic_range(session[c_key] - np.pi / 2)
+        if not no_thr:
+            t2 = t2 > 0
+            t3 = t3 > 0
+        targs = np.stack((t2, t3), axis=1)
+        return targs
+
+    def train_func(session):
+        return session[p_key][:, p_ind] > p_thr
+
+    def gen_func(session):
+        return session[p_key][:, p_ind] < p_thr
+
+    out = decode_pickle_func(
+        pickle,
+        field_func,
+        train_func=train_func,
+        gen_func=gen_func,
+        **kwargs,
+    )
+    return out
+
+
+def joint_decode_pickle(
+    pickle,
+    p_ind=0,
+    p_thr=0.5,
+    p_key="ps",
+    c_key="c_targ",
+    **kwargs,
+):
+    def field_func(session, no_thr=False):
+        t1 = session[p_key][:, p_ind]
+        t2 = u.normalize_periodic_range(session[c_key])
+        t3 = u.normalize_periodic_range(session[c_key] - np.pi / 2)
+        if not no_thr:
+            t1 = t1 > p_thr
+            t2 = t2 > 0
+            t3 = t3 > 0
+        targs = np.stack((t1, t2, t3), axis=1)
+        return targs
+
+    return decode_pickle_func(pickle, field_func, **kwargs)
+
+
+def decode_outcome(pickle, p_key="ps", **kwargs):
+    def field_func(session, no_thr=False):
+        t = np.argmax(session[p_key], axis=1)
+        return t
+
+    return decode_pickle_func(pickle, field_func, return_confusion=True, **kwargs)
+
+
+def decode_pickle_func(
+    pickle,
+    field_func,
+    spk_key="spks",
+    n_folds=100,
+    balance_targ=False,
+    model=skc.LinearSVC,
+    return_confusion=False,
+    train_func=None,
+    gen_func=None,
+    **kwargs,
+):
+    n_ts = list(pickle.values())[0][spk_key].shape[-1]
+    perf = np.zeros((len(pickle), n_ts))
+    confusion = []
+    out_info = {}
+    for i, (num, sess) in enumerate(pickle.items()):
+        resp = sess[spk_key]
+        dec_targ = field_func(sess)
+        dec_cont = field_func(sess, no_thr=True)
+        if balance_targ:
+            rel_flat = dec_targ
+            balance_rel_fields = True
+        else:
+            rel_flat = None
+            balance_rel_fields = False
+        if gen_func:
+            mask_gen = gen_func(sess)
+            resp_gen = resp[mask_gen]
+            dec_targ_gen = dec_targ[mask_gen]
+        else:
+            resp_gen = None
+            dec_targ_gen = None
+        if train_func:
+            mask_tr = train_func(sess)
+            resp = resp[mask_tr]
+            dec_targ = dec_targ[mask_tr]
+            if rel_flat is not None:
+                rel_flat = rel_flat[mask_tr]
+
+        out = na.fold_skl_shape(
+            resp,
+            dec_targ,
+            n_folds,
+            rel_flat=rel_flat,
+            model=model,
+            balance_rel_fields=balance_rel_fields,
+            return_projection=True,
+            return_confusion=return_confusion,
+            c_gen=resp_gen,
+            l_gen=dec_targ_gen,
+            **kwargs,
+        )
+        out_info[num] = {
+            "test_inds": out["test_inds"],
+            "test_labels": dec_cont[out["test_inds"]],
+            "targs": dec_targ,
+            "targs_continuous": dec_cont,
+            "projection": out["projection"],
+            "gen": out.get("score_gen"),
+            "projections_gen": out.get("projections_gen"),
+            "labels_gen": out.get("labels_gen"),
+        }
+        perf[i] = out["score"]
+        if return_confusion:
+            confusion.append(out["confusion"])
+    out_dict = {
+        "perf": perf,
+        "info": out_info,
+        "confusion": confusion,
+    }
+    return out_dict
 
 
 def average_simplices(
@@ -1942,6 +2097,7 @@ def prepare_lm_tc_pops(
     *args,
     region_subsets=single_region_subsets,
     rt_thresh=None,
+    out_folder="../data/swap_errors/lm_data",
     **kwargs,
 ):
     if rt_thresh is not None:
@@ -1950,7 +2106,9 @@ def prepare_lm_tc_pops(
         add_orig = ""
     for k, sub in region_subsets.items():
         retro_dict = make_lm_tc_pops(*args, regions=sub, **kwargs)
-        save_lm_tc_pops(retro_dict, add=add_orig + "retro_{}".format(k))
+        save_lm_tc_pops(
+            retro_dict, add=add_orig + "retro_{}".format(k), out_folder=out_folder
+        )
 
         pro_dict = make_lm_tc_pops(
             *args,
@@ -1958,23 +2116,42 @@ def prepare_lm_tc_pops(
             use_pro=True,
             **kwargs,
         )
-        save_lm_tc_pops(pro_dict, add=add_orig + "pro_{}".format(k))
+        save_lm_tc_pops(
+            pro_dict, add=add_orig + "pro_{}".format(k), out_folder=out_folder
+        )
+
+        single_dict = make_lm_tc_pops(
+            *args,
+            regions=sub,
+            use_single=True,
+            **kwargs,
+        )
+        save_lm_tc_pops(
+            single_dict, add=add_orig + "single_{}".format(k), out_folder=out_folder
+        )
+
+
+panichello_save_keys = {
+    "uc": "upper_color",
+    "lc": "lower_color",
+    "rc": "LABthetaResp",
+    "cues_alt": "IsUpperSample",
+    "saccade_angle": "ResponseTheta",
+    "regions": "neur_regions",
+    "ps": ("corr_prob", "swap_prob", "guess_prob"),
+    "rt": "ReactionTime",
+}
 
 
 def make_lm_tc_pops(
     data,
     use_pro=False,
+    use_single=False,
     winsize=0.5,
     tstep=0.05,
     pro_sequences=pro_sequences,
     retro_sequences=retro_sequences,
-    upper_key="upper_color",
-    lower_key="lower_color",
-    cue_key="IsUpperSample",
-    p_keys=("corr_prob", "swap_prob", "guess_prob"),
-    report_key="LABthetaResp",
-    motor_key="ResponseTheta",
-    region_key="neur_regions",
+    save_keys=panichello_save_keys,
     rt_key="ReactionTime",
     rt_thresh=None,
     **kwargs,
@@ -1982,6 +2159,9 @@ def make_lm_tc_pops(
     if use_pro:
         data = pro_mask(data)
         sequence = pro_sequences
+    elif use_single:
+        data = single_mask(data)
+        sequence = retro_sequences
     else:
         data = retro_mask(data)
         sequence = retro_sequences
@@ -1998,45 +2178,36 @@ def make_lm_tc_pops(
             time_zero_field=tzf,
             **kwargs,
         )
-        uc = data[upper_key]
-        lc = data[lower_key]
-        rc = data[report_key]
-        motor = data[motor_key]
-        cue_alt = data[cue_key]
-        regions = data[region_key]
-        if cue_on:
-            cue = cue_alt
+        out_dict = {}
+        for k, ref in save_keys.items():
+            if u.check_list(k):
+                k = list(k)
+            out_dict[k] = data[k]
+        if "cues_alt" in out_dict.keys() and cue_on:
+            out_dict["cues"] = out_dict["cues_alt"]
         else:
-            cue = (None,) * len(spks)
-        ps = data[list(p_keys)]
-        pop_dict[k] = (spks, uc, lc, rc, ps, cue, cue_alt, motor, regions, xs)
+            out_dict["cues"] = (None,) * len(spks)
+        if "regions" in out_dict.keys():
+            out_dict["regions"] = list(
+                x.iloc[0].to_numpy() for x in out_dict["regions"]
+            )
+        out_dict["other"] = list({"xs": xs, "sequence": k} for _ in spks)
+        pop_dict[k] = out_dict
     return pop_dict
 
 
 def save_lm_tc_pops(
     pop_dict,
     add="retro",
-    out_path="swap_errors/lm_data/lmtc_{}_{}_{}.pkl",
+    out_path="lmtc_{}_{}_{}.pkl",
+    out_folder="../data/swap_errors/lm_data/",
 ):
     for k, pd_k in pop_dict.items():
-        spks, uc, lc, rc, probs, cue, cue_alt, motor, regions, xs = pd_k
         k_save = k.replace(" ", "-")
-        n_sessions = len(spks)
+        n_sessions = len(pd_k["spks"])
         for i in range(n_sessions):
-            path = out_path.format(add, k_save, i)
-            regions_i = regions[i].iloc[0]
-            sd = {
-                "spks": spks[i],
-                "uc": uc[i].to_numpy(),
-                "lc": lc[i].to_numpy(),
-                "rc": rc[i].to_numpy(),
-                "ps": probs[i].to_numpy(),
-                "cues": cue[i],
-                "cues_alt": cue_alt[i].to_numpy(),
-                "saccade_angle": motor[i].to_numpy(),
-                "regions": regions_i,
-                "other": {"xs": xs, "sequence": k},
-            }
+            path = os.path.join(out_folder, out_path.format(add, k_save, i))
+            sd = {k: v[i] for k, v in pd_k.itmes()}
             pickle.dump(sd, open(path, "wb"))
 
 
@@ -3053,12 +3224,13 @@ def save_color_pseudopops_regions(
 
 
 def load_color_pseudopops_regions(
-        region_key,
-        folder="swap_errors/color_pseudo_data/",
-        template="m_{region_key}_pseudos.pkl",
+    region_key,
+    folder="swap_errors/color_pseudo_data/",
+    template="m_{region_key}_pseudos.pkl",
 ):
     path = os.path.join(folder, template.format(region_key=region_key))
     return pd.read_pickle(path)
+
 
 def make_all_color_pseudopops(
     data,

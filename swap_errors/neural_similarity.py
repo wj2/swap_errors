@@ -1,6 +1,9 @@
 import numpy as np
 import pyro
 import torch
+import imblearn.under_sampling as imb_us
+import tqdm
+from torch.utils.data import TensorDataset, DataLoader
 
 import scipy.stats as sts
 import sklearn.preprocessing as skp
@@ -11,8 +14,26 @@ import general.neural_analysis as na
 import general.utility as u
 import pyro.distributions as distribs
 import gpytorch as gpt
+import gpflow
 import logging
 import general.plotting as gpl
+
+
+class SVGPRFlow:
+    def __init__(
+        self,
+        kernel=None,
+        opt=None,
+        model=gpflow.models.SVGP,
+        likelihood=None,
+    ):
+        if kernel is None:
+            kernel = gpflow.kernels.SquaredExponential()
+        self.kernel = kernel
+        if opt is None:
+            opt = gpflow.optimizers.Scipy()
+        self.opt = opt
+        self.model = model
 
 
 def similarity_model(
@@ -859,42 +880,220 @@ def make_kernel_map_tc(pickles, xs, *args, n_bins=5, two_dims=True, **kwargs):
     return out_arr, bins
 
 
-def make_kernel_map(
-    pickles,
-    xs,
-    c1,
-    c2=None,
-    n_bins=5,
-    p_thr=0.3,
-    row_ind=0, # doesn't matter which one changes, yields same result
-    col_ind=0,
-    cue_only=None,
-    bin_range=(-np.pi, np.pi),
-    two_dims=True,
+class AverageKernelMap:
+    def __init__(self, pickles, xs, p2=None, **kwargs):
+        if p2 is None:
+            p2 = {}
+        self.kernels = list(
+            CrossKernelMap(pickle, xs, p2=p2.get(k), **kwargs)
+            for k, pickle in pickles.items()
+        )
+
+    def get_kernel(self, **kwargs):
+        kern_out = []
+        for k in self.kernels:
+            k_i, bins = k.get_kernel(**kwargs)
+            kern_out.append(k_i)
+        kern_out = np.stack(kern_out, axis=0)
+        return kern_out, bins
+
+    def get_resampled_kernel(self, *args, **kwargs):
+        kern_out = []
+        for k in self.kernels:
+            k_i, bins = k.get_resampled_kernel(*args, **kwargs)
+            kern_out.append(k_i)
+        kern_out = np.stack(kern_out, axis=0)
+        return kern_out, bins
+
+
+class AGPRegression(gpt.models.ApproximateGP):
+    def __init__(self, inducing_points, periodic=False):
+        if periodic:
+            inducing_points = self._make_periodic(inducing_points)
+        self.periodic = periodic
+        variational_distribution = gpt.variational.CholeskyVariationalDistribution(
+            inducing_points.size(0)
+        )
+        variational_strategy = gpt.variational.VariationalStrategy(
+            self,
+            inducing_points,
+            variational_distribution,
+            learn_inducing_locations=True,
+        )
+        super(AGPRegression, self).__init__(variational_strategy)
+        self.mean_module = gpt.means.ConstantMean()
+        self.covar_module = gpt.kernels.ScaleKernel(gpt.kernels.RBFKernel())
+
+    def _make_periodic(self, x):
+        if len(x.shape) == 1:
+            x = torch.unsqueeze(x, -1)
+        x = list(
+            torch.stack((torch.cos(x[:, i]), torch.sin(x[:, i])), axis=1)
+            for i in range(x.shape[1])
+        )
+        return torch.concatenate(x, axis=1)
+
+    def forward(self, x):
+        if self.periodic:
+            x = self._make_periodic(x)
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpt.distributions.MultivariateNormal(mean_x, covar_x)
+
+    def __call__(self, x, **kwargs):
+        if self.periodic:
+            x = self._make_periodic(x)
+        return super().__call__(x, **kwargs)
+
+
+def _fit_svgpr(
+    X,
+    y,
+    x_preds,
+    smoke_test=False,
+    batch_size=2000,
+    num_epochs=8,
+    num_inducing=500,
+    lr=0.01,
+    return_model=False,
     **kwargs,
 ):
-    out = compute_continuous_distance_matrix(
-        pickles,
-        xs,
-        color_key=c1,
-        second_color_key=c2,
-        **kwargs,
+    X_nan_mask = np.isnan(X)
+    if len(X_nan_mask.shape) > 1:
+        X_nan_mask = np.sum(X_nan_mask, axis=1) > 0
+    y_nan_mask = np.isnan(y)
+    nan_mask = np.logical_not(np.logical_or(X_nan_mask, y_nan_mask))
+
+    X = X[nan_mask]
+    y = y[nan_mask]
+    rng = np.random.default_rng()
+    X = torch.tensor(X, dtype=torch.float)
+    y = torch.tensor(y, dtype=torch.float)
+    x_preds = torch.tensor(x_preds, dtype=torch.float)
+    if torch.cuda.is_available():
+        X = X.cuda()
+        y = y.cuda()
+    inds = rng.choice(len(X), num_inducing, axis=0)
+    pts = X[inds]
+    model = AGPRegression(pts, periodic=True)
+    likelihood = gpt.likelihoods.GaussianLikelihood()
+    if torch.cuda.is_available():
+        model = model.cuda()
+        likelihood = likelihood.cuda()
+    num_epochs = 1 if smoke_test else num_epochs
+
+    model.train()
+    likelihood.train()
+
+    optimizer = torch.optim.Adam(
+        [
+            {"params": model.parameters()},
+            {"params": likelihood.parameters()},
+        ],
+        lr=lr,
     )
-    arr = np.zeros((len(out), n_bins, n_bins))
-    for i, dists in enumerate(out.values()):
-        dists_all = dists["dists"]
-        row_mask = dists["ps"][:, row_ind] > p_thr
-        col_mask = dists["ps"][:, col_ind] > p_thr
-        if cue_only is not None:
-            add_mask = dists["cues"] == cue_only
-            row_mask = np.logical_and(row_mask, add_mask)
-            col_mask = np.logical_and(col_mask, add_mask)
-        dist_mat = dists_all[row_mask][:, col_mask].flatten()
+
+    mll = gpt.mlls.VariationalELBO(likelihood, model, num_data=y.size(0))
+    train_dataset = TensorDataset(X, y)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    epochs_iter = tqdm.notebook.tqdm(range(num_epochs), desc="Epoch")
+    for i in epochs_iter:
+        minibatch_iter = tqdm.notebook.tqdm(train_loader, desc="Minibatch", leave=False)
+        for x_batch, y_batch in minibatch_iter:
+            optimizer.zero_grad()
+            output = model(x_batch)
+            loss = -mll(output, y_batch)
+            minibatch_iter.set_postfix(loss=loss.item())
+            loss.backward()
+            optimizer.step()
+    model.eval()
+    likelihood.eval()
+    with torch.no_grad():
+        preds = model(x_preds).mean.cpu().numpy()
+    out = preds
+    if return_model:
+        out = (preds, model)
+    return out
+
+
+def fit_full_average_kernel(
+    neurs,
+    xs,
+    target_x=-0.25,
+    p_thr=0.4,
+    num_epochs=15,
+    n_bins=20,
+):
+    out_all = compute_continuous_distance_matrix(
+        neurs,
+        xs,
+        x_targ=target_x,
+    )
+    kern_models = []
+    for out in out_all.values():
+        mask = out["ps"][:, 0] > p_thr
+        dists = out["dists"][mask][:, mask]
+        c1 = out["c1"][mask][:, mask]
+        c2 = out["c2"][mask][:, mask]
+
+        d_flat = dists.flatten()
+        c1_flat = c1.flatten()
+        c2_flat = c2.flatten()
+        d_flat, c1_flat, c2_flat = u.filter_nan(d_flat, c1_flat, c2_flat, ind=0)
+        cs = np.stack((c1_flat, c2_flat), axis=1)
+        c_pred = np.linspace(-np.pi, np.pi, n_bins)
+        c1s_pred, c2s_pred = np.meshgrid(c_pred, c_pred)
+        cs_pred = np.stack((c1s_pred.flatten(), c2s_pred.flatten()), axis=1)
+        _, kern_model_i = _fit_svgpr(
+            cs, d_flat, cs_pred, num_epochs=num_epochs, return_model=True
+        )
+        kern_models.append(kern_model_i)
+
+    def func(X, mean=False):
+        preds = []
+        X = torch.tensor(X, dtype=torch.float)
+        with torch.no_grad():
+            for model in kern_models:
+                preds.append(model(X).mean.cpu().numpy())
+        out = np.stack(preds, axis=0)
+        if mean:
+            out = np.mean(out, axis=0)
+        return out
+    return func
+
+
+class KernelMap:
+    def __init__(self, pickle, xs, ps_thr=0.6, bin_range=(-np.pi, np.pi), n_bins=5):
+        self.pickle = pickle
+        self.xs = xs
+        self.ps_thr = ps_thr
+        self.bin_range = bin_range
+        self.n_bins = n_bins
+
+    def compute_distance_matrix(self, **kwargs):
+        info = compute_continuous_distance_matrix(
+            {0: self.pickle},
+            self.xs,
+            **kwargs,
+        )[0]
+        return info
+
+    def _compute_kernel(
+        self,
+        dists,
+        c1,
+        c2,
+        row_mask,
+        col_mask,
+        two_dims=False,
+        use_gp=True,
+    ):
+        dist_mat = dists[row_mask][:, col_mask].flatten()
         c1_mat = u.normalize_periodic_range(
-            dists["c1"][row_mask][:, col_mask].flatten(),
+            c1[row_mask][:, col_mask].flatten(),
         )
         c2_mat = u.normalize_periodic_range(
-            dists["c2"][row_mask][:, col_mask].flatten(),
+            c2[row_mask][:, col_mask].flatten(),
         )
         mask = ~np.isnan(dist_mat)
         dist_mat = dist_mat[mask]
@@ -907,21 +1106,265 @@ def make_kernel_map(
             c_group = np.expand_dims(u.normalize_periodic_range(c2_mat - c1_mat), 1)
         arr_raw, bins = np.histogramdd(
             c_group,
-            bins=n_bins,
-            range=(bin_range,) * c_group.shape[1],
+            bins=self.n_bins,
+            range=(self.bin_range,) * c_group.shape[1],
             weights=dist_mat,
         )
         arr_count, bins = np.histogramdd(
             c_group,
-            bins=n_bins,
-            range=(bin_range,) * c_group.shape[1],
+            bins=self.n_bins,
+            range=(self.bin_range,) * c_group.shape[1],
         )
-        arr[i] = arr_raw / arr_count
-    bins = list(b[:-1] + np.diff(b)[0] / 2 for b in bins)
-    if not two_dims:
-        bins = bins[0]
-        arr = arr[:, 0]
-    return arr, bins
+        arr = arr_raw / arr_count
+        bins = np.array(list(b[:-1] + np.diff(b)[0] / 2 for b in bins))
+        if use_gp:
+            arr = _fit_svgpr(c_group, dist_mat, bins.T)
+        if not two_dims:
+            bins = bins[0]
+        return arr, bins
+
+    def _kernel_masks(
+        self,
+        dist_info,
+        row_ind=0,
+        col_ind=0,
+        cue_only=None,
+        col_cue=None,
+        row_cue=None,
+    ):
+        if np.all(np.isnan(dist_info["ps"])):
+            ps = np.zeros_like(dist_info["ps"])
+            ps[:, 0] = 1
+        else:
+            ps = dist_info["ps"]
+        row_mask = ps[:, row_ind] > self.ps_thr
+        col_mask = ps[:, col_ind] > self.ps_thr
+        if cue_only is not None:
+            add_mask = dist_info["cues"] == cue_only
+            row_mask = np.logical_and(row_mask, add_mask)
+            col_mask = np.logical_and(col_mask, add_mask)
+        if col_cue is not None:
+            add_mask = dist_info["cues"] == col_cue
+            col_mask = np.logical_and(col_mask, add_mask)
+        if row_cue is not None:
+            add_mask = dist_info["cues"] == row_cue
+            row_mask = np.logical_and(row_mask, add_mask)
+        return row_mask, col_mask
+
+    def get_kernel(
+        self,
+        row_ind=0,
+        col_ind=0,
+        two_dims=False,
+        cue_only=None,
+        col_cue=None,
+        row_cue=None,
+        use_gp=True,
+        **kwargs,
+    ):
+        dist_info = self.compute_distance_matrix(**kwargs)
+        dists_all = dist_info["dists"]
+        c1s = dist_info["c1"]
+        c2s = dist_info["c2"]
+        row_mask, col_mask = self._kernel_masks(
+            dist_info,
+            row_ind=row_ind,
+            col_ind=col_ind,
+            cue_only=cue_only,
+            col_cue=col_cue,
+            row_cue=row_cue,
+        )
+        return self._compute_kernel(
+            dists_all,
+            c1s,
+            c2s,
+            row_mask,
+            col_mask,
+            two_dims=two_dims,
+            use_gp=use_gp,
+        )
+
+    def get_resampled_kernel(
+        self,
+        extra_key,
+        row_ind=0,
+        col_ind=0,
+        cue_only=None,
+        n_resamples=100,
+        resample_bins=5,
+        two_dims=False,
+        **kwargs,
+    ):
+        dist_info = self.compute_distance_matrix(extra_key=extra_key, **kwargs)
+        dists_all = dist_info["dists"]
+        c1s = dist_info["c1"]
+        c2s = dist_info["c2"]
+        row_mask, col_mask = self._kernel_masks(
+            dist_info, row_ind=row_ind, col_ind=col_ind, cue_only=cue_only
+        )
+        sample_x = dist_info["extra"]
+        amts, x, sample_x_binned = sts.binned_statistic(
+            sample_x,
+            np.ones_like(sample_x),
+            statistic="sum",
+            bins=resample_bins,
+        )
+        inds_all = np.arange(len(dists_all)).reshape((-1, 1))
+        kerns = []
+        for i in range(n_resamples):
+            rus = imb_us.RandomUnderSampler()
+            inds_rs, _ = rus.fit_resample(inds_all, sample_x_binned)
+            inds_rs = np.squeeze(inds_rs)
+            dists_rs, c1_rs, c2_rs = _index_matrix(inds_rs, dists_all, c1s, c2s)
+            dists_rs = dists_all[inds_rs][:, inds_rs]
+            rm_rs = row_mask[inds_rs]
+            cm_rs = col_mask[inds_rs]
+            kern_i, bin_cents = self._compute_kernel(
+                dists_rs,
+                c1_rs,
+                c2_rs,
+                rm_rs,
+                cm_rs,
+                two_dims=two_dims,
+            )
+            kerns.append(kern_i)
+        kerns = np.stack(kerns, axis=0)
+        return kerns, bin_cents
+
+
+def _index_matrix(inds, *mats):
+    return list(x[inds][:, inds] for x in mats)
+
+
+class CrossKernelMap(KernelMap):
+    def __init__(
+        self,
+        p1,
+        xs1,
+        p2=None,
+        xs2=None,
+        ps_thr=0.6,
+        bin_range=(-np.pi, np.pi),
+        n_bins=5,
+    ):
+        self.p1 = p1
+        self.xs1 = xs1
+        if p2 is None:
+            p2 = p1
+        if xs2 is None:
+            xs2 = xs1
+        self.p2 = p2
+        self.xs2 = xs2
+        self.ps_thr = ps_thr
+        self.bin_range = bin_range
+        self.n_bins = n_bins
+
+    def compute_distance_matrix(self, **kwargs):
+        info = compute_continuous_distance_matrix(
+            {0: self.p1},
+            self.xs1,
+            data_dict2={0: self.p2},
+            xs2=self.xs2,
+            **kwargs,
+        )[0]
+        return info
+
+
+def make_cued_kernel_map_tc(
+    pickles,
+    xs,
+    n_bins=5,
+    two_dims=False,
+    **kwargs,
+):
+    if two_dims:
+        shape = (len(pickles), n_bins, n_bins, len(xs))
+    else:
+        shape = (len(pickles), n_bins, len(xs))
+    kern_tc = np.zeros(shape)
+    for i, x in enumerate(xs):
+        kern_tc[..., i], bs = make_cued_kernel_map(
+            pickles, xs, x, n_bins=n_bins, two_dims=two_dims, **kwargs
+        )
+    return kern_tc, bs
+
+
+def make_cued_kernel_map(
+    pickles,
+    xs,
+    x_t,
+    p_thr=0.3,
+    row_ind=0,
+    col_ind=0,
+    n_bins=5,
+    bin_range=(-np.pi, np.pi),
+    two_dims=False,
+    same_cue=False,
+    **kwargs,
+):
+    akm = AverageKernelMap(
+        pickles, xs, n_bins=n_bins, ps_thr=p_thr, bin_range=bin_range
+    )
+    if same_cue:
+        upper_row_cue = 1
+        lower_row_cue = 0
+    else:
+        upper_row_cue = None
+        lower_row_cue = None
+    kern_upper, bs = akm.get_kernel(
+        x_targ=x_t,
+        row_ind=row_ind,
+        col_ind=col_ind,
+        color_key="uc",
+        two_dims=two_dims,
+        col_cue=1,
+        row_cue=upper_row_cue,
+        **kwargs,
+    )
+    kern_lower, bs = akm.get_kernel(
+        x_targ=x_t,
+        row_ind=row_ind,
+        col_ind=col_ind,
+        color_key="lc",
+        two_dims=two_dims,
+        col_cue=0,
+        row_cue=lower_row_cue,
+        **kwargs,
+    )
+    kern_comb = np.stack((kern_upper, kern_lower), axis=0)
+    kern = np.mean(kern_comb, axis=0)
+    return kern, bs
+
+
+def make_kernel_map(
+    pickles,
+    xs,
+    c1,
+    c2=None,
+    p2=None,
+    xs2=None,
+    n_bins=5,
+    p_thr=0.3,
+    row_ind=0,  # doesn't matter which one changes, yields same result
+    col_ind=0,
+    cue_only=None,
+    bin_range=(-np.pi, np.pi),
+    two_dims=True,
+    **kwargs,
+):
+    akm = AverageKernelMap(
+        pickles, xs, p2=p2, xs2=xs2, n_bins=n_bins, ps_thr=p_thr, bin_range=bin_range
+    )
+    out = akm.get_kernel(
+        row_ind=row_ind,
+        col_ind=col_ind,
+        color_key=c1,
+        second_color_key=c2,
+        two_dims=two_dims,
+        cue_only=cue_only,
+        **kwargs,
+    )
+    return out
 
 
 def compute_continuous_distance_matrix(
@@ -929,24 +1372,47 @@ def compute_continuous_distance_matrix(
     xs,
     color_key="rc",
     second_color_key=None,
+    data_dict2=None,
+    xs2=None,
+    x_targ2=None,
     ps_key="ps",
     spk_key="spks",
     cue_key="cues_alt",
+    extra_key=None,
+    regions=None,
+    region_key="regions",
     **kwargs,
 ):
     out_dict = {}
     for sess, sess_dict in data_dict.items():
-        resps = sess_dict[spk_key]
+        if data_dict2 is not None:
+            sess_dict2 = data_dict2[sess]
+            if xs2 is None:
+                raise IOError(
+                    "a second dictionary is supplied but no second xs are given"
+                )
+        else:
+            sess_dict2 = sess_dict
+            xs2 = xs
+        resps1 = sess_dict[spk_key]
+        resps2 = sess_dict2[spk_key]
         if second_color_key is None:
             second_color_key = color_key
+        if regions is not None:
+            dim_mask1 = np.isin(sess_dict[region_key], regions)
+            resps1 = resps1[:, dim_mask1]
+            dim_mask2 = np.isin(sess_dict2[region_key], regions)
+            resps2 = resps2[:, dim_mask2]
         colors1 = sess_dict[color_key]
-        colors2 = sess_dict[second_color_key]
+        colors2 = sess_dict2[second_color_key]
         ps = sess_dict[ps_key]
         dists, c_diffs, c1, c2 = prepare_data_continuous(
-            resps,
+            resps1,
+            resps2,
             colors1,
             colors2,
             xs=xs,
+            xs2=xs2,
             **kwargs,
         )
         out_dict[sess] = {
@@ -957,10 +1423,14 @@ def compute_continuous_distance_matrix(
             "ps": ps,
             "cues": sess_dict[cue_key],
         }
+        if extra_key is not None:
+            out_dict[sess]["extra"] = sess_dict[extra_key]
     return out_dict
 
 
-def session_average_kernel(mask_dict, stim_bounds=(-np.pi, np.pi), n_bins=10, **kwargs):
+def session_average_kernel(
+    mask_dict, stim_bounds=(-np.pi, np.pi), use_gp=True, n_bins=10, **kwargs
+):
     out_dict = {}
     for ind, (rd_sess, cd_sess) in mask_dict.items():
         kernels = np.zeros((len(rd_sess), n_bins))
@@ -976,6 +1446,8 @@ def session_average_kernel(mask_dict, stim_bounds=(-np.pi, np.pi), n_bins=10, **
                 ret_all_y=False,
                 cent_func=np.nanmean,
             )
+            if use_gp:
+                ys = _fit_svgpr(cd, rd, xs.T)
             kernels[i] = ys
         out_dict[ind] = (kernels, xs)
     return out_dict
@@ -989,6 +1461,8 @@ def compute_continuous_distance_masks(
         dists = sess_dist_dict["dists"]
         cds = sess_dist_dict["c_diffs"]
         ps = sess_dist_dict["ps"]
+        if np.all(np.isnan(ps)):
+            ps = np.ones_like(ps)
         corr_mask = ps[:, 0] > p_thr
         for i in range(ps.shape[1]):
             rd_i, cd_i = mask_dict.get(i, ([], []))
@@ -1009,23 +1483,63 @@ def compute_continuous_distance_masks(
 
 
 def prepare_data_continuous(
-    resps, c1, c2, ps=None, xs=None, ps_thr=0.6, p_ind=0, x_targ=-0.25, **kwargs
+    resps1,
+    resps2,
+    c1,
+    c2,
+    ps=None,
+    ps2=None,
+    xs=None,
+    xs2=None,
+    ps_thr=0.6,
+    p_ind=0,
+    x_targ=-0.25,
+    x2_targ=None,
+    regions=None,
+    mask_ident=True,
+    warn_x_diff=0.1,
+    **kwargs,
 ):
+    if x2_targ is None:
+        x2_targ = x_targ
     if xs is not None:
         ind = np.argmin((xs - x_targ) ** 2)
-        resps = resps[..., ind]
+        resps1 = resps1[..., ind]
+        if np.abs(xs[ind] - x_targ) > warn_x_diff:
+            print(
+                "large difference in target and actual x value: {}, {}".format(
+                    x_targ, xs[ind]
+                )
+            )
+    if xs2 is not None:
+        ind = np.argmin((xs2 - x2_targ) ** 2)
+        resps2 = resps2[..., ind]
+        if np.abs(xs2[ind] - x2_targ) > warn_x_diff:
+            print(
+                "large difference in target and actual x value: {}, {}".format(
+                    x2_targ, xs2[ind]
+                )
+            )
+    if ps2 is None:
+        ps2 = ps
     if ps is not None:
         mask = ps[:, p_ind] > ps_thr
-        resps = resps[mask]
+        resps1 = resps1[mask]
         c1 = c1[mask]
+    if ps2 is not None:
+        mask = ps2[:, p_ind] > ps_thr
+        resps2 = resps2[mask]
         c2 = c2[mask]
     pipe = na.make_model_pipeline(**kwargs)
+    resps_comb = np.concatenate((resps1, resps2), axis=0)
     if len(pipe.steps) > 0:
-        resps = pipe.fit_transform(resps)
-    dists = skmp.euclidean_distances(resps)
-    dists = resps @ resps.T
-    ident_mask = np.identity(len(resps), dtype=bool)
-    dists[ident_mask] = np.nan
+        pipe.fit(resps_comb)
+        resps1 = pipe.transform(resps1)
+        resps2 = pipe.transform(resps2)
+    dists = resps1 @ resps2.T
+    if mask_ident:
+        ident_mask = np.identity(len(resps1), dtype=bool)
+        dists[ident_mask] = np.nan
 
     c_diffs = u.normalize_periodic_range(np.expand_dims(c2, 0) - np.expand_dims(c1, 1))
     c1 = np.repeat(np.expand_dims(c1, 1), len(c1), 1)

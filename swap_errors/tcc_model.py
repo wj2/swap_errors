@@ -2,7 +2,9 @@ import numpy as np
 import pyro
 import torch
 import sklearn.preprocessing as skp
+import functools as ft
 
+import general.plotting as gpl
 import general.pyro_utility as gpu
 import pyro.distributions as distribs
 from pyro.ops.indexing import Vindex
@@ -116,14 +118,18 @@ def fit_func_neuron_swap_model(
 
     u_cols_d, dist_inds = np.unique(dists, return_inverse=True)
     assert np.all(u_cols_d == u_cols)
-    dist_funcs = col_kern[dist_inds]        
-        
+    dist_funcs = col_kern[dist_inds]
+
     _, targ_func_spec = gpkernel.get_conditioned_kernel(
-        bin_cents, u.normalize_periodic_range(targs), rescale=rescale_kernel,
+        bin_cents,
+        u.normalize_periodic_range(targs),
+        rescale=rescale_kernel,
     )
     targ_func_spec = np.squeeze(targ_func_spec)
     _, dist_func_spec = gpkernel.get_conditioned_kernel(
-        bin_cents, u.normalize_periodic_range(dists), rescale=rescale_kernel,
+        bin_cents,
+        u.normalize_periodic_range(dists),
+        rescale=rescale_kernel,
     )
     dist_func_spec = np.squeeze(dist_func_spec)
 
@@ -162,7 +168,6 @@ def fit_func_neuron_swap_model(
     out["bin_cents"] = bin_cents
     out["resps"] = resps
     return out
-
 
 
 def fit_func_swap_model(
@@ -280,6 +285,243 @@ def fit_func_swap_model(
     return out
 
 
+def normalize_periodic(x):
+    normed = 2 * torch.arcsin(torch.sin((x) / 2))
+    return normed
+
+
+class NormalGuessMixture(distribs.Distribution):
+    def __init__(
+        self,
+        corr_mu,
+        sigma,
+        probs,
+        bounds=(-torch.pi, torch.pi),
+        vonmises=True,
+    ):
+        if vonmises:
+            self.resp_distr = distribs.VonMises(torch.zeros_like(corr_mu), 1 / sigma)
+        else:
+            self.resp_distr = distribs.Normal(torch.zeros_like(corr_mu), sigma)
+        self.corr_mu = corr_mu
+        b0 = torch.ones_like(corr_mu) * bounds[0]
+        self.guess_distr = distribs.Uniform(b0, bounds[1])
+        self.categ_distr = distribs.Categorical(probs)
+        self.cat_log_probs = torch.log(probs)
+
+    @property
+    def batch_shape(self):
+        return self.guess_distr.batch_shape
+
+    @property
+    def event_shape(self):
+        return self.guess_distr.event_shape
+
+    def sample(self, *args, **kwargs):
+        corr_samps = self.corr_mu + self.resp_distr.sample(*args, **kwargs)
+        guess_samps = self.guess_distr.sample(*args, **kwargs)
+
+        cat_samps = self.categ_distr.sample(corr_samps.shape, *args, **kwargs)
+        distr_samps = torch.stack((corr_samps, guess_samps), axis=0)
+        samps = distr_samps[cat_samps, torch.arange(guess_samps.shape[0])]
+        samps = normalize_periodic(samps)
+        return samps
+
+    def log_prob(self, x, *args, **kwargs):
+        norm_corr_x = normalize_periodic(x - self.corr_mu)
+        corr_lp = self.resp_distr.log_prob(norm_corr_x, *args, **kwargs)
+        guess_lp = self.guess_distr.log_prob(x, *args, **kwargs)
+
+        grouped = torch.stack(
+            (
+                corr_lp + self.cat_log_probs[0],
+                guess_lp + self.cat_log_probs[1],
+            ),
+            axis=0,
+        )
+        return torch.logsumexp(grouped, 0)
+
+
+class NormalSwapGuessMixture(distribs.Distribution):
+    def __init__(
+        self,
+        corr_mu,
+        swap_mu,
+        sigma,
+        probs,
+        bounds=(-torch.pi, torch.pi),
+        vonmises=False,
+    ):
+        if vonmises:
+            self.resp_distr = distribs.VonMises(torch.zeros_like(corr_mu), 1 / sigma)
+        else:
+            self.resp_distr = distribs.Normal(torch.zeros_like(corr_mu), sigma)
+        self.corr_mu = corr_mu
+        self.swap_mu = swap_mu
+        b0 = torch.ones_like(swap_mu) * bounds[0]
+        self.guess_distr = distribs.Uniform(b0, bounds[1])
+        self.categ_distr = distribs.Categorical(probs)
+        self.cat_log_probs = torch.log(probs)
+
+    @property
+    def batch_shape(self):
+        return self.guess_distr.batch_shape
+
+    @property
+    def event_shape(self):
+        return self.guess_distr.event_shape
+
+    def sample(self, *args, **kwargs):
+        corr_samps = self.corr_mu + self.resp_distr.sample(*args, **kwargs)
+        swap_samps = self.swap_mu + self.resp_distr.sample(*args, **kwargs)
+        guess_samps = self.guess_distr.sample(*args, **kwargs)
+
+        cat_samps = self.categ_distr.sample(corr_samps.shape, *args, **kwargs)
+        distr_samps = torch.stack((corr_samps, swap_samps, guess_samps), axis=0)
+        samps = distr_samps[cat_samps, torch.arange(guess_samps.shape[0])]
+        samps = normalize_periodic(samps)
+        return samps
+
+    def log_prob(self, x, *args, **kwargs):
+        norm_corr_x = normalize_periodic(x - self.corr_mu)
+        norm_swap_x = normalize_periodic(x - self.swap_mu)
+        norm_x = normalize_periodic(x)
+        corr_lp = self.resp_distr.log_prob(norm_corr_x, *args, **kwargs)
+        swap_lp = self.resp_distr.log_prob(norm_swap_x, *args, **kwargs)
+        guess_lp = self.guess_distr.log_prob(norm_x, *args, **kwargs)
+
+        grouped = torch.stack(
+            (
+                corr_lp + self.cat_log_probs[0],
+                swap_lp + self.cat_log_probs[1],
+                guess_lp + self.cat_log_probs[2],
+            ),
+            axis=0,
+        )
+        return torch.logsumexp(grouped, 0)
+
+
+def corr_guess_model(
+    targ,
+    resps=None,
+    hn_width=10,
+    alpha=0.5,
+    bounds=(-np.pi, np.pi),
+):
+    sigma = pyro.sample(
+        "sigma",
+        distribs.HalfNormal(hn_width),
+    )
+    resp_rate = pyro.sample(
+        "resp_rate", distribs.Dirichlet(torch.tensor([alpha, alpha]))
+    )
+
+    with pyro.plate("data", len(targ)):
+        out = pyro.sample(
+            "obs",
+            NormalGuessMixture(targ, sigma, resp_rate),
+            obs=resps,
+        )
+        return out
+
+
+def corr_guess_swap_model(
+    targ,
+    dist,
+    resps=None,
+    hn_width=10,
+    alpha=0.5,
+):
+    sigma = pyro.sample(
+        "sigma",
+        distribs.HalfNormal(hn_width),
+    )
+    resp_rate = pyro.sample(
+        "resp_rate", distribs.Dirichlet(torch.tensor([alpha, alpha, alpha]))
+    )
+
+    with pyro.plate("data", len(targ)):
+        out = pyro.sample(
+            "obs",
+            NormalSwapGuessMixture(targ, dist, sigma, resp_rate),
+            obs=resps,
+        )
+        return out
+
+
+def fit_corr_guess_model(
+    targs,
+    resps,
+    n_samps=500,
+    **kwargs,
+):
+    nan_mask = ~np.isnan(resps)
+    targs = u.normalize_periodic_range(targs[nan_mask])
+    resps = u.normalize_periodic_range(resps[nan_mask])
+    targs = torch.tensor(targs, dtype=torch.float)
+    resps = torch.tensor(resps, dtype=torch.float)
+
+    loss = pyro.infer.Trace_ELBO()
+    out = gpu.fit_model(
+        (targs,),
+        (resps,),
+        corr_guess_model,
+        loss=loss,
+        block_vars=["kind"],
+        **kwargs,
+    )
+    preds = gpu.sample_fit_model(
+        (targs,),
+        out["model"],
+        out["guide"],
+        n_samps=n_samps,
+    )
+    out["predictive_samples"] = preds
+    out["targs"] = targs.detach().numpy()
+    out["resps"] = resps.detach().numpy()
+    return out
+
+
+def fit_corr_guess_swap_model(
+    targs,
+    dists,
+    resps,
+    n_samps=500,
+    **kwargs,
+):
+    nan_mask = ~np.isnan(resps)
+    targs = u.normalize_periodic_range(targs[nan_mask])
+    dists = u.normalize_periodic_range(dists[nan_mask])
+    resps = u.normalize_periodic_range(resps[nan_mask])
+    targs = torch.tensor(targs, dtype=torch.float)
+    dists = torch.tensor(dists, dtype=torch.float)
+    resps = torch.tensor(resps, dtype=torch.float)
+
+    loss = pyro.infer.Trace_ELBO()
+    out = gpu.fit_model(
+        (targs, dists),
+        (resps,),
+        corr_guess_swap_model,
+        loss=loss,
+        block_vars=["kind"],
+        **kwargs,
+    )
+    preds = gpu.sample_fit_model(
+        (
+            targs,
+            dists,
+        ),
+        out["model"],
+        out["guide"],
+        n_samps=n_samps,
+    )
+    out["predictive_samples"] = preds
+    out["targs"] = targs.detach().numpy()
+    out["dists"] = dists.detach().numpy()
+    out["resps"] = resps.detach().numpy()
+    return out
+
+
 @pyro.infer.config_enumerate
 def tcc_swap_model(
     targ,
@@ -288,24 +530,32 @@ def tcc_swap_model(
     resp_inds=None,
     hn_width=10,
     alpha=0.5,
+    width=None,
+    swap_rate=None,
+    snr=None,
 ):
-    width = pyro.sample(
-        "width",
-        distribs.HalfNormal(hn_width),
-    )
-    snr = pyro.sample(
-        "snr",
-        distribs.HalfNormal(hn_width),
-    )
-    swap_rate = pyro.sample(
-        "swap_rate", distribs.Dirichlet(torch.tensor([alpha, alpha]))
-    )
+    if width is None:
+        width = pyro.sample(
+            "width",
+            distribs.HalfNormal(hn_width),
+        )
+    if snr is None:
+        snr = pyro.sample(
+            "snr",
+            distribs.HalfNormal(hn_width),
+        )
+    if swap_rate is None:
+        swap_rate = pyro.sample(
+            "swap_rate", distribs.Dirichlet(torch.tensor([alpha, alpha]))
+        )
     colors = torch.stack((targ, dist), dim=1)
     colors = torch.unsqueeze(colors, -1)
     bin_cents = torch.unsqueeze(bin_cents, 0)
     bin_cents = torch.unsqueeze(bin_cents, 0)
 
-    targs = snr * torch.exp(torch.cos(bin_cents - colors) / width)
+    targs = snr * vm_kernel(bin_cents - colors, width)
+    # gaussian doesn't work
+    # targs = snr * torch.exp(-(bin_cents - colors)**2 / (2 * width ** 2))
     denom = torch.sum(torch.exp(targs), dim=2, keepdims=True)
     probs = torch.exp(targs) / denom
 
@@ -317,30 +567,248 @@ def tcc_swap_model(
         return out
 
 
+@pyro.infer.config_enumerate
+def tcc_kernel_model(
+    targ,
+    dist,
+    targ_kfuncs,
+    dist_kfuncs,
+    bin_cents,
+    resp_inds=None,
+    hn_width=10,
+    alpha_mix=0.5,
+    alpha_swap=0.5,
+    kernel_mix=None,
+    width=1,
+    swap_rate=None,
+    snr=None,
+):
+    """
+    targ : array_like
+        list of target colors (N)
+    dist : array_like
+        list of distractor colors
+    targ_kfuncs : array_like
+        array of kernels corresponding to every target color (N x len(bin_cents))
+    dist_kfuncs : array_like
+        array of kernels corresponding to every distractor color (N x len(bin_cents))
+    bin_cents : array_like
+        list of centers of bins, should span the range of targ and dist
+    resp_inds : array_like, optional
+        indices of the participant response for every trial in terms of the
+        bin_cents (N)
+    """
+    if kernel_mix is None:
+        kernel_mix = pyro.sample(
+            "kernel_mix", distribs.Dirichlet(torch.tensor([alpha_mix, alpha_mix]))
+        )
+    if snr is None:
+        snr = pyro.sample(
+            "snr",
+            distribs.HalfNormal(hn_width),
+        )
+    if swap_rate is None:
+        swap_rate = pyro.sample(
+            "swap_rate", distribs.Dirichlet(torch.tensor([alpha_swap, alpha_swap]))
+        )
+    colors = torch.stack((targ, dist), dim=1)
+    colors = torch.unsqueeze(colors, -1)
+    bin_cents = torch.reshape(bin_cents, (1, 1, -1))
+    kernel_comb = torch.stack((targ_kfuncs, dist_kfuncs), dim=1)
+
+    targs = snr * (
+        kernel_mix[0] * vm_kernel(bin_cents - colors, width)
+        + kernel_mix[1] * kernel_comb
+    )
+    # gaussian doesn't work
+    # targs = snr * torch.exp(-(bin_cents - colors)**2 / (2 * width ** 2))
+    denom = torch.sum(torch.exp(targs), dim=2, keepdims=True)
+    probs = torch.exp(targs) / denom
+
+    with pyro.plate("data", len(targ)) as ind:
+        swap = pyro.sample("swap", distribs.Categorical(swap_rate))
+        use_probs = Vindex(probs)[ind, swap]
+        targ_distr = distribs.Categorical(use_probs)
+        out = pyro.sample("obs", targ_distr, obs=resp_inds)
+        return out
+
+
+# def vm_kernel2(x, wid):
+#     k = 1 / wid
+#     num = torch.exp(k * torch.cos(x)) - torch.special.bessel_j0(k)
+#     denom = torch.exp(k) - torch.special.bessel_j0(k)
+#     return num / denom
+
+
+# def vm_kernel(x, wid):
+#     k = 1 / wid
+#     num = torch.exp(k * torch.cos(x))
+#     denom = torch.exp(k)
+#     return num / denom
+
+
+def vm_kernel(x, wid):
+    k = 1 / wid
+    num = torch.exp(k * torch.cos(x)) - torch.special.i0(k)
+    denom = torch.sqrt(torch.special.i0(2 * k) - torch.special.i0(k) ** 2)
+    return num / denom
+
+
+def tcc_ll(
+    targ,
+    bin_cents,
+    resp_inds,
+    snr,
+    wid,
+):
+    colors = torch.unsqueeze(targ, -1)
+    bin_cents = torch.unsqueeze(bin_cents, 0)
+
+    targs = snr * vm_kernel(bin_cents - colors, wid)
+    denom = torch.sum(torch.exp(targs), dim=1, keepdims=True)
+    probs = torch.exp(targs) / denom
+    ll = distribs.Categorical(probs).log_prob(resp_inds)
+    return np.mean(ll.detach().numpy())
+
+
+def tcc_model(
+    targ,
+    bin_cents,
+    resp_inds=None,
+    hn_width=10,
+    alpha=0.5,
+    width=None,
+    snr=None,
+):
+    if width is None:
+        width = pyro.sample(
+            "width",
+            distribs.HalfNormal(hn_width),
+        )
+    if snr is None:
+        snr = pyro.sample(
+            "snr",
+            distribs.HalfNormal(hn_width),
+        )
+    colors = torch.unsqueeze(targ, -1)
+    bin_cents = torch.unsqueeze(bin_cents, 0)
+
+    targs = snr * vm_kernel(bin_cents - colors, width)
+    denom = torch.sum(torch.exp(targs), dim=1, keepdims=True)
+    probs = torch.exp(targs) / denom
+
+    with pyro.plate("data", len(targ)):
+        targ_distr = distribs.Categorical(probs)
+        out = pyro.sample("obs", targ_distr, obs=resp_inds)
+        return out
+
+
+def _norm_kfuncs(kf):
+    mu = np.mean(kf, axis=1, keepdims=True)
+    std = np.std(kf, axis=1, keepdims=True)
+    kf_norm = (kf - mu) / std
+    return kf_norm
+
+
+def fit_tcc_kernel_model(
+    targs,
+    dists,
+    resps,
+    kernel_func,
+    n_bins=101,
+    bounds=(-np.pi, np.pi),
+    n_samps=500,
+    fixed_params=None,
+    model=tcc_kernel_model,
+    **kwargs,
+):
+    nan_mask = ~np.isnan(resps)
+    targs = u.normalize_periodic_range(targs[nan_mask])
+    dists = u.normalize_periodic_range(dists[nan_mask])
+    resps = resps[nan_mask]
+    bins = np.linspace(*bounds, n_bins + 1)
+    resp_inds = torch.tensor(np.digitize(resps, bins) - 1)
+    bin_cents = torch.tensor(bins[:-1] + np.diff(bins)[0] / 2, dtype=torch.float)
+
+    targs_grid, bc_grid = np.meshgrid(targs, bin_cents)
+    targ_pts = np.stack((targs_grid.flatten(), bc_grid.flatten()), axis=1)
+    targ_kfuncs = kernel_func(targ_pts, mean=True).reshape(targs_grid.shape).T
+    dists_grid, bc_grid = np.meshgrid(dists, bin_cents)
+    dist_pts = np.stack((dists_grid.flatten(), bc_grid.flatten()), axis=1)
+    dist_kfuncs = kernel_func(dist_pts, mean=True).reshape(dists_grid.shape).T
+
+    targ_kfuncs = _norm_kfuncs(targ_kfuncs)
+    dist_kfuncs = _norm_kfuncs(dist_kfuncs)
+
+    targs = torch.tensor(targs, dtype=torch.float)
+    dists = torch.tensor(dists, dtype=torch.float)
+    targ_kfuncs = torch.tensor(targ_kfuncs, dtype=torch.float)
+    dist_kfuncs = torch.tensor(dist_kfuncs, dtype=torch.float)
+    if fixed_params is None:
+        fixed_params = {}
+    else:
+        fixed_params = {
+            k: torch.tensor(v, dtype=torch.float) for k, v in fixed_params.items()
+        }
+    model = ft.partial(model, **fixed_params)
+
+    loss = pyro.infer.TraceEnum_ELBO(max_plate_nesting=1)
+    out = gpu.fit_model(
+        (targs, dists, targ_kfuncs, dist_kfuncs, bin_cents),
+        (resp_inds,),
+        model,
+        loss=loss,
+        block_vars=["swap"],
+        **kwargs,
+    )
+    preds = gpu.sample_fit_model(
+        (
+            targs,
+            dists,
+            targ_kfuncs,
+            dist_kfuncs,
+            bin_cents,
+        ),
+        out["model"],
+        out["guide"],
+        n_samps=n_samps,
+    )
+    out["predictive_samples"] = bin_cents[preds]
+    out["targs"] = targs.detach().numpy()
+    out["dists"] = dists.detach().numpy()
+    out["resps"] = resps
+    return out
+
+
 def fit_tcc_swap_model(
     targs,
     dists,
     resps,
-    n_bins=10,
+    n_bins=101,
     bounds=(-np.pi, np.pi),
     n_samps=500,
+    fixed_params=None,
+    model=tcc_swap_model,
     **kwargs,
 ):
     nan_mask = ~np.isnan(resps)
-    targs = targs[nan_mask]
-    dists = dists[nan_mask]
+    targs = u.normalize_periodic_range(targs[nan_mask])
+    dists = u.normalize_periodic_range(dists[nan_mask])
     resps = resps[nan_mask]
     bins = np.linspace(*bounds, n_bins + 1)
     resp_inds = torch.tensor(np.digitize(resps, bins) - 1)
     bin_cents = torch.tensor(bins[:-1] + np.diff(bins)[0] / 2, dtype=torch.float)
     targs = torch.tensor(targs, dtype=torch.float)
     dists = torch.tensor(dists, dtype=torch.float)
+    if fixed_params is None:
+        fixed_params = {}
+    model = ft.partial(model, **fixed_params)
 
     loss = pyro.infer.TraceEnum_ELBO(max_plate_nesting=1)
     out = gpu.fit_model(
         (targs, dists, bin_cents),
         (resp_inds,),
-        tcc_swap_model,
+        model,
         loss=loss,
         block_vars=["swap"],
         **kwargs,
@@ -362,47 +830,67 @@ def fit_tcc_swap_model(
     return out
 
 
-def tcc_model(bin_cents, err_inds=None, dist_err_inds=None, n_samples=100):
-    width = pyro.sample(
-        "width",
-        distribs.HalfNormal(10),
-    )
-    snr = pyro.sample(
-        "snr",
-        distribs.HalfNormal(10),
-    )
-    func = snr * torch.exp(-(bin_cents**2) / (2 * width**2))
-    probs = torch.exp(func) / torch.sum(torch.exp(func))
-    if err_inds is None:
-        n_data = n_samples
-    else:
-        n_data = len(err_inds)
-    with pyro.plate("data", n_data):
-        targ_distr = distribs.Categorical(probs)
-        return pyro.sample("obs", targ_distr, obs=err_inds)
-
-
 def fit_tcc_model(
-    errs,
-    dist_errs,
-    n_bins=10,
+    targs,
+    resps,
+    n_bins=101,
     bounds=(-np.pi, np.pi),
     n_samps=500,
+    fixed_params=None,
+    model=tcc_model,
     **kwargs,
 ):
+    nan_mask = ~np.isnan(resps)
+    targs = u.normalize_periodic_range(targs[nan_mask])
+    resps = u.normalize_periodic_range(resps[nan_mask])
     bins = np.linspace(*bounds, n_bins + 1)
-    bin_cents = torch.tensor(bins[:-1] + np.diff(bins)[0] / 2)
-    err_inds = torch.tensor(np.digitize(errs, bins) - 1)
-    dist_err_inds = torch.tensor(np.digitize(dist_errs, bins) - 1)
+    resp_inds = torch.tensor(np.digitize(resps, bins) - 1)
+    bin_cents = torch.tensor(bins[:-1] + np.diff(bins)[0] / 2, dtype=torch.float)
+    targs = torch.tensor(targs, dtype=torch.float)
+    if fixed_params is None:
+        fixed_params = {}
+    model = ft.partial(model, **fixed_params)
 
-    out = gpu.fit_model((bin_cents,), (err_inds, dist_err_inds), tcc_model, **kwargs)
-
+    loss = pyro.infer.Trace_ELBO()
+    out = gpu.fit_model(
+        (targs, bin_cents),
+        (resp_inds,),
+        model,
+        loss=loss,
+        block_vars=["swap"],
+        **kwargs,
+    )
     preds = gpu.sample_fit_model(
-        (bin_cents,),
+        (
+            targs,
+            bin_cents,
+        ),
         out["model"],
         out["guide"],
         n_samps=n_samps,
     )
-
-    out["predictive_samples"] = preds
+    out["samples"]["width"] = out["samples"]["width"]
+    out["predictive_samples"] = bin_cents[preds]
+    out["targs"] = targs.detach().numpy()
+    out["resps"] = resps
     return out
+
+
+@gpl.ax_adder()
+def plot_predictive_distribution(
+    model_fit,
+    resp_key="resps",
+    samp_key="predictive_samples",
+    targ_key="targs",
+    only_model=False,
+    ax=None,
+    **kwargs,
+):
+    err_model = model_fit[samp_key] - model_fit[targ_key][None]
+    err_true = model_fit[resp_key] - model_fit[targ_key]
+    err_model = u.normalize_periodic_range(err_model).flatten()
+    err_true = u.normalize_periodic_range(err_true).flatten()
+    if not only_model:
+        _, bins, _ = ax.hist(err_true, density=True, **kwargs)
+        kwargs["bins"] = bins
+    return ax.hist(err_model, histtype="step", density=True, **kwargs)
