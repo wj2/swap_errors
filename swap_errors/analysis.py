@@ -30,7 +30,6 @@ import rsatoolbox as rsa
 import general.plotting as gpl
 import swap_errors.auxiliary as swa
 import pandas as pd
-import general.decoders as gd
 
 # import rsatoolbox as rsa
 
@@ -596,26 +595,26 @@ def get_pareto_k_dict(fit_dict, **kwargs):
     return k_dict
 
 
-def decode_fake_data(n_times, n_neurons, n_trials, n_colors, noise_std=0.1):
-    cols = np.linspace(0, 2 * np.pi, n_colors)
-    x = np.sin(cols)
-    y = np.cos(cols)
-    x_code_m = sts.norm(0, 10).rvs((n_neurons, 1))
-    x_code = x_code_m + sts.norm(0, 1).rvs((1, n_times))
-    y_code = x_code_m + sts.norm(0, 1).rvs((1, n_times))
-    resp_x = np.expand_dims(x_code, -1) * np.expand_dims(x, (0, 1))
-    resp_y = np.expand_dims(y_code, -1) * np.expand_dims(y, (0, 1))
-    resp_m = resp_x + resp_y
-    t_inds = np.random.choice(range(n_colors), n_trials)
-    resps = resp_m[:, :, t_inds]
-    resps = resps + sts.norm(0, noise_std).rvs(resps.shape)
-    resps = np.swapaxes(resps, 1, 2)
-    resps = np.expand_dims(resps, 1)
-    cols = cols[t_inds]
-    resps[..., 0] = sts.norm(0, noise_std).rvs(resps.shape[:-1])
-    out = na.pop_regression_stan(resps, cols, model=gd.PeriodicDecoderTF)
-    xs = np.arange(n_times)
-    return out, xs
+# def decode_fake_data(n_times, n_neurons, n_trials, n_colors, noise_std=0.1):
+#     cols = np.linspace(0, 2 * np.pi, n_colors)
+#     x = np.sin(cols)
+#     y = np.cos(cols)
+#     x_code_m = sts.norm(0, 10).rvs((n_neurons, 1))
+#     x_code = x_code_m + sts.norm(0, 1).rvs((1, n_times))
+#     y_code = x_code_m + sts.norm(0, 1).rvs((1, n_times))
+#     resp_x = np.expand_dims(x_code, -1) * np.expand_dims(x, (0, 1))
+#     resp_y = np.expand_dims(y_code, -1) * np.expand_dims(y, (0, 1))
+#     resp_m = resp_x + resp_y
+#     t_inds = np.random.choice(range(n_colors), n_trials)
+#     resps = resp_m[:, :, t_inds]
+#     resps = resps + sts.norm(0, noise_std).rvs(resps.shape)
+#     resps = np.swapaxes(resps, 1, 2)
+#     resps = np.expand_dims(resps, 1)
+#     cols = cols[t_inds]
+#     resps[..., 0] = sts.norm(0, noise_std).rvs(resps.shape[:-1])
+#     out = na.pop_regression_stan(resps, cols, model=gd.PeriodicDecoderTF)
+#     xs = np.arange(n_times)
+#     return out, xs
 
 
 def _get_cmean(trls, trl_cols, targ_col, all_cols, color_window=0.2, positions=None):

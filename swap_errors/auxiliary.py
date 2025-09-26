@@ -7,6 +7,7 @@ import pickle
 import arviz as az
 import collections as c
 import itertools as it
+import mat73
 
 import general.utility as u
 import general.neural_analysis as na
@@ -633,6 +634,12 @@ busch_bhv_fields = (
     "SAMPLES_ON_diode",
     "CUE2_ON_diode",
     "WHEEL_ON_diode",
+    "START_TRIAL",
+    "END_TRIAL",
+)
+motoaki_bhv_fields = (
+    "COL_BLOCK",
+    "COLORTEMP",
 )
 
 
@@ -652,7 +659,13 @@ def load_bhv_data(
         for i, el in enumerate(elements):
             if len(el) == 0:
                 elements[i] = np.array([[np.nan]])
-        trl_dict[tf] = np.squeeze(np.stack(elements, axis=0))
+        save_arr = np.squeeze(np.stack(elements, axis=0))
+        if len(save_arr.shape) > 1:
+            new_save_arr = np.zeros(len(save_arr), dtype=object)
+            for i, row in enumerate(save_arr):
+                new_save_arr[i] = row
+            save_arr = new_save_arr
+        trl_dict[tf] = save_arr
     if add_color:
         targ_color = trl_dict["LABthetaTarget"]
         dist_color = trl_dict["LABthetaDist"]
@@ -674,21 +687,41 @@ def load_bhv_data(
     return const_dict, trl_dict
 
 
-busch_spks_templ_unsrt = "selWM_001_chan([0-9]+)_4sd\\.mat"
-busch_spks_templ_mua = "selWM_001_chan([0-9]+)_4sd-srt-mua\\.mat"
-busch_spks_templ = "selWM_001_chan([0-9]+)_4sd-srt\\.mat"
+busch_spks_templ_unsrt = "(selWM|flexWM)(_1)?_001_chan([0-9]+)_4sd\\.mat"
+busch_spks_templ_mua = "(selWM|flexWM)(_1)?_001_chan([0-9]+)_4sd-srt-mua\\.mat"
+busch_spks_templ = "(selWM|flexWM)(_1)?_001_chan([0-9]+)_4sd-srt\\.mat"
 
 
-def load_spikes_data(folder, templ=busch_spks_templ):
+def load_spikes_data(
+    folder,
+    templ=busch_spks_templ,
+    t_key_candidates=("ts", "Ts"),
+    id_key="id",
+    div_by=1000,
+):
     fls = os.listdir(folder)
     chan_all, ids_all, ts_all = [], [], []
     for fl in fls:
         m = re.match(templ, fl)
         if m is not None:
-            spks = sio.loadmat(os.path.join(folder, fl))
-            ts = np.squeeze(spks["ts"])
-            ids = np.squeeze(spks["id"])
-            chan = np.ones(len(ids)) * int(m.group(1))
+            try:
+                spks = sio.loadmat(os.path.join(folder, fl))
+            except NotImplementedError:
+                spks = mat73.loadmat(os.path.join(folder, fl))
+            tk_ind = np.where(
+                list(k in spks.keys() for k in t_key_candidates)
+            )[0][0]
+            tk = t_key_candidates[tk_ind]
+            ts = np.squeeze(spks[tk])
+            ids = spks.get(id_key)
+            if ids is None:
+                ids = np.ones(len(ts))
+                ts = ts / div_by
+            else:
+                ids = np.squeeze(ids)
+            # print(fl, spks.keys(), len(ts), len(ids), np.unique(ids))
+            # print(ts)
+            chan = np.ones(len(ids)) * int(m.group(3))
             chan_all = np.concatenate((chan_all, chan))
             ids_all = np.concatenate((ids_all, ids))
             ts_all = np.concatenate((ts_all, ts))
@@ -697,12 +730,15 @@ def load_spikes_data(folder, templ=busch_spks_templ):
 
 def split_spks_bhv(chan, ids, ts, beg_ts, end_ts, extra):
     unique_neurs = np.unique(list(zip(chan, ids)), axis=0)
+    if len(unique_neurs) == 0:
+        unique_neurs = np.zeros((0, 2))
     spks_cont = np.zeros((len(beg_ts), len(unique_neurs)), dtype=object)
     for i, bt in enumerate(beg_ts):
         bt = np.squeeze(bt)
         et = np.squeeze(end_ts[i])
         mask = np.logical_and(ts > bt - extra, ts < et + extra)
-        chan_m, ids_m, ts_m = chan[mask], ids[mask], ts[mask]
+        if len(mask) > 0:
+            chan_m, ids_m, ts_m = chan[mask], ids[mask], ts[mask]
         for j, un in enumerate(unique_neurs):
             mask_n = np.logical_and(chan_m == un[0], ids_m == un[1])
             spks_cont[i, j] = ts_m[mask_n]
@@ -755,6 +791,18 @@ def transform_bhv_model(fit, mapping_dict, transform_prob=True, take_mean=True):
     return session_dict
 
 
+def load_buschman_motoaki_data(
+    *args, **kwargs,
+):
+    return load_buschman_data(
+        *args,
+        spikes_sub="spikes/cmr",
+        bhv_fields=busch_bhv_fields + motoaki_bhv_fields,
+        extra_time=1,
+        **kwargs,
+    )
+
+
 def load_buschman_data(
     folder,
     template="[0-9]{2}[01][0-9][0123][0-9]",
@@ -762,8 +810,9 @@ def load_buschman_data(
     spikes_sub="spikes",
     label_sub="labels",
     spks_template=busch_spks_templ,
-    trl_beg_field="FIXATE_ON_diode",
-    trl_end_field="WHEEL_ON_diode",
+    trl_beg_field="START_TRIAL",
+    trl_end_field="END_TRIAL",
+    bhv_fields=busch_bhv_fields,
     extra_time=1,
     max_files=np.inf,
     load_bhv_model=None,
@@ -777,7 +826,9 @@ def load_buschman_data(
     for fl in fls:
         m = re.match(template, fl)
         if m is not None:
-            run_data, trl_data = load_bhv_data(os.path.join(folder, fl, bhv_sub))
+            run_data, trl_data = load_bhv_data(
+                os.path.join(folder, fl, bhv_sub), extract_fields=bhv_fields,
+            )
             if load_bhv_model is not None:
                 key = (str(run_data["Monkey"]), str(run_data["Date"]))
                 dat = bhv_model[key]

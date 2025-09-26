@@ -38,6 +38,7 @@ dependencies = [
   "gpytorch~=1.11",
   "torch~=2.2.2",
   "seaborn~=0.13.2",
+  "mat73~=0.65",
 ]
 
 [project.urls]

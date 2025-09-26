@@ -1022,7 +1022,6 @@ def prepare_data_continuous(
     pipe = na.make_model_pipeline(**kwargs)
     if len(pipe.steps) > 0:
         resps = pipe.fit_transform(resps)
-    dists = skmp.euclidean_distances(resps)
     dists = resps @ resps.T
     ident_mask = np.identity(len(resps), dtype=bool)
     dists[ident_mask] = np.nan
