@@ -36,7 +36,7 @@ def main():
     df = args.data_folder
     print(df)
     if args.motoaki:
-        func = swa.load_motoaki_data
+        func = swa.load_buschman_motoaki_data
         kwargs = {}
     else:
         func = swa.load_buschman_data
