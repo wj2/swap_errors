@@ -2192,6 +2192,7 @@ def make_lm_tc_pops(
         else:
             out_dict["cues"] = (None,) * len(spks)
         if "regions" in out_dict.keys():
+            print(out_dict["regions"])
             out_dict["regions"] = list(
                 x.iloc[0] for x in out_dict["regions"]
             )
