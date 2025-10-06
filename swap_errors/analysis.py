@@ -2130,18 +2130,21 @@ def prepare_lm_tc_pops(
         )
 
 
-panichello_save_keys = {
+core_save_keys = {
     "uc": "upper_color",
     "lc": "lower_color",
     "rc": "LABthetaResp",
     "cues_alt": "IsUpperSample",
     "saccade_angle": "ResponseTheta",
     "regions": "neur_regions",
-    "ps": ("corr_prob", "swap_prob", "guess_prob"),
     "rt": "ReactionTime",
 }
+panichello_unique_keys = {
+    "ps": ("corr_prob", "swap_prob", "guess_prob"),
+}
+panichello_save_keys = dict(**core_save_keys, **panichello_unique_keys)
 motoaki_unique_keys = {"block": "COL_BLOCK", "colortemp": "COLORTEMP"}
-motoaki_save_keys = dict(**panichello_save_keys, **motoaki_unique_keys)
+motoaki_save_keys = dict(**core_save_keys, **motoaki_unique_keys)
 
 
 def make_lm_tc_pops(
@@ -2170,7 +2173,7 @@ def make_lm_tc_pops(
         mask = data[rt_key] < rt_thresh
         data = data.mask(mask)
     pop_dict = {}
-    for k, (tbeg, tend, tzf, cue_on, color_on) in sequence.items():
+    for k_time, (tbeg, tend, tzf, cue_on, color_on) in sequence.items():
         spks, xs = data.get_populations(
             winsize,
             tbeg,
@@ -2179,7 +2182,7 @@ def make_lm_tc_pops(
             time_zero_field=tzf,
             **kwargs,
         )
-        out_dict = {}
+        out_dict = {"spks": spks}
         for k, ref in save_keys.items():
             if u.check_list(ref):
                 ref = list(ref)
@@ -2190,10 +2193,10 @@ def make_lm_tc_pops(
             out_dict["cues"] = (None,) * len(spks)
         if "regions" in out_dict.keys():
             out_dict["regions"] = list(
-                x.iloc[0].to_numpy() for x in out_dict["regions"]
+                x.iloc[0] for x in out_dict["regions"]
             )
         out_dict["other"] = list({"xs": xs, "sequence": k} for _ in spks)
-        pop_dict[k] = out_dict
+        pop_dict[k_time] = out_dict
     return pop_dict
 
 
@@ -2208,7 +2211,7 @@ def save_lm_tc_pops(
         n_sessions = len(pd_k["spks"])
         for i in range(n_sessions):
             path = os.path.join(out_folder, out_path.format(add, k_save, i))
-            sd = {k: v[i] for k, v in pd_k.itmes()}
+            sd = {k: v[i] for k, v in pd_k.items()}
             pickle.dump(sd, open(path, "wb"))
 
 
