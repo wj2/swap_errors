@@ -24,7 +24,7 @@ def create_parser():
         "--data_folder", default="../data/swap_errors/", help="folder with datasets"
     )
     parser.add_argument("--bhv_model", help="{data_folder}/bhv_model-pr.pkl")
-    parser.add_argument("--motaoki", action="store_true", default=False)
+    parser.add_argument("--motoaki", action="store_true", default=False)
     return parser
 
 
