@@ -53,6 +53,6 @@ def main():
     swan.prepare_lm_tc_pops(
         data,
         region_subsets=swan.all_region_subset,
-        out_folder=args.out_folder,
+        out_folder=args.output_folder,
         motoaki_data=args.motoaki,
     )
