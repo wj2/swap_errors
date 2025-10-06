@@ -25,6 +25,7 @@ def create_parser():
     )
     parser.add_argument("--bhv_model", help="{data_folder}/bhv_model-pr.pkl")
     parser.add_argument("--motaoki", action="store_true", default=False)
+    return parser
 
 
 def main():
