@@ -2181,9 +2181,9 @@ def make_lm_tc_pops(
         )
         out_dict = {}
         for k, ref in save_keys.items():
-            if u.check_list(k):
-                k = list(k)
-            out_dict[k] = data[k]
+            if u.check_list(ref):
+                ref = list(ref)
+            out_dict[k] = data[ref]
         if "cues_alt" in out_dict.keys() and cue_on:
             out_dict["cues"] = out_dict["cues_alt"]
         else:
