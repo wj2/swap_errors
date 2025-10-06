@@ -38,10 +38,12 @@ def main():
     if args.motoaki:
         func = swa.load_buschman_motoaki_data
         kwargs = {}
+        save_keys = swan.motoaki_save_keys
     else:
         func = swa.load_buschman_data
         bhv_file = args.bhv_model.format(data_folder=df)
         kwargs = {"load_bhv_model": bhv_file}
+        save_keys = swan.panichello_save_keys
     data = gio.Dataset.from_readfunc(
         func,
         df,
@@ -54,5 +56,5 @@ def main():
         data,
         region_subsets=swan.all_region_subset,
         out_folder=args.output_folder,
-        motoaki_data=args.motoaki,
+        save_keys=save_keys,
     )
