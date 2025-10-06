@@ -34,6 +34,7 @@ def main():
 
     max_files = args.max_files
     df = args.data_folder
+    print(df)
     bhv_file = args.bhv_model.format(data_folder=df)
     if args.motoaki:
         func = swa.load_motoaki_data
