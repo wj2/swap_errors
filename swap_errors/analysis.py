@@ -2097,6 +2097,7 @@ def prepare_lm_tc_pops(
     region_subsets=single_region_subsets,
     rt_thresh=None,
     out_folder="../data/swap_errors/lm_data",
+    task_types=("retro", "pro", "single"),
     **kwargs,
 ):
     if rt_thresh is not None:
@@ -2104,30 +2105,32 @@ def prepare_lm_tc_pops(
     else:
         add_orig = ""
     for k, sub in region_subsets.items():
-        retro_dict = make_lm_tc_pops(*args, regions=sub, **kwargs)
-        save_lm_tc_pops(
-            retro_dict, add=add_orig + "retro_{}".format(k), out_folder=out_folder
-        )
+        if "retro" in task_types:
+            retro_dict = make_lm_tc_pops(*args, regions=sub, **kwargs)
+            save_lm_tc_pops(
+                retro_dict, add=add_orig + "retro_{}".format(k), out_folder=out_folder
+            )
 
-        pro_dict = make_lm_tc_pops(
-            *args,
-            regions=sub,
-            use_pro=True,
-            **kwargs,
-        )
-        save_lm_tc_pops(
-            pro_dict, add=add_orig + "pro_{}".format(k), out_folder=out_folder
-        )
-
-        single_dict = make_lm_tc_pops(
-            *args,
-            regions=sub,
-            use_single=True,
-            **kwargs,
-        )
-        save_lm_tc_pops(
-            single_dict, add=add_orig + "single_{}".format(k), out_folder=out_folder
-        )
+        if "pro" in task_types:
+            pro_dict = make_lm_tc_pops(
+                *args,
+                regions=sub,
+                use_pro=True,
+                **kwargs,
+            )
+            save_lm_tc_pops(
+                pro_dict, add=add_orig + "pro_{}".format(k), out_folder=out_folder
+            )
+        if "single" in task_types:
+            single_dict = make_lm_tc_pops(
+                *args,
+                regions=sub,
+                use_single=True,
+                **kwargs,
+            )
+            save_lm_tc_pops(
+                single_dict, add=add_orig + "single_{}".format(k), out_folder=out_folder
+            )
 
 
 core_save_keys = {
