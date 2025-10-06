@@ -35,12 +35,12 @@ def main():
     max_files = args.max_files
     df = args.data_folder
     print(df)
-    bhv_file = args.bhv_model.format(data_folder=df)
     if args.motoaki:
         func = swa.load_motoaki_data
         kwargs = {}
     else:
         func = swa.load_buschman_data
+        bhv_file = args.bhv_model.format(data_folder=df)
         kwargs = {"load_bhv_model": bhv_file}
     data = gio.Dataset.from_readfunc(
         func,
