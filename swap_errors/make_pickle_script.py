@@ -52,7 +52,7 @@ def main():
         df,
         max_files=max_files,
         seconds=True,
-        spks_template=swa.busch_spks_templ_mua,
+        spks_template=swa.busch_spks_templ_unsrt,
         **kwargs,
     )
     swan.prepare_lm_tc_pops(

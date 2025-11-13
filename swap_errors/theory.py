@@ -30,11 +30,19 @@ def threshold_err(snr, wid):
     return np.ones_like(snr) * np.ones_like(wid) * (1 / 3) * np.pi**2
 
 
-# def vm_kernel2(x, wid):
-#     k = 1 / wid
-#     num = np.exp(k * np.cos(x)) - sps.iv(0, k)
-#     denom = np.exp(k) - sps.iv(0, k)
-#     return num / denom
+def mse(snr, wid):
+    p = threshold_prob(snr, wid)
+    t_err = threshold_err(snr, wid)
+    l_err = local_err(snr, wid)
+    return (1 - p) * l_err + p * t_err
+
+
+def optimal_w(snrs, w_bounds=(.1, 10), n_ws=5000):
+    ws = np.expand_dims(np.linspace(*w_bounds, n_ws), 0)
+    snrs = np.expand_dims(snrs, 1)
+    errs = mse(snrs, ws)
+    opt_ws = ws[0][np.argmin(errs, axis=1)]
+    return opt_ws, np.min(errs, axis=1)
 
 
 def vm_kernel(x, wid):
@@ -49,7 +57,7 @@ class SimplifiedDiscreteKernelTheory:
         self,
         snr,
         wid,
-        n_bins=101,
+        n_bins=1001,
         bounds=(-np.pi, np.pi),
     ):
         self.snr = snr
@@ -63,7 +71,8 @@ class SimplifiedDiscreteKernelTheory:
 
     def simulate_decoding(self, n_samps=1000, **kwargs):
         samps = self.rng.choice(self.bin_cents, size=n_samps)
-        mu = self.snr * self.kern_func(self.bin_cents[None] - samps[:, None])
+        diffs = self.bin_cents[None] - samps[:, None]
+        mu = self.snr * self.kern_func(diffs)
         probs = np.exp(mu) / np.sum(np.exp(mu), axis=1, keepdims=True)
         choices = np.zeros_like(samps)
         for i, prob in enumerate(probs):
@@ -71,6 +80,15 @@ class SimplifiedDiscreteKernelTheory:
                 self.bin_cents, size=1, p=prob
             )
         return samps, choices
+
+
+class SDKTFunction(SimplifiedDiscreteKernelTheory):
+    def __init__(self, snr, func, **kwargs):
+        self.func = func
+        super().__init__(snr, None, **kwargs)
+        
+    def kern_func(self, x):
+        return self.func(x)
 
 
 class SimplifiedKernelTheory:

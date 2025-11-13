@@ -14,10 +14,9 @@ import sklearn.preprocessing as skp
 import sklearn.pipeline as sklpipe
 import scipy.stats as sts
 import scipy.optimize as sopt
-import scipy.signal as ssig
+import scipy.signal as sig
 import itertools as it
 import statsmodels.stats.weightstats as smw
-import quantities as pq
 import sklearn.metrics.pairwise as skmp
 
 import general.data_io as dio
@@ -214,8 +213,8 @@ def average_simplices(
 
 def smooth_dfunc(func, wid, xs, mode="valid"):
     con = np.ones((1,) * (len(func.shape) - 1) + (wid,)) / wid
-    out = ssig.convolve(func, con, mode=mode)
-    new_xs = ssig.convolve(xs, np.squeeze(con), mode=mode)
+    out = sig.convolve(func, con, mode=mode)
+    new_xs = sig.convolve(xs, np.squeeze(con), mode=mode)
     return out, new_xs
 
 
@@ -1494,6 +1493,152 @@ def _non_target_swap_dec(model, y_use, color_cat_use, color_cat_dist_use):
     return swap_score_targ, swap_score_dist
 
 
+def _get_block_starts(blocks):
+    u_bs = np.unique(blocks)
+    out = {}
+    for b_i in u_bs:
+        out[b_i] = np.where(blocks == b_i)[0][0]
+    return out
+
+
+@gpl.ax_adder()
+def plot_target_similarity(
+    ps_rep,
+    xs_rep,
+    ps_spont,
+    xs_spont,
+    n_trls=50,
+    ax=None,
+    buff=20,
+    pre=300,
+    prepost=100,
+    post=300,
+    offset=0,
+    use_filts=None,
+    **kwargs,
+):
+    if use_filts is None:
+        use_filts = (None,) * len(ps_rep)
+    sims_pre_arr = np.zeros((len(ps_rep), pre))
+    sims_pre_arr[:] = np.nan
+
+    sims_arr = np.zeros((len(ps_rep), 2 * prepost))
+    sims_arr[:] = np.nan
+
+    sims_end_arr = np.zeros((len(ps_rep), post))
+    sims_end_arr[:] = np.nan
+
+    sims = []
+    blocks = []
+    trls = []
+    filt_funcs = []
+    for i, (k, v) in enumerate(ps_rep.items()):
+        sim_k, block_k, filt_k = target_similarity(
+            v, xs_rep, ps_spont[k], xs_spont, offset=offset, use_filt=use_filts[i],
+        )
+        filt_funcs.append(filt_k)
+        ind = _get_block_starts(block_k)[1]
+        sims_pre_arr[i] = sim_k[:pre]
+        sims_arr[i] = sim_k[-prepost + ind : ind + prepost]
+        sims_end_arr[i] = sim_k[-post:]
+        sims.append(sim_k)
+        blocks.append(block_k)
+        trl = np.arange(len(block_k))
+        trls.append(trl)
+
+    filt = np.ones((1, n_trls)) / n_trls
+
+    s_arr = sig.convolve(sims_arr, filt, mode="valid")
+    s_xs = sig.convolve(np.arange(-prepost, prepost), filt[0], mode="valid")
+
+    s_end_arr = sig.convolve(sims_end_arr, filt, mode="valid")
+    s_end_xs = sig.convolve(
+        np.arange(prepost + buff, buff + prepost + post), filt[0], mode="valid"
+    )
+
+    s_pre_arr = sig.convolve(sims_pre_arr, filt, mode="valid")
+    s_pre_xs = sig.convolve(
+        np.arange(-pre - prepost - buff, -prepost - buff), filt[0], mode="valid"
+    )
+
+    gpl.plot_trace_werr(s_pre_xs, s_pre_arr, ax=ax, **kwargs)
+    gpl.plot_trace_werr(s_xs, s_arr, ax=ax, **kwargs)
+    gpl.plot_trace_werr(s_end_xs, s_end_arr, ax=ax, **kwargs)
+    gpl.add_hlines(0, ax)
+    return tuple(filt_funcs)
+
+
+def target_similarity(
+    p_rep,
+    xs_rep,
+    p_spont,
+    xs_spont,
+    block_thr=2,
+    err_thr=1,
+    spont_time=-0.25,
+    rep_time=-0.25,
+    offset=0,
+    use_filt=None,
+):
+    rep_ind = np.argmin(np.abs(xs_rep - rep_time))
+    rep = p_rep["spks"][..., rep_ind]
+
+    pre_ind = np.argmin(np.abs(xs_spont - spont_time))
+    spont = p_spont["spks"][..., pre_ind]
+    
+    rc = p_rep["rc"]
+    tc = p_rep["c_targ"]
+    block = p_rep["block"]
+
+    if use_filt is None:
+        use_filt = swa.block_colors(p_rep, offset=offset)
+
+    err = u.normalize_periodic_range(rc - tc)
+    err_mask = err <= err_thr
+    mask = np.logical_and(block >= block_thr, err_mask)
+
+    targ_colors = np.mean(rep[mask][use_filt(tc[mask])], axis=0, keepdims=True)
+    unuse_colors = np.mean(rep[mask][~use_filt(tc[mask])], axis=0, keepdims=True)
+    rep_mu = u.make_unit_vector(targ_colors - unuse_colors)
+
+    proj = spont @ rep_mu.T
+    return proj, block, use_filt
+
+
+def target_similarity_dec(
+    p_rep,
+    xs_rep,
+    p_spont,
+    xs_spont,
+    block_thr=2,
+    err_thr=1,
+    spont_time=-0.25,
+    rep_time=-0.25,
+):
+    rep_ind = np.argmin(np.abs(xs_rep - rep_time))
+    rep = p_rep["spks"][..., rep_ind]
+
+    pre_ind = np.argmin(np.abs(xs_spont - spont_time))
+    spont = p_spont["spks"][..., pre_ind]
+
+    rc = p_rep["rc"]
+    tc = p_rep["c_targ"]
+    block = p_rep["block"]
+
+    err = u.normalize_periodic_range(rc - tc)
+    err_mask = err <= err_thr
+    mask = np.logical_and(block >= block_thr, err_mask)
+    
+    f1 = swa.block_colors(p_rep)
+    f2 = swa.block_colors(p_rep, offset=np.pi/2)
+    y = np.stack((f1(tc), f2(tc)), axis=1)
+    pipe = na.make_model_pipeline(skc.LinearSVC, multioutput=True)
+    pipe.fit(rep[mask], y[mask])
+    proj = pipe.decision_function(spont)
+
+    return proj, block
+
+
 def naive_forgetting(data_dict, cue_key="cue", flip_cue=False, cue_targ=1, **kwargs):
     if flip_cue:
         cue_targ = 0
@@ -2160,7 +2305,9 @@ def make_lm_tc_pops(
     retro_sequences=retro_sequences,
     save_keys=panichello_save_keys,
     rt_key="ReactionTime",
+    animal_key="animal",
     rt_thresh=None,
+    date_key="date",
     **kwargs,
 ):
     if use_pro:
@@ -2176,6 +2323,8 @@ def make_lm_tc_pops(
         mask = data[rt_key] < rt_thresh
         data = data.mask(mask)
     pop_dict = {}
+    animal_seq = list(str(x) for x in data[animal_key].to_numpy())
+    date_seq = list(str(x) for x in data[date_key].to_numpy())
     for k_time, (tbeg, tend, tzf, cue_on, color_on) in sequence.items():
         spks, xs = data.get_populations(
             winsize,
@@ -2189,17 +2338,17 @@ def make_lm_tc_pops(
         for k, ref in save_keys.items():
             if u.check_list(ref):
                 ref = list(ref)
-            out_dict[k] = data[ref]
+            out_dict[k] = list(x.to_numpy() for x in data[ref])
         if "cues_alt" in out_dict.keys() and cue_on:
             out_dict["cues"] = out_dict["cues_alt"]
         else:
             out_dict["cues"] = (None,) * len(spks)
         if "regions" in out_dict.keys():
-            print(out_dict["regions"])
-            out_dict["regions"] = list(
-                x.iloc[0] for x in out_dict["regions"]
-            )
-        out_dict["other"] = list({"xs": xs, "sequence": k} for _ in spks)
+            out_dict["regions"] = list(x[0] for x in out_dict["regions"])
+        out_dict["other"] = list(
+            {"xs": xs, "sequence": k_time, "animal": animal_seq[i], "date": date_seq[i]}
+            for i, _ in enumerate(spks)
+        )
         pop_dict[k_time] = out_dict
     return pop_dict
 
@@ -2207,14 +2356,15 @@ def make_lm_tc_pops(
 def save_lm_tc_pops(
     pop_dict,
     add="retro",
-    out_path="lmtc_{}_{}_{}.pkl",
+    out_path="lmtc_{}_{}_{}{}.pkl",
     out_folder="../data/swap_errors/lm_data/",
 ):
     for k, pd_k in pop_dict.items():
         k_save = k.replace(" ", "-")
         n_sessions = len(pd_k["spks"])
         for i in range(n_sessions):
-            path = os.path.join(out_folder, out_path.format(add, k_save, i))
+            anim = pd_k["other"][i]["animal"][0]
+            path = os.path.join(out_folder, out_path.format(add, k_save, anim, i))
             sd = {k: v[i] for k, v in pd_k.items()}
             pickle.dump(sd, open(path, "wb"))
 
@@ -3076,8 +3226,8 @@ def dprime_sig_sweep(
     hist_bins = np.linspace(-np.pi, np.pi, n_bins)
     err_hist, _ = np.histogram(emp_errs, bins=hist_bins, density=True)
     kls = np.zeros((n_sigma, n_dp))
-    for i, sig in enumerate(sigmas):
-        samps = simulate_emp_errs(sig, min_dp=min_dp, max_dp=max_dp, n_dp=n_dp)
+    for i, sig_ in enumerate(sigmas):
+        samps = simulate_emp_errs(sig_, min_dp=min_dp, max_dp=max_dp, n_dp=n_dp)
         for j, samp in enumerate(samps):
             samp_hist, _ = np.histogram(samp, bins=hist_bins, density=True)
             kls[i, j] = np.sum(spsp.kl_div(err_hist, samp_hist))

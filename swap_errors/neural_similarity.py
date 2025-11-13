@@ -880,14 +880,23 @@ def make_kernel_map_tc(pickles, xs, *args, n_bins=5, two_dims=True, **kwargs):
     return out_arr, bins
 
 
+default_skip_fields = ("other", "animal", "regions")
+
+
 class AverageKernelMap:
-    def __init__(self, pickles, xs, p2=None, **kwargs):
+    def __init__(self, pickles=None, xs=None, p2=None, kernels=None, **kwargs):
         if p2 is None:
             p2 = {}
-        self.kernels = list(
-            CrossKernelMap(pickle, xs, p2=p2.get(k), **kwargs)
-            for k, pickle in pickles.items()
-        )
+        if kernels is None:
+            kernels = list(
+                CrossKernelMap(pickle, xs, p2=p2.get(k), **kwargs)
+                for k, pickle in pickles.items()
+            )
+        self.kernels = kernels
+
+    @classmethod
+    def from_kernels(cls, kernels):
+        return AverageKernelMap(kernels=kernels)
 
     def get_kernel(self, **kwargs):
         kern_out = []
@@ -896,6 +905,28 @@ class AverageKernelMap:
             kern_out.append(k_i)
         kern_out = np.stack(kern_out, axis=0)
         return kern_out, bins
+
+    def get_func(self, **kwargs):
+        func_elem = []
+        for k in self.kernels:
+            f = k.get_func(**kwargs)
+            func_elem.append(f)
+
+        def func(x):
+            rep = np.zeros((len(x), len(func_elem)))
+            for i, f in enumerate(func_elem):
+                rep[:, i] = f(x)
+            return rep
+
+        return func
+
+    def block_mask(self, block, block2=None, skip_fields=default_skip_fields):
+        k_new = list(
+            k.block_mask(block, block2=block2, skip_fields=skip_fields)
+            for k in self.kernels
+        )
+        k_new = list(x for x in k_new if len(x) > 0)
+        return AverageKernelMap.from_kernels(k_new)
 
     def get_resampled_kernel(self, *args, **kwargs):
         kern_out = []
@@ -952,7 +983,7 @@ def _fit_svgpr(
     x_preds,
     smoke_test=False,
     batch_size=2000,
-    num_epochs=8,
+    num_epochs=15,
     num_inducing=500,
     lr=0.01,
     return_model=False,
@@ -977,6 +1008,7 @@ def _fit_svgpr(
     pts = X[inds]
     model = AGPRegression(pts, periodic=True)
     likelihood = gpt.likelihoods.GaussianLikelihood()
+    # likelihood = gpt.likelihoods.StudentTLikelihood()
     if torch.cuda.is_available():
         model = model.cuda()
         likelihood = likelihood.cuda()
@@ -1059,6 +1091,7 @@ def fit_full_average_kernel(
         if mean:
             out = np.mean(out, axis=0)
         return out
+
     return func
 
 
@@ -1069,6 +1102,9 @@ class KernelMap:
         self.ps_thr = ps_thr
         self.bin_range = bin_range
         self.n_bins = n_bins
+
+    def __len__(self):
+        return len(self.pickle["spks"])
 
     def compute_distance_matrix(self, **kwargs):
         info = compute_continuous_distance_matrix(
@@ -1087,6 +1123,7 @@ class KernelMap:
         col_mask,
         two_dims=False,
         use_gp=True,
+        **kwargs,
     ):
         dist_mat = dists[row_mask][:, col_mask].flatten()
         c1_mat = u.normalize_periodic_range(
@@ -1118,7 +1155,7 @@ class KernelMap:
         arr = arr_raw / arr_count
         bins = np.array(list(b[:-1] + np.diff(b)[0] / 2 for b in bins))
         if use_gp:
-            arr = _fit_svgpr(c_group, dist_mat, bins.T)
+            arr = _fit_svgpr(c_group, dist_mat, bins.T, **kwargs)
         if not two_dims:
             bins = bins[0]
         return arr, bins
@@ -1132,13 +1169,18 @@ class KernelMap:
         col_cue=None,
         row_cue=None,
     ):
-        if np.all(np.isnan(dist_info["ps"])):
-            ps = np.zeros_like(dist_info["ps"])
+        if dist_info.get("ps") is None or np.all(np.isnan(dist_info["ps"])):
+            ps = np.zeros((dist_info["c1"].shape[0], 1))
             ps[:, 0] = 1
         else:
             ps = dist_info["ps"]
+        if dist_info.get("ps2") is None or np.all(np.isnan(dist_info["ps2"])):
+            ps2 = np.zeros((dist_info["c2"].shape[1], 1))
+            ps2[:, 0] = 1
+        else:
+            ps2 = dist_info["ps2"]
         row_mask = ps[:, row_ind] > self.ps_thr
-        col_mask = ps[:, col_ind] > self.ps_thr
+        col_mask = ps2[:, col_ind] > self.ps_thr
         if cue_only is not None:
             add_mask = dist_info["cues"] == cue_only
             row_mask = np.logical_and(row_mask, add_mask)
@@ -1151,6 +1193,25 @@ class KernelMap:
             row_mask = np.logical_and(row_mask, add_mask)
         return row_mask, col_mask
 
+    def _mask_pickle(self, pickle, block, skip_fields=default_skip_fields):
+        mask = pickle["block"] == block
+        new_pickle = {}
+        for k, v in pickle.items():
+            if k not in skip_fields:
+                v = np.asarray(v)[mask]
+            new_pickle[k] = v
+        return new_pickle
+
+    def block_mask(self, block, skip_fields=default_skip_fields):
+        new_pickle = self._mask_pickle(self.pickle, block, skip_fields=skip_fields)
+        return KernelMap(
+            new_pickle,
+            self.xs,
+            ps_thr=self.ps_thr,
+            bin_range=self.bin_range,
+            n_bins=self.n_bins,
+        )
+
     def get_kernel(
         self,
         row_ind=0,
@@ -1160,6 +1221,7 @@ class KernelMap:
         col_cue=None,
         row_cue=None,
         use_gp=True,
+        return_model=False,
         **kwargs,
     ):
         dist_info = self.compute_distance_matrix(**kwargs)
@@ -1182,7 +1244,18 @@ class KernelMap:
             col_mask,
             two_dims=two_dims,
             use_gp=use_gp,
+            return_model=return_model,
         )
+
+    def get_func(self, **kwargs):
+        (_, f), _ = self.get_kernel(use_gp=True, return_model=True, **kwargs)
+
+        def func(x):
+            with torch.no_grad():
+                y = f(x).mean.cpu().numpy()
+            return y
+
+        return func
 
     def get_resampled_kernel(
         self,
@@ -1258,6 +1331,24 @@ class CrossKernelMap(KernelMap):
         self.ps_thr = ps_thr
         self.bin_range = bin_range
         self.n_bins = n_bins
+
+    def __len__(self):
+        return min(len(self.p1["spks"]), len(self.p2["spks"]))
+
+    def block_mask(self, block, block2=None, skip_fields=default_skip_fields):
+        if block2 is None:
+            block2 = block
+        p1_n = self._mask_pickle(self.p1, block, skip_fields=skip_fields)
+        p2_n = self._mask_pickle(self.p2, block2, skip_fields=skip_fields)
+        return CrossKernelMap(
+            p1_n,
+            self.xs1,
+            p2=p2_n,
+            xs2=self.xs2,
+            ps_thr=self.ps_thr,
+            bin_range=self.bin_range,
+            n_bins=self.n_bins,
+        )
 
     def compute_distance_matrix(self, **kwargs):
         info = compute_continuous_distance_matrix(
@@ -1374,7 +1465,6 @@ def compute_continuous_distance_matrix(
     second_color_key=None,
     data_dict2=None,
     xs2=None,
-    x_targ2=None,
     ps_key="ps",
     spk_key="spks",
     cue_key="cues_alt",
@@ -1405,7 +1495,8 @@ def compute_continuous_distance_matrix(
             resps2 = resps2[:, dim_mask2]
         colors1 = sess_dict[color_key]
         colors2 = sess_dict2[second_color_key]
-        ps = sess_dict[ps_key]
+        ps = sess_dict.get(ps_key)
+        ps2 = sess_dict2.get(ps_key)
         dists, c_diffs, c1, c2 = prepare_data_continuous(
             resps1,
             resps2,
@@ -1421,7 +1512,9 @@ def compute_continuous_distance_matrix(
             "c1": c1,
             "c2": c2,
             "ps": ps,
+            "ps2": ps2,
             "cues": sess_dict[cue_key],
+            "cues2": sess_dict2[cue_key],
         }
         if extra_key is not None:
             out_dict[sess]["extra"] = sess_dict[extra_key]
@@ -1429,7 +1522,7 @@ def compute_continuous_distance_matrix(
 
 
 def session_average_kernel(
-    mask_dict, stim_bounds=(-np.pi, np.pi), use_gp=True, n_bins=10, **kwargs
+    mask_dict, stim_bounds=(-np.pi, np.pi), use_gp=False, n_bins=10, **kwargs
 ):
     out_dict = {}
     for ind, (rd_sess, cd_sess) in mask_dict.items():
@@ -1454,8 +1547,11 @@ def session_average_kernel(
 
 
 def compute_continuous_distance_masks(
-    dist_dict, p_thr=0.4, average_kernel=True, **kwargs
+    dist_dict, p_thr=0.4, average_kernel=True, compute_inds=(0,), **kwargs
 ):
+    if compute_inds is None:
+        v = list(dist_dict.values())[0]
+        compute_inds = range(v["ps"].shape[1])
     mask_dict = {}
     for sess, sess_dist_dict in dist_dict.items():
         dists = sess_dist_dict["dists"]
@@ -1464,7 +1560,7 @@ def compute_continuous_distance_masks(
         if np.all(np.isnan(ps)):
             ps = np.ones_like(ps)
         corr_mask = ps[:, 0] > p_thr
-        for i in range(ps.shape[1]):
+        for i in compute_inds:
             rd_i, cd_i = mask_dict.get(i, ([], []))
             use_mask = ps[:, i] > p_thr
             m_dists = dists[use_mask][:, corr_mask]
@@ -1497,7 +1593,10 @@ def prepare_data_continuous(
     x2_targ=None,
     regions=None,
     mask_ident=True,
+    with_std=False,
     warn_x_diff=0.1,
+    remove_outliers=False,
+    outlier_thr=5,
     **kwargs,
 ):
     if x2_targ is None:
@@ -1530,20 +1629,24 @@ def prepare_data_continuous(
         mask = ps2[:, p_ind] > ps_thr
         resps2 = resps2[mask]
         c2 = c2[mask]
-    pipe = na.make_model_pipeline(**kwargs)
+    pipe = na.make_model_pipeline(with_std=with_std, **kwargs)
     resps_comb = np.concatenate((resps1, resps2), axis=0)
     if len(pipe.steps) > 0:
         pipe.fit(resps_comb)
         resps1 = pipe.transform(resps1)
         resps2 = pipe.transform(resps2)
     dists = resps1 @ resps2.T
-    if mask_ident:
+    if mask_ident and dists.shape[0] == dists.shape[1]:
         ident_mask = np.identity(len(resps1), dtype=bool)
         dists[ident_mask] = np.nan
+    if remove_outliers:
+        sig = np.nanstd(dists)
+        m = np.abs(dists) > sig * outlier_thr
+        dists[m] = np.nan
 
     c_diffs = u.normalize_periodic_range(np.expand_dims(c2, 0) - np.expand_dims(c1, 1))
-    c1 = np.repeat(np.expand_dims(c1, 1), len(c1), 1)
-    c2 = np.repeat(np.expand_dims(c2, 0), len(c2), 0)
+    c1 = np.repeat(np.expand_dims(c1, 1), len(c2), 1)
+    c2 = np.repeat(np.expand_dims(c2, 0), len(c1), 0)
     return dists, c_diffs, c1, c2
 
 

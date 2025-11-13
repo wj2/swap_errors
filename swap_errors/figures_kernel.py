@@ -30,6 +30,17 @@ class KernelFigure(swf.SwapErrorFigure):
         return out_full
 
 
+class MKernelFigure(swf.SwapErrorFigure):
+    def load_pickles(self, time="wheel-presentation", task="retro"):
+        out_full = {}
+        for use_monkey in self.monkeys:
+            out_pickles, xs = swa.load_motoaki_pickles(
+                time=time, monkey=use_monkey, task=task
+            )
+            out_full[use_monkey] = out_pickles, xs
+        return out_full
+
+
 class SchematicFigure(KernelFigure):
     def __init__(self, fig_key="schematic", colors=swf.colors, **kwargs):
         fsize = (5, 5)
@@ -312,11 +323,16 @@ def _kl_div_quant(err, bins, n=1000):
 def _get_constrained_wid_fit(pickles, wids, n_bins=20, **kwargs):
     out_all = {}
     bins = np.linspace(-np.pi, np.pi, n_bins + 1)
+    out_uncons = {}
     for m, (data, xs) in pickles.items():
         out_all[m] = {}
         targ, dist, resp = _cat_keys(data, "c_targ", "c_dist", "rc")
+        out_uncons[m] = stcc.fit_tcc_swap_model(
+            targ, dist, resp, **kwargs
+        )
+
         for m2, wid in wids.items():
-            fixed_params = {"width": torch.tensor(wid)}
+            fixed_params = {"width": torch.tensor(wid[0])}
             out = stcc.fit_tcc_swap_model(
                 targ, dist, resp, fixed_params=fixed_params, **kwargs
             )
@@ -329,8 +345,9 @@ def _get_constrained_wid_fit(pickles, wids, n_bins=20, **kwargs):
 
             prob_bhv = _kl_div_quant(errs, bins)
             prob_wid = _kl_div_quant(errs_wid, bins)
-            out_all[m][m2] = np.sum(sps.kl_div(prob_bhv, prob_wid), axis=1)
-    return out_all
+            kl = np.sum(sps.kl_div(prob_bhv, prob_wid), axis=1)
+            out_all[m][m2] = (kl, errs, errs_wid, out)
+    return out_uncons, out_all
 
 
 def _estimate_behavioral_wids(pickles, **kwargs):
@@ -343,12 +360,12 @@ def _estimate_behavioral_wids(pickles, **kwargs):
     return out_all
 
 
-def _estimate_neural_wids(pickles, n_bins=25, ks_dict=None, **kwargs):
+def _estimate_neural_wids(pickles, n_bins=25, use_gp=False, ks_dict=None, **kwargs):
     out_all = {}
     for m, (data, xs) in pickles.items():
         if ks_dict is None:
             kern = sns.AverageKernelMap(data, xs, n_bins=n_bins, **kwargs)
-            ks, bcs = kern.get_kernel(use_gp=False)
+            ks, bcs = kern.get_kernel(use_gp=use_gp)
         else:
             ks, bcs = ks_dict[m][0]
         k_avg = np.mean(ks, axis=0)
@@ -357,8 +374,30 @@ def _estimate_neural_wids(pickles, n_bins=25, ks_dict=None, **kwargs):
 
         wids = np.linspace(0.2, 8, 1000)
         sub = swt.vm_kernel(bcs[None], wids[:, None])
-        m_wid = wids[np.argmin(np.sum((sub - k_avg[None]) ** 2, axis=1))]
-        out_all[m] = m_wid
+        ind = np.argmin(np.sum((sub - k_avg[None]) ** 2, axis=1))
+        m_wid = wids[ind]
+        out_all[m] = m_wid, sub, ind, k_avg, bcs
+    return out_all
+
+
+
+def _estimate_neural_func(pickles, n_bins=25, **kwargs):
+    out_all = {}
+    def wrap_func(func, mu, std, dtype=torch.float):
+        def new_func(x):
+            x = torch.tensor(x, dtype=dtype)
+            y = np.mean(func(x), axis=1)
+            return (y - mu) / std
+        return new_func
+
+    xs_norm = np.linspace(-np.pi, np.pi, 100)
+    for m, (data, xs) in pickles.items():
+        kern = sns.AverageKernelMap(data, xs, n_bins=n_bins, **kwargs)
+        f = kern.get_func()
+        k_norm = np.mean(f(torch.tensor(xs_norm, dtype=torch.float)), axis=1)
+        kf = wrap_func(f, np.mean(k_norm), np.std(k_norm))
+        
+        out_all[m] = kf
     return out_all
 
 
@@ -678,7 +717,7 @@ class ExpAverageFigure(KernelFigure):
                         np.array(dists_all),
                         np.array(resps_all),
                         kernel_funcs[m2],
-                        fixed_params={"width": use_wids[monkey]},
+                        fixed_params={"width": use_wids[monkey][0]},
                         lr=lr,
                         n_steps=n_steps,
                     )
@@ -866,12 +905,67 @@ class ExpAverageFigure(KernelFigure):
                 color = cms[m]((i + 1) / len(tasks))
                 axs[j].plot(sigmas, guess_rates, "o", color=color, ms=1)
 
-    def _estimate_neural_wids(self, data, panel_key="panel_kernel"):
+    def _estimate_neural_wids(self, data, panel_key="panel_kernel", **kwargs):
         if self.data.get(panel_key) is not None:
             _, ks_dict = self.data[panel_key]
         else:
             ks_dict = None
-        return _estimate_neural_wids(data, ks_dict=ks_dict)
+        return _estimate_neural_wids(data, ks_dict=ks_dict, **kwargs)
+
+    def panel_bhv_plane_theory_func(self, refit=False):
+        key_data = "panel_bhv_plane_theory"
+        key_ax = "panel_bhv_plane"
+        axs, ax_quant = self.gss[key_ax]
+
+        snr_theory = self.params.getlist("snr_theory_linspace", typefunc=float)
+        n_snr_theory = self.params.getint("n_snr")
+        snrs = np.linspace(*snr_theory, n_snr_theory)
+        n_samps = self.params.getint("n_samps")
+        n_trls = self.params.getint("n_theory_trials")
+        n_reps = self.params.getint("n_reps")
+
+        if self.data.get(key_data) is None or refit:
+            data = self.load_pickles()
+            use_funcs = _estimate_neural_func(data)
+            out = {}
+            for m, func in use_funcs.items():
+                sigmas = np.zeros((len(snrs), n_reps, n_samps))
+                guess_rates = np.zeros_like(sigmas)
+                for i, snr in enumerate(snrs):
+                    for j in range(n_reps):
+                        skt = swt.SDKTFunction(snr, func)
+                        true, dec = skt.simulate_decoding(n_samps=n_trls)
+                        out_fit = stcc.fit_corr_guess_model(true, dec, n_samps=n_samps)
+                        sigmas[i, j] = out_fit["samples"]["sigma"]
+                        guess_rates[i, j] = out_fit["samples"]["resp_rate"][:, -1]
+                out[m] = (sigmas, guess_rates)
+            self.data[key_data] = use_funcs, out
+
+        use_wids, out = self.data[key_data]
+        for i, (m, (sig_m, guess_m)) in enumerate(out.items()):
+            gpl.plot_trace_werr(
+                np.mean(sig_m, axis=-1).T,
+                np.mean(guess_m, axis=-1).T,
+                conf95=True,
+                ax=axs[i],
+                fill=False,
+                color=self.monkey_colors[m],
+            )
+            axs[i].set_yscale("log")
+            axs[i].set_xlabel("response variance")
+            axs[i].set_ylabel("threshold error rate")
+
+        gpl.clean_plot(ax_quant, 1, ticks=False)
+        ax_quant.invert_yaxis()
+        gpl.make_xaxis_scale_bar(
+            ax_quant,
+            magnitude=0.03,
+            double=False,
+            label="divergence",
+            text_buff=0.45,
+        )
+        ax_quant.set_yticks([0, 1])
+        ax_quant.set_yticklabels(["E", "W"])
 
     def panel_bhv_plane_theory(self, refit=False):
         key_data = "panel_bhv_plane_theory"
@@ -887,7 +981,6 @@ class ExpAverageFigure(KernelFigure):
 
         if self.data.get(key_data) is None or refit:
             data = self.load_pickles()
-            # use_wids = _estimate_behavioral_wids(data)
             use_wids = self._estimate_neural_wids(data)
             wid_fit = _get_constrained_wid_fit(data, use_wids)
             out = {}
@@ -896,7 +989,7 @@ class ExpAverageFigure(KernelFigure):
                 guess_rates = np.zeros_like(sigmas)
                 for i, snr in enumerate(snrs):
                     for j in range(n_reps):
-                        skt = swt.SimplifiedDiscreteKernelTheory(snr, wid)
+                        skt = swt.SimplifiedDiscreteKernelTheory(snr, wid[0])
                         true, dec = skt.simulate_decoding(n_samps=n_trls)
                         out_fit = stcc.fit_corr_guess_model(true, dec, n_samps=n_samps)
                         sigmas[i, j] = out_fit["samples"]["sigma"]
@@ -950,7 +1043,7 @@ class GeometryChangeFigure(KernelFigure):
 
     def make_gss(self):
         gss = {}
-        geoms_grid = pu.make_mxn_gridspec(self.gs, 3, 2, 0, 100, 0, 50, 5, 15)
+        geoms_grid = pu.make_mxn_gridspec(self.gs, 3, 2, 0, 100, 0, 50, 10, 10)
         geoms_axs = self.get_axs(geoms_grid, sharex="all", sharey="columns")
         gss["panel_geoms"] = geoms_axs
 
@@ -1073,7 +1166,8 @@ class CombinedSingleTrialFigure(KernelFigure):
         g_color = self.params.getcolor("guess_color")
         gray_color = self.params.getcolor("null_color")
         p_thr = self.params.getfloat("p_thr")
-        eg_monkey = "Elmo"
+        n_bins = self.params.getint("n_bins_hist")
+        eg_monkey = "Waldorf"
 
         swv.plot_corr_guess_histogram(
             self.load_pickles()[eg_monkey][0],
@@ -1082,6 +1176,7 @@ class CombinedSingleTrialFigure(KernelFigure):
             corr_color=c_color,
             guess_color=g_color,
             other_color=gray_color,
+            bins=n_bins,
         )
         _make_xaxis_pi(ax)
 

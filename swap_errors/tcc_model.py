@@ -297,12 +297,24 @@ class NormalGuessMixture(distribs.Distribution):
         sigma,
         probs,
         bounds=(-torch.pi, torch.pi),
-        vonmises=True,
+        vonmises=False,
     ):
+        if not isinstance(sigma, torch.Tensor):
+            sigma = torch.tensor(sigma)
+        if not isinstance(corr_mu, torch.Tensor):
+            corr_mu = torch.tensor(corr_mu)
+        if not isinstance(probs, torch.Tensor):
+            probs = torch.tensor(probs)
         if vonmises:
-            self.resp_distr = distribs.VonMises(torch.zeros_like(corr_mu), 1 / sigma)
+            self.resp_distr = distribs.VonMises(
+                torch.zeros_like(corr_mu),
+                1 / sigma,
+            )
         else:
-            self.resp_distr = distribs.Normal(torch.zeros_like(corr_mu), sigma)
+            self.resp_distr = distribs.Normal(
+                torch.zeros_like(corr_mu),
+                sigma,
+            )
         self.corr_mu = corr_mu
         b0 = torch.ones_like(corr_mu) * bounds[0]
         self.guess_distr = distribs.Uniform(b0, bounds[1])
@@ -324,7 +336,7 @@ class NormalGuessMixture(distribs.Distribution):
         cat_samps = self.categ_distr.sample(corr_samps.shape, *args, **kwargs)
         distr_samps = torch.stack((corr_samps, guess_samps), axis=0)
         samps = distr_samps[cat_samps, torch.arange(guess_samps.shape[0])]
-        samps = normalize_periodic(samps)
+        # samps = normalize_periodic(samps)
         return samps
 
     def log_prob(self, x, *args, **kwargs):
@@ -352,6 +364,15 @@ class NormalSwapGuessMixture(distribs.Distribution):
         bounds=(-torch.pi, torch.pi),
         vonmises=False,
     ):
+        if not isinstance(corr_mu, torch.Tensor):
+            corr_mu = torch.tensor(corr_mu)
+        if not isinstance(swap_mu, torch.Tensor):
+            swap_mu = torch.tensor(swap_mu)
+        if not isinstance(sigma, torch.Tensor):
+            sigma = torch.tensor(sigma)
+        if not isinstance(probs, torch.Tensor):
+            probs = torch.tensor(probs)
+
         if vonmises:
             self.resp_distr = distribs.VonMises(torch.zeros_like(corr_mu), 1 / sigma)
         else:
@@ -379,7 +400,7 @@ class NormalSwapGuessMixture(distribs.Distribution):
         cat_samps = self.categ_distr.sample(corr_samps.shape, *args, **kwargs)
         distr_samps = torch.stack((corr_samps, swap_samps, guess_samps), axis=0)
         samps = distr_samps[cat_samps, torch.arange(guess_samps.shape[0])]
-        samps = normalize_periodic(samps)
+        # samps = normalize_periodic(samps)
         return samps
 
     def log_prob(self, x, *args, **kwargs):
@@ -406,7 +427,6 @@ def corr_guess_model(
     resps=None,
     hn_width=10,
     alpha=0.5,
-    bounds=(-np.pi, np.pi),
 ):
     sigma = pyro.sample(
         "sigma",
@@ -467,12 +487,12 @@ def fit_corr_guess_model(
         (resps,),
         corr_guess_model,
         loss=loss,
-        block_vars=["kind"],
         **kwargs,
     )
     preds = gpu.sample_fit_model(
         (targs,),
         out["model"],
+        out["samples"],
         out["guide"],
         n_samps=n_samps,
     )
@@ -503,7 +523,6 @@ def fit_corr_guess_swap_model(
         (resps,),
         corr_guess_swap_model,
         loss=loss,
-        block_vars=["kind"],
         **kwargs,
     )
     preds = gpu.sample_fit_model(
@@ -512,6 +531,7 @@ def fit_corr_guess_swap_model(
             dists,
         ),
         out["model"],
+        out["samples"],
         out["guide"],
         n_samps=n_samps,
     )
@@ -549,13 +569,10 @@ def tcc_swap_model(
             "swap_rate", distribs.Dirichlet(torch.tensor([alpha, alpha]))
         )
     colors = torch.stack((targ, dist), dim=1)
-    colors = torch.unsqueeze(colors, -1)
-    bin_cents = torch.unsqueeze(bin_cents, 0)
-    bin_cents = torch.unsqueeze(bin_cents, 0)
+    colors = colors[..., None]
+    bin_cents = bin_cents[None, None]
 
     targs = snr * vm_kernel(bin_cents - colors, width)
-    # gaussian doesn't work
-    # targs = snr * torch.exp(-(bin_cents - colors)**2 / (2 * width ** 2))
     denom = torch.sum(torch.exp(targs), dim=2, keepdims=True)
     probs = torch.exp(targs) / denom
 
@@ -804,7 +821,7 @@ def fit_tcc_swap_model(
         fixed_params = {}
     model = ft.partial(model, **fixed_params)
 
-    loss = pyro.infer.TraceEnum_ELBO(max_plate_nesting=1)
+    loss = pyro.infer.TraceEnum_ELBO()
     out = gpu.fit_model(
         (targs, dists, bin_cents),
         (resp_inds,),
@@ -820,6 +837,7 @@ def fit_tcc_swap_model(
             bin_cents,
         ),
         out["model"],
+        out["samples"],
         out["guide"],
         n_samps=n_samps,
     )
@@ -857,7 +875,6 @@ def fit_tcc_model(
         (resp_inds,),
         model,
         loss=loss,
-        block_vars=["swap"],
         **kwargs,
     )
     preds = gpu.sample_fit_model(
@@ -866,6 +883,7 @@ def fit_tcc_model(
             bin_cents,
         ),
         out["model"],
+        out["samples"],
         out["guide"],
         n_samps=n_samps,
     )

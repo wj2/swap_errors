@@ -217,17 +217,13 @@ def plot_corr_guess_histogram(
     y_label="trials",
     **kwargs,
 ):
-    targs = u.normalize_periodic_range(
-        np.concatenate(list(x[targ_key] for x in m_pickle.values()))
-    )
-    resps = u.normalize_periodic_range(
-        np.concatenate(list(x[resp_key] for x in m_pickle.values()))
+    errs = u.normalize_periodic_range(
+        np.concatenate(list(x[resp_key] - x[targ_key] for x in m_pickle.values()))
     )
     ps = np.concatenate(list(x[ps_key] for x in m_pickle.values()))
     g_mask = ps[:, g_ind] > p_thr
     c_mask = ps[:, c_ind] > p_thr
-    errs = u.normalize_periodic_range(targs - resps)
-    guesses = errs[g_mask]
+    guesses = errs[np.logical_and(g_mask, ~c_mask)]
     corrs = errs[c_mask]
     others = errs[np.logical_not(np.logical_or(g_mask, c_mask))]
 

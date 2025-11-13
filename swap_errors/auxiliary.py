@@ -244,6 +244,83 @@ def load_lm_results(
     return full_dict, color_dict, cue_dict
 
 
+motoaki_pickle_template = (
+    "lmtc_{task}{region}_{time}_(?P<animal>[EW])(?P<session>[0-9]+)\\.pkl"
+)
+
+
+def load_motoaki_pickles(
+    region="_all",
+    task="retro",
+    time="wheel-presentation",
+    template=motoaki_pickle_template,
+    folder="../data/flexwm/lm_data/",
+    monkey="Elmo",
+):
+    templ = template.format(region=region, task=task, time=time)
+    file_gen = u.load_folder_regex_generator(
+        folder,
+        templ,
+    )
+    monkey_keys = {"Elmo": "E", "Waldorf": "W"}
+    dates = []
+    out_dict = {}
+    for fl, fl_info, data_fl in file_gen:
+        animal = fl_info["animal"]
+        session = int(fl_info["session"])
+        cond = (
+            np.sum(data_fl["block"] == 1) > 0
+            and animal == monkey_keys[monkey]
+            and data_fl["spks"].shape[1] > 0
+        )
+        if cond:
+            out_dict[session] = data_fl
+            xs = data_fl["other"]["xs"]
+            date = pd.to_datetime(data_fl["other"]["date"], yearfirst=True)
+            dates.append(date)
+            mask = data_fl["cues_alt"] == 1
+            c_targ = np.zeros(len(data_fl["uc"]))
+            c_dist = np.zeros(len(data_fl["uc"]))
+            c_targ[mask] = data_fl["uc"][mask]
+            c_dist[mask] = data_fl["lc"][mask]
+            c_targ[~mask] = data_fl["lc"][~mask]
+            c_dist[~mask] = data_fl["uc"][~mask]
+            data_fl["sample_colors"] = ~np.isnan(np.stack(data_fl["colortemp"]))
+            data_fl["c_targ"] = c_targ
+            data_fl["c_dist"] = c_dist
+    inds = np.argsort(dates)
+    keys_sort = np.array(list(out_dict.keys()))[inds]
+    new_out_dict = {k: out_dict[k] for k in keys_sort}
+    return new_out_dict, xs
+
+
+def block_colors(pi, targ_block=1, eps=1e-10, offset=0):
+    filt = pi["block"] == targ_block
+    mask = pi["sample_colors"][filt][0]
+    all_colors = np.linspace(0, np.pi * 2, len(mask) + 1)[:-1]
+    start_ind = np.where(np.diff(mask.astype(int)) == 1)[0] + 1
+    if len(start_ind) == 0 and sum(mask) > 0:
+        start_ind = 0
+    def func(c):
+        normed = u.normalize_periodic_range(c - all_colors[start_ind] - offset)
+        return normed > -eps
+    try:
+        assert np.mean(func(all_colors)) == .5
+    except AssertionError as e:
+        print(np.mean(func(all_colors)))
+        raise e
+    try:
+        assert offset != 0 or np.mean(func(pi["c_targ"][filt])) == 1
+    except AssertionError as e:
+        m = func(pi["c_targ"][filt])
+        elms = pi["c_targ"][filt][~m]
+        print(elms)
+        print(u.normalize_periodic_range(elms[0] - all_colors[start_ind]))
+        print(np.mean(m), all_colors[start_ind])
+        raise e
+    return func
+
+
 pop_pickle_template = "lmtc_{task}{region}_{time}_(?P<session>[0-9]+)\\.pkl"
 
 
@@ -398,9 +475,7 @@ def load_nc_sweep(folder, run_ind, template=nc_sweep_pattern, **kwargs):
     return load_x_sweep(folder, run_ind, template, **kwargs)
 
 
-fs_sweep_pattern = (
-    "[fst]+_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\\-:.]+" "\\.pkl"
-)
+fs_sweep_pattern = "[fst]+_(?P<decider>[a-zA-Z]+)_[0-9]+_{run_ind}_[0-9_\\-:.]+\\.pkl"
 
 
 def load_fs_sweep(folder, run_ind, template=fs_sweep_pattern):
@@ -708,9 +783,7 @@ def load_spikes_data(
                 spks = sio.loadmat(os.path.join(folder, fl))
             except NotImplementedError:
                 spks = mat73.loadmat(os.path.join(folder, fl))
-            tk_ind = np.where(
-                list(k in spks.keys() for k in t_key_candidates)
-            )[0][0]
+            tk_ind = np.where(list(k in spks.keys() for k in t_key_candidates))[0][0]
             tk = t_key_candidates[tk_ind]
             ts = np.squeeze(spks[tk])
             ids = spks.get(id_key)
@@ -792,7 +865,8 @@ def transform_bhv_model(fit, mapping_dict, transform_prob=True, take_mean=True):
 
 
 def load_buschman_motoaki_data(
-    *args, **kwargs,
+    *args,
+    **kwargs,
 ):
     return load_buschman_data(
         *args,
@@ -827,7 +901,8 @@ def load_buschman_data(
         m = re.match(template, fl)
         if m is not None:
             run_data, trl_data = load_bhv_data(
-                os.path.join(folder, fl, bhv_sub), extract_fields=bhv_fields,
+                os.path.join(folder, fl, bhv_sub),
+                extract_fields=bhv_fields,
             )
             if load_bhv_model is not None:
                 key = (str(run_data["Monkey"]), str(run_data["Date"]))
