@@ -154,7 +154,8 @@ def fit_func_neuron_swap_model(
     preds = gpu.sample_fit_model(
         inp,
         out["model"],
-        out["guide"],
+        out["samples"],
+        use_guide=out["guide"],
         n_samps=n_samps,
     )
     out["predictive_samples"] = bin_cents[preds]
@@ -268,7 +269,8 @@ def fit_func_swap_model(
     preds = gpu.sample_fit_model(
         inp,
         out["model"],
-        out["guide"],
+        out["samples"],
+        use_guide=out["guide"],
         n_samps=n_samps,
     )
     out["predictive_samples"] = bin_cents[preds]
@@ -493,7 +495,7 @@ def fit_corr_guess_model(
         (targs,),
         out["model"],
         out["samples"],
-        out["guide"],
+        use_guide=out["guide"],
         n_samps=n_samps,
     )
     out["predictive_samples"] = preds
@@ -532,7 +534,7 @@ def fit_corr_guess_swap_model(
         ),
         out["model"],
         out["samples"],
-        out["guide"],
+        use_guide=out["guide"],
         n_samps=n_samps,
     )
     out["predictive_samples"] = preds
@@ -637,8 +639,6 @@ def tcc_kernel_model(
         kernel_mix[0] * vm_kernel(bin_cents - colors, width)
         + kernel_mix[1] * kernel_comb
     )
-    # gaussian doesn't work
-    # targs = snr * torch.exp(-(bin_cents - colors)**2 / (2 * width ** 2))
     denom = torch.sum(torch.exp(targs), dim=2, keepdims=True)
     probs = torch.exp(targs) / denom
 
@@ -648,20 +648,6 @@ def tcc_kernel_model(
         targ_distr = distribs.Categorical(use_probs)
         out = pyro.sample("obs", targ_distr, obs=resp_inds)
         return out
-
-
-# def vm_kernel2(x, wid):
-#     k = 1 / wid
-#     num = torch.exp(k * torch.cos(x)) - torch.special.bessel_j0(k)
-#     denom = torch.exp(k) - torch.special.bessel_j0(k)
-#     return num / denom
-
-
-# def vm_kernel(x, wid):
-#     k = 1 / wid
-#     num = torch.exp(k * torch.cos(x))
-#     denom = torch.exp(k)
-#     return num / denom
 
 
 def vm_kernel(x, wid):
@@ -721,8 +707,8 @@ def tcc_model(
 
 
 def _norm_kfuncs(kf):
-    mu = np.mean(kf, axis=1, keepdims=True)
-    std = np.std(kf, axis=1, keepdims=True)
+    mu = np.mean(kf, axis=(0, 1), keepdims=True)
+    std = np.std(kf, axis=(0, 1), keepdims=True)
     kf_norm = (kf - mu) / std
     return kf_norm
 
@@ -787,7 +773,8 @@ def fit_tcc_kernel_model(
             bin_cents,
         ),
         out["model"],
-        out["guide"],
+        out["samples"],
+        use_guide=out["guide"],
         n_samps=n_samps,
     )
     out["predictive_samples"] = bin_cents[preds]
@@ -838,7 +825,7 @@ def fit_tcc_swap_model(
         ),
         out["model"],
         out["samples"],
-        out["guide"],
+        use_guide=out["guide"],
         n_samps=n_samps,
     )
     out["predictive_samples"] = bin_cents[preds]
@@ -884,7 +871,7 @@ def fit_tcc_model(
         ),
         out["model"],
         out["samples"],
-        out["guide"],
+        use_guide=out["guide"],
         n_samps=n_samps,
     )
     out["samples"]["width"] = out["samples"]["width"]

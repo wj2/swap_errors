@@ -11,10 +11,34 @@ import general.utility as u
 import general.plotting as gpl
 
 
+def simple_ring_simulation(
+    init, alpha=0.1, noise_std=1, r_targ=1, dt=1, tau=1, time=1000
+):
+    rng = np.random.default_rng()
+
+    def _dynamic_step(vec):
+        r = np.sum(vec**2)
+        dots = alpha * (r_targ - r) * np.tanh(vec) + rng.normal(
+            0, noise_std, size=vec.shape
+        )
+        return dots / tau
+
+    n_steps = int(np.round(time / dt))
+    vec = np.array(init)
+    traj = np.zeros((n_steps + 1, len(init)))
+    for i in range(n_steps):
+        traj[i] = vec
+        step = _dynamic_step(vec)
+        vec = vec + dt * step
+    traj[i + 1] = vec
+    return traj
+
+
 def local_err(snr, wid):
     orig = (wid / snr) ** 2
 
-    comb = np.min([orig, np.ones_like(snr) * wid ** 2, threshold_err(snr, wid)], axis=0)
+    # comb = np.min([orig, np.ones_like(snr) * wid**2, threshold_err(snr, wid)], axis=0)
+    comb = np.min([orig, threshold_err(snr, wid)], axis=0)    
     return comb
 
 
@@ -24,6 +48,10 @@ def threshold_prob(snr, wid):
 
     prod = n * dist
     return np.min((prod, np.ones_like(prod)), axis=0)
+
+
+def threshold_prob2(snr, wid):
+    return 1 - np.exp(-np.exp(-(snr**2) / 4) / (2 * (wid**2)))
 
 
 def threshold_err(snr, wid):
@@ -37,7 +65,7 @@ def mse(snr, wid):
     return (1 - p) * l_err + p * t_err
 
 
-def optimal_w(snrs, w_bounds=(.1, 10), n_ws=5000):
+def optimal_w(snrs, w_bounds=(0.1, 10), n_ws=5000):
     ws = np.expand_dims(np.linspace(*w_bounds, n_ws), 0)
     snrs = np.expand_dims(snrs, 1)
     errs = mse(snrs, ws)
@@ -48,9 +76,9 @@ def optimal_w(snrs, w_bounds=(.1, 10), n_ws=5000):
 def vm_kernel(x, wid):
     k = 1 / wid
     num = np.exp(k * np.cos(x)) - sps.i0(k)
-    denom = np.sqrt(sps.i0(2 * k) - sps.i0(k)**2)
+    denom = np.sqrt(sps.i0(2 * k) - sps.i0(k) ** 2)
     return num / denom
-    
+
 
 class SimplifiedDiscreteKernelTheory:
     def __init__(
@@ -76,9 +104,7 @@ class SimplifiedDiscreteKernelTheory:
         probs = np.exp(mu) / np.sum(np.exp(mu), axis=1, keepdims=True)
         choices = np.zeros_like(samps)
         for i, prob in enumerate(probs):
-            choices[i] = self.rng.choice(
-                self.bin_cents, size=1, p=prob
-            )
+            choices[i] = self.rng.choice(self.bin_cents, size=1, p=prob)
         return samps, choices
 
 
@@ -86,7 +112,7 @@ class SDKTFunction(SimplifiedDiscreteKernelTheory):
     def __init__(self, snr, func, **kwargs):
         self.func = func
         super().__init__(snr, None, **kwargs)
-        
+
     def kern_func(self, x):
         return self.func(x)
 
@@ -171,7 +197,7 @@ class KernelPopulation:
         inds, true_stim, use_reps = self.sample_reps(add_noise=True, **kwargs)
         dec_samps = use_reps @ self.reps.T
         return np.squeeze(self.stim), dec_samps
-    
+
 
 class PeriodicGPKernelPopulation(KernelPopulation):
     def make_pop(self, stim, pwr, wid, n_units):
@@ -200,7 +226,7 @@ class PeriodicGPKernelPopulation(KernelPopulation):
         cov = self.n_units * pre * post
         gp = sts.multivariate_normal(mu, cov, allow_singular=True)
         dec_samps = gp.rvs(n_samps)
-        return s_diffs, dec_samps    
+        return s_diffs, dec_samps
 
 
 class GPKernelPopulation(KernelPopulation):

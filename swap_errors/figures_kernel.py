@@ -83,7 +83,38 @@ class SchematicFigure(KernelFigure):
         gss["panel_bhv"] = bhv_axs
         self.gss = gss
 
-    def panel_bhv(self, task="retro"):
+    def _save_bhv_stats(self, data, fits):
+        for m in self.monkeys:
+            m_use = m[0].upper()
+            n_sessions = len(data[m][0])
+            n_sessions_str = "monkey {}: {} sessions".format(m_use, n_sessions)
+            self.save_stats_string(n_sessions_str, "n_sessions_{}".format(m_use))
+
+            sigs = fits[m]["samples"]["sigma"]
+            rates = fits[m]["samples"]["resp_rate"]
+            sig_str = "monkey {}: {}".format(
+                m_use,
+                u.format_samps_sirange(sigs, units="\\radian\squared"),
+            )
+            self.save_stats_string(sig_str, "sig_{}".format(m_use))
+            guess_str = "monkey {}: \(p = \) {}".format(
+                m_use,
+                u.format_samps_sirange(rates[:, -1]),
+            )
+            self.save_stats_string(guess_str, "guess-rate_{}".format(m_use))
+        sig_e = fits["Elmo"]["samples"]["sigma"]
+        sig_w = fits["Waldorf"]["samples"]["sigma"]
+        sig_comp_stat = u.format_samps_sirange(sig_e - sig_w, units="\\radian\squared")
+        sig_comp_str = "{} greater in monkey E than W".format(sig_comp_stat)
+        self.save_stats_string(sig_comp_str, "sig_comparison")
+
+        gr_e = fits["Elmo"]["samples"]["resp_rate"][:, -1]
+        gr_w = fits["Waldorf"]["samples"]["resp_rate"][:, -1]
+        sig_comp_stat = u.format_samps_sirange(gr_e - gr_w)
+        sig_comp_str = "{} greater in monkey E than W".format(sig_comp_stat)
+        self.save_stats_string(sig_comp_str, "guess-rate_comparison")
+
+    def panel_bhv(self, refit=False, task="retro"):
         key = "panel_bhv"
         axs = self.gss[key]
         data = self.load_pickles(task=task)
@@ -91,6 +122,17 @@ class SchematicFigure(KernelFigure):
         n_bins = self.params.getint("n_bins")
         tb = self.params.getfloat("text_buff")
         bins = np.linspace(-np.pi, np.pi, n_bins)
+        if self.data.get(key) is None or refit:
+            fits = {}
+            print("balh")
+            for m, (sessions, _) in data.items():
+                targs = np.concatenate(list(v["c_targ"] for v in sessions.values()))
+                dists = np.concatenate(list(v["c_dist"] for v in sessions.values()))
+                resps = np.concatenate(list(v["rc"] for v in sessions.values()))
+                fits[m] = stcc.fit_corr_guess_swap_model(targs, dists, resps)
+            self.data[key] = fits
+        fits = self.data[key]
+        self._save_bhv_stats(data, fits)
         for i, monkey in enumerate(self.monkeys):
             errs = []
             for sess_data in data[monkey][0].values():
@@ -110,7 +152,7 @@ class SchematicFigure(KernelFigure):
                 label = "density"
             else:
                 label = ""
-                
+
             gpl.make_yaxis_scale_bar(
                 axs[i], double=False, magnitude=0.1, label=label, text_buff=tb
             )
@@ -311,11 +353,13 @@ def _cat_keys(pickles, *keys):
     return out
 
 
-def _kl_div_quant(err, bins, n=1000):
+def _kl_div_quant(err, bins, n=1000, n_choice=None):
     out = np.zeros((n, len(bins) - 1))
+    if n_choice is None:
+        n_choice = len(err)
     rng = np.random.default_rng()
     for i in range(n):
-        inds = rng.choice(len(err), len(err))
+        inds = rng.choice(len(err), n_choice)
         out[i], _ = np.histogram(err[inds], bins=bins, density=True)
     return out
 
@@ -327,9 +371,7 @@ def _get_constrained_wid_fit(pickles, wids, n_bins=20, **kwargs):
     for m, (data, xs) in pickles.items():
         out_all[m] = {}
         targ, dist, resp = _cat_keys(data, "c_targ", "c_dist", "rc")
-        out_uncons[m] = stcc.fit_tcc_swap_model(
-            targ, dist, resp, **kwargs
-        )
+        out_uncons[m] = stcc.fit_tcc_swap_model(targ, dist, resp, **kwargs)
 
         for m2, wid in wids.items():
             fixed_params = {"width": torch.tensor(wid[0])}
@@ -360,6 +402,20 @@ def _estimate_behavioral_wids(pickles, **kwargs):
     return out_all
 
 
+def _estimate_k_width(bcs, ks, wid_range=(0.2, 8), n_wids=1000):
+    ks = (ks + ks[:, ::-1]) / 2
+    k_avg = np.mean(ks, axis=0)
+    k_avg = k_avg - np.mean(k_avg)
+    k_avg = k_avg / np.std(k_avg)
+
+    bcs = bcs.numpy()
+    wids = np.linspace(0.2, 8, 1000)
+    sub = swt.vm_kernel(bcs[None], wids[:, None])
+    ind = np.argmin(np.sum((sub - k_avg[None]) ** 2, axis=1))
+    m_wid = wids[ind]
+    return m_wid
+
+
 def _estimate_neural_wids(pickles, n_bins=25, use_gp=False, ks_dict=None, **kwargs):
     out_all = {}
     for m, (data, xs) in pickles.items():
@@ -367,7 +423,13 @@ def _estimate_neural_wids(pickles, n_bins=25, use_gp=False, ks_dict=None, **kwar
             kern = sns.AverageKernelMap(data, xs, n_bins=n_bins, **kwargs)
             ks, bcs = kern.get_kernel(use_gp=use_gp)
         else:
-            ks, bcs = ks_dict[m][0]
+            out = ks_dict[m]
+            try:
+                ks, bcs = out
+            except TypeError:
+                bcs = np.linspace(-np.pi, np.pi, n_bins)
+                ks = out(torch.tensor(bcs, dtype=torch.float))
+        ks = (ks + ks[:, ::-1]) / 2
         k_avg = np.mean(ks, axis=0)
         k_avg = k_avg - np.mean(k_avg)
         k_avg = k_avg / np.std(k_avg)
@@ -380,14 +442,15 @@ def _estimate_neural_wids(pickles, n_bins=25, use_gp=False, ks_dict=None, **kwar
     return out_all
 
 
-
 def _estimate_neural_func(pickles, n_bins=25, **kwargs):
     out_all = {}
+
     def wrap_func(func, mu, std, dtype=torch.float):
         def new_func(x):
             x = torch.tensor(x, dtype=dtype)
             y = np.mean(func(x), axis=1)
             return (y - mu) / std
+
         return new_func
 
     xs_norm = np.linspace(-np.pi, np.pi, 100)
@@ -396,7 +459,7 @@ def _estimate_neural_func(pickles, n_bins=25, **kwargs):
         f = kern.get_func()
         k_norm = np.mean(f(torch.tensor(xs_norm, dtype=torch.float)), axis=1)
         kf = wrap_func(f, np.mean(k_norm), np.std(k_norm))
-        
+
         out_all[m] = kf
     return out_all
 
@@ -514,30 +577,14 @@ class ExpAverageFigure(KernelFigure):
         neurs, xs = data[monkey]
 
         if self.data.get(key) is None or refit:
-            out_all = sns.compute_continuous_distance_matrix(
+            c_pred = np.linspace(-np.pi, np.pi, n_bins)
+            func = sns.fit_full_average_kernel(
                 neurs,
                 xs,
-                x_targ=target_x,
+                target_x=target_x,
+                p_thr=p_thr,
             )
-            kern_map = []
-            for out in out_all.values():
-                mask = out["ps"][:, 0] > p_thr
-                dists = out["dists"][mask][:, mask]
-                c1 = out["c1"][mask][:, mask]
-                c2 = out["c2"][mask][:, mask]
-
-                d_flat = dists.flatten()
-                c1_flat = c1.flatten()
-                c2_flat = c2.flatten()
-                d_flat, c1_flat, c2_flat = u.filter_nan(d_flat, c1_flat, c2_flat, ind=0)
-                cs = np.stack((c1_flat, c2_flat), axis=1)
-                c_pred = np.linspace(-np.pi, np.pi, n_bins)
-                c1s_pred, c2s_pred = np.meshgrid(c_pred, c_pred)
-                cs_pred = np.stack((c1s_pred.flatten(), c2s_pred.flatten()), axis=1)
-                preds = sns._fit_svgpr(cs, d_flat, cs_pred, num_epochs=15)
-                kern_map_i = np.reshape(preds, (n_bins, n_bins))
-                kern_map.append(kern_map_i)
-            kern_map = np.mean(kern_map, axis=0)
+            kern_map = sns.get_full_kernel_preds(c_pred, func, mean=True)
             self.data[key] = (c_pred, kern_map)
         c_pred, kern_map = self.data[key]
         v_extrem = np.abs(np.max(kern_map))
@@ -701,6 +748,7 @@ class ExpAverageFigure(KernelFigure):
                     n_bins=n_bins,
                     refit=refit_kfunc,
                 )
+
             for monkey in self.monkeys:
                 targs_all = []
                 dists_all = []
@@ -709,7 +757,6 @@ class ExpAverageFigure(KernelFigure):
                     targs_all.extend(sess_data["c_targ"])
                     dists_all.extend(sess_data["c_dist"])
                     resps_all.extend(sess_data["rc"])
-
                 bhv_fits[monkey] = {}
                 for m2 in self.monkeys:
                     bhv_fits[monkey][m2] = stcc.fit_tcc_kernel_model(
@@ -755,6 +802,33 @@ class ExpAverageFigure(KernelFigure):
         ax_quant.set_yticks([0, 1])
         ax_quant.set_yticklabels(["E", "W"])
 
+    def _save_kernel_stats(self, kernels):
+        m_wids = []
+        m_uses = []
+        for m in self.monkeys:
+            m_use = m[0].upper()
+            m_uses.append(m_use)
+            kf = kernels[m]
+            bs = torch.linspace(-np.pi, np.pi, 100)
+            k_m = kf(bs)
+            wids = np.zeros(len(k_m))
+            for i, km_i in enumerate(k_m):
+                km_i_exp = km_i[None]
+                wids[i] = _estimate_k_width(bs, km_i_exp)
+            m_wids.append(wids)
+            m_si = u.format_sirange(
+                *gpl.sem(wids, withmean=True)[:, 0], units="\\radian"
+            )
+            self.save_stats_string(
+                "Monkey {}: {}".format(m_use, m_si), "kernel-wid_{}".format(m_use)
+            )
+
+        diff_samps = u.bootstrap_diff(*m_wids)
+        sr = u.format_samps_sirange(diff_samps, units="\\radian")
+        self.save_stats_string(
+            "{} wider in Monkey {} than {}".format(sr, *m_uses), "kernel-wid-diff"
+        )
+
     def panel_kernel(self, refit=False, task="retro"):
         key = "panel_kernel"
         axs_kern, axs_bhv = self.gss[key]
@@ -794,16 +868,15 @@ class ExpAverageFigure(KernelFigure):
                         lr=lr,
                         n_steps=n_steps,
                     )
-                out = sns.compute_continuous_distance_matrix(
-                    *data[monkey],
+                akm = sns.AverageKernelMap(*data[monkey], n_bins=n_bins)
+                kern_fits[monkey] = akm.get_func(
+                    p_thr=p_thr,
                     color_key=self.params.get("use_color"),
-                )
-                kern_fits[monkey] = sns.compute_continuous_distance_masks(
-                    out, p_thr=p_thr, n_bins=n_bins
                 )
 
             self.data[key] = bhv_fits, kern_fits
         bhv_fits, kern_fits = self.data[key]
+        self._save_kernel_stats(kern_fits)
         for i, (monkey, fit) in enumerate(bhv_fits.items()):
             pred_errs = u.normalize_periodic_range(
                 fit["predictive_samples"] - np.expand_dims(fit["targs"], 0)
@@ -821,7 +894,7 @@ class ExpAverageFigure(KernelFigure):
 
             use_bs = np.expand_dims(bins, 0)
             wids = np.expand_dims(fit["samples"]["width"], 1)
-            funcs = swt.vm_kernel(use_bs, wids)
+            funcs = np.squeeze(swt.vm_kernel(use_bs, wids))
             color = self.monkey_colors[monkey]
             func_mu = np.mean(funcs, axis=0)
             fmin = np.min(func_mu)
@@ -836,7 +909,8 @@ class ExpAverageFigure(KernelFigure):
                 label="kernel estimated\nfrom behavior",
             )
 
-            ys, xs = kern_fits[monkey][0]
+            xs = torch.linspace(-np.pi, np.pi, 100)
+            ys = kern_fits[monkey](xs)
             ys_mu = np.nanmean(ys, axis=0, keepdims=True)
             scaler = skp.MinMaxScaler().fit(ys_mu.T)
             ys_scale = np.squeeze(
@@ -1012,8 +1086,16 @@ class ExpAverageFigure(KernelFigure):
             axs[i].set_ylabel("threshold error rate")
 
             for m2 in self.monkeys:
+                bins = np.linspace(-np.pi, np.pi, 21)
+                _, errs, errs_wid, _ = wid_fit[1][m][m2]
+                x1 = _kl_div_quant(errs, bins)
+                x2 = _kl_div_quant(errs_wid, bins, n_choice=len(errs))
+                # replace with log likelihood of best fitting model given other width
+                # this is similar to that, but it's a bit ad hoc
+                use_kl = wid_fit[1][m][m2][0]
+                use_kl = np.sum(sps.kl_div(x1, x2), axis=1)
                 gpl.violinplot(
-                    [wid_fit[m][m2]],
+                    [use_kl],
                     [i],
                     ax=ax_quant,
                     vert=False,
@@ -1105,6 +1187,17 @@ class GeometryChangeFigure(KernelFigure):
             _make_xaxis_pi(axs[i, 1])
             axs[i, 0].set_xlabel(r"$\Delta$ target")
             axs[i, 1].set_xlabel(r"$\Delta$ target")
+
+
+def compute_kernel_height(kernel, bins):
+    if len(kernel.shape) == 1:
+        kernel = kernel[None]
+    a_bs = np.abs(bins)
+    min_mask = np.min(a_bs) == a_bs
+    max_mask = np.max(a_bs) == a_bs
+    k_min = np.mean(kernel[:, min_mask], axis=1)
+    k_max = np.mean(kernel[:, max_mask], axis=1)
+    return k_min - k_max
 
 
 class CombinedSingleTrialFigure(KernelFigure):
@@ -1336,6 +1429,7 @@ class CombinedSingleTrialFigure(KernelFigure):
                             p_thr=p_thr,
                             n_bins=n_bins,
                             use_gp=use_gp,
+                            compute_inds=list(plot_inds.keys()),
                         )
                     else:
                         mask_dict = {}
@@ -1355,6 +1449,7 @@ class CombinedSingleTrialFigure(KernelFigure):
             self.data[key] = kernels
 
         kernels = self.data[key]
+        self._save_kernel_stats(kernels, time_key)
         for i, monkey in enumerate(self.monkeys):
             for j, ck in enumerate(color_keys):
                 mask_dict = kernels[monkey][ck]
@@ -1375,6 +1470,81 @@ class CombinedSingleTrialFigure(KernelFigure):
                         label_use = ""
                     gpl.plot_trace_werr(xs, ys, ax=ax, label=label_use, color=colors[k])
                     _make_xaxis_pi(ax)
+
+    def _save_kernel_stats(self, kernels, time):
+        for m in self.monkeys:
+            m_use = m[0].upper()
+            for ck in kernels[m].keys():
+                k_c, bs_c = kernels[m][ck][0]
+                k_g, bs_g = kernels[m][ck][2]
+                c_h = compute_kernel_height(k_c, bs_c)
+                g_h = compute_kernel_height(k_g, bs_g)
+
+                res_c = sts.ttest_1samp(c_h, 0)
+                c_range = gpl.sem(c_h, withmean=True)
+                p_str = u.format_pvalue(res_c.pvalue)
+                c_str = "monkey {}: {} au, {}, df = {}".format(
+                    m_use,
+                    u.format_sirange(*c_range[:, 0]),
+                    p_str,
+                    res_c.df,
+                )
+                self.save_stats_string(c_str, "corr-{}_{}_{}".format(ck, time, m_use))
+
+                res_g = sts.ttest_1samp(g_h, 0)
+                g_range = gpl.sem(g_h, withmean=True)
+                p_str = u.format_pvalue(res_g.pvalue)
+                g_str = "monkey {}: {} au, {}, df = {}".format(
+                    m_use,
+                    u.format_sirange(*g_range[:, 0]),
+                    p_str,
+                    res_g.df,
+                )
+                self.save_stats_string(g_str, "guess-{}_{}_{}".format(ck, time, m_use))
+
+                res_diff = sts.ttest_rel(c_h, g_h)
+                diff_range = gpl.sem(c_h - g_h, withmean=True)
+                p_str = u.format_pvalue(res_diff.pvalue)
+                diff_str = "monkey {}: {} au, {}, df = {}".format(
+                    m_use,
+                    u.format_sirange(*diff_range[:, 0]),
+                    p_str,
+                    res_diff.df,
+                )
+                self.save_stats_string(
+                    diff_str, "diff-{}_{}_{}".format(ck, time, m_use)
+                )
+
+    def _save_kernel_tc_stats(self, kernels):
+        for time, kernel_t in kernels.items():
+            for m in self.monkeys:
+                m_use = m[0].upper()
+                k_tm, xs = kernel_t[m]
+                k_rc = k_tm[0]
+                p_tr = np.array(
+                    list(
+                        sts.ttest_1samp(k_rc[:, i], 0, alternative="greater").pvalue
+                        for i in range(k_rc.shape[1])
+                    )
+                )
+                print(p_tr)
+
+                def func(k_tc, p_thr=0.05):
+                    p_tr = list(
+                        sts.ttest_1samp(k_tc[:, i], 0, alternative="greater").pvalue
+                        for i in range(k_tc.shape[1])
+                    )
+                    sigs = np.where(np.array(p_tr) < p_thr)[0]
+                    if len(sigs) > 1 and np.any(np.diff(sigs) == 1):
+                        x_sig = xs[sigs[0]]
+                    else:
+                        x_sig = np.nan
+                    return x_sig
+
+                print(k_rc.shape)
+                boots = u.bootstrap_list(k_rc, func)
+                # print(boots)
+                print(time, m_use, u.format_samps_sirange(boots))
 
     def panel_tc(self, refit=False):
         key = "panel_tc"
@@ -1424,6 +1594,8 @@ class CombinedSingleTrialFigure(KernelFigure):
         g_color = self.params.getcolor("guess_color")
         s_color = self.params.getcolor("swap_color")
         t_strs = ("color onset", "cue onset", "response period")
+
+        # self._save_kernel_tc_stats(kernels)
 
         colors = (c_color, g_color, s_color)
         for i, time in enumerate(t_keys):

@@ -114,6 +114,19 @@ def decode_outcome(pickle, p_key="ps", **kwargs):
     return decode_pickle_func(pickle, field_func, return_confusion=True, **kwargs)
 
 
+def combine_pickles(*pickles, axis=-1, comb_key="spks"):
+    ref_p = pickles[0]
+    new_p = {}
+    for k, ref_v in ref_p.items():
+        new_v = dict(**ref_v)
+        comb_all = []
+        for p in pickles:
+            comb_all.append(p[k][comb_key])
+        new_v[comb_key] = np.concatenate(comb_all, axis=axis)
+        new_p[k] = new_v
+    return new_p
+
+
 def decode_pickle_func(
     pickle,
     field_func,
@@ -168,15 +181,17 @@ def decode_pickle_func(
             **kwargs,
         )
         out_info[num] = {
-            "test_inds": out["test_inds"],
-            "test_labels": dec_cont[out["test_inds"]],
+            "test_inds": out.get("test_inds"),
             "targs": dec_targ,
             "targs_continuous": dec_cont,
-            "projection": out["projection"],
+            "projection": out.get("projection"),
             "gen": out.get("score_gen"),
             "projections_gen": out.get("projections_gen"),
             "labels_gen": out.get("labels_gen"),
         }
+        if out.get("test_inds") is not None:
+            out_info[num]["test_labels"] = dec_cont[out["test_inds"]]
+
         perf[i] = out["score"]
         if return_confusion:
             confusion.append(out["confusion"])
@@ -2295,6 +2310,21 @@ motoaki_unique_keys = {"block": "COL_BLOCK", "colortemp": "COLORTEMP"}
 motoaki_save_keys = dict(**core_save_keys, **motoaki_unique_keys)
 
 
+def compute_pro_delays(data):
+    delay1 = data["SAMPLES_ON_diode"] - data["CUE1_ON_diode"]
+    delay2 = data["WHEEL_ON_diode"] - data["SAMPLES_ON_diode"]
+    return delay1, delay2
+
+def compute_retro_delays(data):
+    delay1 = data["CUE2_ON_diode"] - data["SAMPLES_ON_diode"]
+    delay2 = data["WHEEL_ON_diode"] - data["CUE2_ON_diode"]
+    return delay1, delay2
+    
+
+def compute_single_delay(data):
+    delay1 = data["WHEEL_ON_diode"] - data["SAMPLES_ON_diode"]
+    return delay1,
+
 def make_lm_tc_pops(
     data,
     use_pro=False,
@@ -2313,12 +2343,15 @@ def make_lm_tc_pops(
     if use_pro:
         data = pro_mask(data)
         sequence = pro_sequences
+        delays = compute_pro_delays(data)
     elif use_single:
         data = single_mask(data)
         sequence = retro_sequences
+        delays = compute_single_delay(data)
     else:
         data = retro_mask(data)
         sequence = retro_sequences
+        delays = compute_retro_delays(data)
     if rt_thresh is not None:
         mask = data[rt_key] < rt_thresh
         data = data.mask(mask)
@@ -2335,6 +2368,8 @@ def make_lm_tc_pops(
             **kwargs,
         )
         out_dict = {"spks": spks}
+        for i, delay in enumerate(delays):
+            out_dict["delay{}".format(i + 1)] = list(x.to_numpy() for x in delay)
         for k, ref in save_keys.items():
             if u.check_list(ref):
                 ref = list(ref)

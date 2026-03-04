@@ -1,17 +1,16 @@
+import ast
 import numpy as np
 import scipy.io as sio
 import pandas as pd
 import os
 import re
-import pickle
 import arviz as az
 import collections as c
 import itertools as it
 import mat73
+import pynwb as nwb
 
 import general.utility as u
-import general.neural_analysis as na
-import general.data_io as gio
 
 guess_model_names = (
     "arviz_fit_null_guess_model.pkl",
@@ -301,11 +300,13 @@ def block_colors(pi, targ_block=1, eps=1e-10, offset=0):
     start_ind = np.where(np.diff(mask.astype(int)) == 1)[0] + 1
     if len(start_ind) == 0 and sum(mask) > 0:
         start_ind = 0
+
     def func(c):
         normed = u.normalize_periodic_range(c - all_colors[start_ind] - offset)
         return normed > -eps
+
     try:
-        assert np.mean(func(all_colors)) == .5
+        assert np.mean(func(all_colors)) == 0.5
     except AssertionError as e:
         print(np.mean(func(all_colors)))
         raise e
@@ -321,7 +322,7 @@ def block_colors(pi, targ_block=1, eps=1e-10, offset=0):
     return func
 
 
-pop_pickle_template = "lmtc_{task}{region}_{time}_(?P<session>[0-9]+)\\.pkl"
+pop_pickle_template = "lmtc_{task}{region}_{time}_{monkey}(?P<session>[0-9]+)\\.pkl"
 
 
 def load_pop_pickles(
@@ -332,27 +333,27 @@ def load_pop_pickles(
     folder="swap_errors/lm_data/",
     monkey="Elmo",
 ):
-    templ = template.format(region=region, task=task, time=time)
+    templ = template.format(
+        region=region, task=task, time=time, monkey=monkey[0].upper()
+    )
     file_gen = u.load_folder_regex_generator(
         folder,
         templ,
     )
-    m_sessions = {"Elmo": range(13), "Waldorf": range(13, 24)}[monkey]
     out_dict = {}
     for fl, fl_info, data_fl in file_gen:
         session = int(fl_info["session"])
-        if session in m_sessions:
-            out_dict[session] = data_fl
-            xs = data_fl["other"]["xs"]
-            mask = data_fl["cues_alt"] == 1
-            c_targ = np.zeros(len(data_fl["uc"]))
-            c_dist = np.zeros(len(data_fl["uc"]))
-            c_targ[mask] = data_fl["uc"][mask]
-            c_dist[mask] = data_fl["lc"][mask]
-            c_targ[~mask] = data_fl["lc"][~mask]
-            c_dist[~mask] = data_fl["uc"][~mask]
-            data_fl["c_targ"] = c_targ
-            data_fl["c_dist"] = c_dist
+        out_dict[session] = data_fl
+        xs = data_fl["other"]["xs"]
+        mask = data_fl["cues_alt"] == 1
+        c_targ = np.zeros(len(data_fl["uc"]))
+        c_dist = np.zeros(len(data_fl["uc"]))
+        c_targ[mask] = data_fl["uc"][mask]
+        c_dist[mask] = data_fl["lc"][mask]
+        c_targ[~mask] = data_fl["lc"][~mask]
+        c_dist[~mask] = data_fl["uc"][~mask]
+        data_fl["c_targ"] = c_targ
+        data_fl["c_dist"] = c_dist
     return out_dict, xs
 
 
@@ -875,6 +876,218 @@ def load_buschman_motoaki_data(
         extra_time=1,
         **kwargs,
     )
+
+
+watters_bhv_template = "sub-{monkey}_ses-(?P<date>[0-9\-]+)_behavior\+task.nwb"
+watters_ephys_template = "sub-{monkey}_ses-{date}_spikesorting.nwb"
+
+
+def nwb_read(fl):
+    bhv_io = nwb.NWBHDF5IO(fl, mode="r", load_namespaces=True)
+    bhv = bhv_io.read()
+    return bhv
+
+
+def _process_watters_ephys(
+    starts,
+    stops,
+    units,
+    buffer=0.5,
+):
+    n_units = len(units)
+    quality = (list(units["quality"]),) * len(starts)
+    regions = ((("general",) * n_units),) * len(starts)
+    spk_ts = np.zeros(len(starts), dtype=object)
+    for i, s_i in enumerate(starts):
+        e_i = stops[i]
+        spks_i = np.zeros(n_units, dtype=object)
+        for j in range(len(units)):
+            ts_ij = units.spike_times_index[j]
+            m_ij = np.logical_and(s_i - buffer <= ts_ij, e_i + buffer > ts_ij)
+            spks_i[j] = ts_ij[m_ij]
+        spk_ts[i] = spks_i
+    return spk_ts, quality, regions
+
+
+def get_stim_and_target_info(bhv, err_thr=np.pi / 4, pos_offset=0.5):
+    n_stim = []
+    targ_stim = []
+    resp_stim = []
+    resp_stim_ind = []
+    targ_loc = []
+    targ_loc_rad = []
+    resp_loc_rad = []
+    correct_resp = []
+    resp_dists = []
+    idents = []
+    stim_pos_rad = []
+    stim_pos = []
+
+    for i, ident in enumerate(bhv["stimulus_object_identities"]):
+        # get identities
+        ident = ast.literal_eval(ident)
+        ident = np.array(ident)
+        idents.append(ident)
+
+        # get n_stim
+        n_stim.append(len(ident))
+
+        # get target identity
+        targ_i = bhv["stimulus_object_target"].iloc[i]
+        targ_i = targ_i.replace("true", "True")
+        targ_i = targ_i.replace("false", "False")
+        targ_i = ast.literal_eval(targ_i)
+        targ_stim.append(ident[targ_i][0])
+
+        # get stim locations
+        locs_i = np.array(ast.literal_eval(bhv["stimulus_object_positions"].iloc[i]))
+        locs_i = locs_i - pos_offset
+        stim_pos.append(locs_i)
+        pr_i = u.sincos_to_radian(*u.make_unit_vector(locs_i).T)
+        stim_pos_rad.append(np.reshape(pr_i, (-1,)))
+
+        # get target position
+        targ_loc.append(locs_i[targ_i])
+        targ_loc_rad.append(u.sincos_to_radian(*u.make_unit_vector(targ_loc[i])))
+
+        # get response position
+        r_pos = np.array(bhv["response_position"].iloc[i]) - pos_offset
+        if not np.all(np.isnan(r_pos)):
+            resp_loc_rad.append(u.sincos_to_radian(*u.make_unit_vector(r_pos)))
+            rds = np.sum((locs_i - r_pos) ** 2, axis=1)
+
+            resp_dists.append(rds)
+            resp_stim_ind.append(np.argmin(rds))
+            resp_stim.append(ident[resp_stim_ind[i]])
+            correct_resp.append(
+                np.abs(u.normalize_periodic_range(resp_loc_rad[i] - targ_loc_rad[i]))
+                < err_thr
+            )
+        else:
+            resp_dists.append(np.ones(n_stim[i]) * np.nan)
+            resp_stim_ind.append(-1)
+            resp_loc_rad.append(np.nan)
+            resp_stim.append(np.nan)
+            correct_resp.append(np.nan)
+    return {
+        "n_stim": n_stim,
+        "stim_pos_rad": stim_pos_rad,
+        "stim_pos": stim_pos,
+        "stim_idents": idents,
+        "targ_stim": targ_stim,
+        "resp_stim": resp_stim,
+        "resp_stim_ind": resp_stim_ind,
+        "targ_loc": targ_loc,
+        "targ_loc_rad": targ_loc_rad,
+        "resp_loc_rad": resp_loc_rad,
+        "correct": correct_resp,
+        "resp_dists": resp_dists,
+    }
+
+
+def add_object_pos_fields(
+    df,
+    task,
+    objs=("a", "b", "c"),
+    p_cents=(-2.61799388, -0.52359878, 1.57079633),
+    eps=1e-3,
+):
+    o_group = dict({k: np.zeros(len(df)) * np.nan for k in objs})
+    if task == "triangle":
+        p_group = tuple([] for _ in p_cents)
+        t_group = tuple([] for _ in p_cents)
+        targs = df["targ_stim"].to_numpy()
+        pos = df["stim_pos_rad"].to_numpy()
+        idents = df["stim_idents"].to_numpy()
+        for i, p_i in enumerate(pos):
+            for j, pc_j in enumerate(p_cents):
+                ind_ij = np.where(np.abs(p_i - pc_j) < eps)[0]
+                if len(ind_ij) > 0:
+                    insert = idents[i][ind_ij[0]]
+                    o_group[insert] = j + 1
+                else:
+                    insert = "Z"
+                p_group[j].append(insert)
+                t_group[j].append(insert == targs[i])
+    else:
+        p_group = tuple(np.ones(len(df)) * np.nan for _ in p_cents)
+    for i, pg in enumerate(p_group):
+        df["pos{}_stim".format(i + 1)] = p_group[i]
+        df["pos{}_targ".format(i + 1)] = t_group[i]
+    for o, v in o_group.items():
+        df["obj-{}_pos".format(o)] = v
+
+def load_watters_data(
+    folder,
+    bhv_template=watters_bhv_template,
+    ephys_template=watters_ephys_template,
+    folder_re="sub-(?P<monkey>[a-zA-Z]+)",
+    folder_template="sub-{monkey}",
+    bhv_folder="behavior",
+    ephys_folder="spikesorting",
+    load_tasks=("triangle", "ring"),
+    max_files=np.inf,
+):
+    bhv_path = os.path.join(folder, bhv_folder)
+    animals = []
+    animal_fls = []
+    for fl in os.listdir(bhv_path):
+        m_fl = re.match(folder_re, fl)
+        if m_fl is not None:
+            animals.append(m_fl.groupdict()["monkey"])
+            animal_fls.append(fl)
+
+    counter = 0
+    dates, expers, monkeys, datas = [], [], [], []
+    n_neurs = []
+    for i, animal in enumerate(animals):
+        f_i = os.path.join(bhv_path, animal_fls[i])
+        gen_i = u.load_folder_regex_generator(
+            f_i,
+            bhv_template.format(monkey=animal),
+            load_func=nwb_read,
+            open_file=False,
+        )
+        ephys_trunk = os.path.join(folder, ephys_folder, animal_fls[i])
+        for fl, gd, bhv_ij in gen_i:
+            combined_df = bhv_ij.trials.to_dataframe()
+            proc_bhv_ij = get_stim_and_target_info(combined_df)
+            proc_bhv_ij = pd.DataFrame(proc_bhv_ij)
+            combined_df = pd.concat((combined_df, proc_bhv_ij), axis=1)
+            frac_3 = np.mean(combined_df["n_stim"] == 3)
+            if frac_3 > 0.2:
+                task = "triangle"
+            else:
+                task = "ring"
+            if task in load_tasks:
+                add_object_pos_fields(combined_df, task)
+                counter += 1
+                expers.append(task)
+                dates.append(gd["date"])
+                monkeys.append(animal)
+                ephys_ij = nwb_read(
+                    os.path.join(
+                        ephys_trunk,
+                        ephys_template.format(monkey=animal, date=gd["date"]),
+                    )
+                )
+                ece = ephys_ij.processing["ecephys"]
+                units = ece.data_interfaces["units"]
+                if units is not None:
+                    n_neurs.append(len(units))
+                    spks, regions, quality = _process_watters_ephys(
+                        combined_df["start_time"], combined_df["stop_time"], units
+                    )
+                    combined_df["spikeTimes"] = spks
+                    combined_df["neur_regions"] = regions
+                    combined_df["neur_quality"] = quality
+                datas.append(combined_df)
+                if counter >= max_files:
+                    break
+    super_dict = dict(
+        date=dates, experiment=expers, animal=monkeys, data=datas, n_neurs=n_neurs
+    )
+    return super_dict
 
 
 def load_buschman_data(

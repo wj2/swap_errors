@@ -6,6 +6,7 @@ import sklearn.manifold as skm
 import sklearn.linear_model as sklm
 import sklearn.svm as sk_svm
 import scipy.stats as sts
+import scipy.signal as sig
 import arviz as az
 import itertools as it
 import seaborn as sns
@@ -21,6 +22,22 @@ import swap_errors.auxiliary as swaux
 import swap_errors.neural_similarity as ns
 
 import torch
+
+
+def plot_trial_type_rate(*ps, trls=None, winsize=20, p_thr=0.3, ax=None, **kwargs):
+    ps_comb = u.combine_jagged_list(ps)
+    if trls is None:
+        trls = np.arange(ps_comb.shape[-1])
+
+    filt = np.ones((1, winsize))
+
+    non_nans = np.logical_not(np.isnan(ps_comb))
+    weight = np.nanmean(
+        sig.convolve(non_nans, filt, mode="valid"), axis=0, keepdims=True
+    )
+    rate = sig.convolve(ps_comb > p_thr, filt, mode="valid")
+    trl_num = sig.convolve(trls, filt[0] / winsize, mode="valid")
+    gpl.plot_trace_werr(trl_num, rate / weight, ax=ax, **kwargs)
 
 
 @gpl.ax_adder()
@@ -230,7 +247,11 @@ def plot_corr_guess_histogram(
     _, bins, _ = ax.hist(
         (guesses, others, corrs),
         bins=bins,
-        color=(guess_color, other_color, corr_color,),
+        color=(
+            guess_color,
+            other_color,
+            corr_color,
+        ),
         stacked=True,
         label=("guess", "other", "correct"),
         **kwargs,

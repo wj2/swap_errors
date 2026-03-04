@@ -14,26 +14,9 @@ import general.neural_analysis as na
 import general.utility as u
 import pyro.distributions as distribs
 import gpytorch as gpt
-import gpflow
 import logging
 import general.plotting as gpl
-
-
-class SVGPRFlow:
-    def __init__(
-        self,
-        kernel=None,
-        opt=None,
-        model=gpflow.models.SVGP,
-        likelihood=None,
-    ):
-        if kernel is None:
-            kernel = gpflow.kernels.SquaredExponential()
-        self.kernel = kernel
-        if opt is None:
-            opt = gpflow.optimizers.Scipy()
-        self.opt = opt
-        self.model = model
+import general.torch.utility as gtu
 
 
 def similarity_model(
@@ -73,7 +56,7 @@ def fit_similarity_model(c_diff_ind, diff_cents, similarities, n_samps=500, **kw
     preds = gpu.sample_fit_model(
         inp,
         out["model"],
-        out["guide"],
+        use_guide=out["guide"],
         n_samps=n_samps,
     )
     out["predictive_samples"] = preds
@@ -519,7 +502,7 @@ class GPWrapper:
     def train_model(
         self,
         num_steps=2000,
-        lr=0.005,
+        lr=0.01,
         show_logging=False,
         smoke_test=False,
         fix_params=(),
@@ -530,7 +513,7 @@ class GPWrapper:
         )
         optimizer = torch.optim.Adam(param_list, lr=lr)
         loss_fn = gpt.mlls.ExactMarginalLogLikelihood(self.likelihood, self.gp)
-        losses = []
+        losses = np.zeros(num_steps)
         use_steps = num_steps if not smoke_test else 2
         for i in range(use_steps):
             optimizer.zero_grad()
@@ -538,11 +521,12 @@ class GPWrapper:
             loss = -loss_fn(output, self.train_y)
             loss.backward()
             optimizer.step()
-            losses.append(loss.item())
+            losses[i] = loss.item()
             if i % 100 == 0 and show_logging:
                 logging.info("Elbo loss: {}".format(loss))
         self.losses = losses
         self.eval()
+        return self.losses
 
     def __call__(self, inp, **kwargs):
         if not self.eval_mode:
@@ -564,9 +548,64 @@ def _mu_cov_gp(gp, likelihood, inp):
     return mu, cov
 
 
+class MultitaskIndependentKernel(gpt.kernels.Kernel):
+    def __init__(
+        self,
+        data_covar_module: gpt.kernels.Kernel,
+        num_tasks: int,
+        rank: int | None = 1,
+        task_covar_prior: gpt.priors.Prior | None = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.task_covar_module = gpt.kernels.IndexKernel(
+            num_tasks=num_tasks,
+            batch_shape=self.batch_shape,
+            rank=rank,
+            prior=task_covar_prior,
+        )
+        self.data_covar_module = data_covar_module
+        self.num_tasks = num_tasks
+
+    def forward(self, x1, x2, diag=False, last_dim_is_batch=False, **params):
+        if last_dim_is_batch:
+            raise RuntimeError(
+                "MultitaskKernel does not accept the last_dim_is_batch argument."
+            )
+        covar_i = self.task_covar_module.covar_matrix
+        print(covar_i.shape)
+        if len(x1.shape[:-2]):
+            covar_i = covar_i.repeat(*x1.shape[:-2], 1, 1)
+        covar_x = gpt.linear_operator.to_linear_operator(
+            self.data_covar_module.forward(x1, x2, **params)
+        )
+        print(covar_x.shape, x1.shape, x2.shape)
+        res = gpt.linear_operator.operators.KroneckerProductLinearOperator(
+            covar_x, covar_i
+        )
+        print(res.shape)
+        return res.diagonal(dim1=-1, dim2=-2) if diag else res
+
+    def num_outputs_per_input(self, x1, x2):
+        """
+        Given `n` data points `x1` and `m` datapoints `x2`, this multitask
+        kernel returns an `(n*num_tasks) x (m*num_tasks)` covariance matrix.
+        """
+        return self.num_tasks
+
+
 class MultitaskGPModel(gpt.models.ExactGP):
-    def __init__(self, train_x, train_y, likelihood=None, task_rank=1):
+    def __init__(
+        self, train_x, train_y, likelihood=None, periodic=True, output_rank=None
+    ):
         num_tasks = train_y.shape[1]
+        if output_rank < 1:
+            output_rank = int(output_rank * num_tasks)
+        elif output_rank is None:
+            output_rank = num_tasks
+        if periodic:
+            train_x = gtu.radian_to_sincos(train_x)
+        self.periodic = periodic
         if likelihood is None:
             likelihood = gpt.likelihoods.MultitaskGaussianLikelihood(
                 num_tasks=num_tasks
@@ -578,10 +617,10 @@ class MultitaskGPModel(gpt.models.ExactGP):
             gpt.means.ConstantMean(),
             num_tasks=num_tasks,
         )
-        self.covar_module = gpt.kernels.MultitaskKernel(
-            gpt.kernels.RBFKernel(),
+        self.covar_module = MultitaskIndependentKernel(
+            gpt.kernels.RBFKernel() + gpt.kernels.ConstantKernel(),
             num_tasks=num_tasks,
-            rank=task_rank,
+            rank=output_rank,
         )
 
     def forward(self, x):
@@ -589,27 +628,43 @@ class MultitaskGPModel(gpt.models.ExactGP):
         covar_x = self.covar_module(x)
         return gpt.distributions.MultitaskMultivariateNormal(mean_x, covar_x)
 
+    def __call__(self, x):
+        if self.periodic:
+            x = gtu.radian_to_sincos(x)
+        return super().__call__(x)
+
 
 def _fit_joint_gp(
     colors,
     resps,
-    inducing=None,
-    noise=1,
-    var=0.2,
-    ls=1,
+    periodic=True,
+    probe_bounds=(-np.pi, np.pi),
+    n_bins=100,
+    norm=True,
+    output_rank=None,
     **kwargs,
 ):
+    if norm:
+        pipe = na.make_model_pipeline(norm=True)
+        resps = pipe.fit_transform(resps)
     torch.set_default_dtype(torch.double)
     resps = torch.tensor(resps)
     colors = torch.tensor(colors)
 
-    gpr = MultitaskGPModel(colors, resps)
+    gpr = MultitaskGPModel(colors, resps, periodic=periodic, output_rank=output_rank)
     gp_wrapper = GPWrapper(colors, resps, gpr)
-    gp_wrapper.train_model(**kwargs)
+    losses = gp_wrapper.train_model(**kwargs)
+
+    probe = torch.linspace(*probe_bounds, n_bins)
+    pred_mu, pred_cov = gp_wrapper(probe)
 
     out_dict = {
         "X": colors.detach().numpy(),
         "y": resps.detach().numpy(),
+        "X_probe": probe.numpy(),
+        "y_mu_probe": pred_mu.detach().numpy(),
+        "y_cov_probe": pred_cov.detach().numpy(),
+        "losses": losses,
         "model": gp_wrapper,
     }
     return out_dict
@@ -912,10 +967,10 @@ class AverageKernelMap:
             f = k.get_func(**kwargs)
             func_elem.append(f)
 
-        def func(x):
-            rep = np.zeros((len(x), len(func_elem)))
+        def func(x, **kwargs):
+            rep = np.zeros((len(func_elem), len(x)))
             for i, f in enumerate(func_elem):
-                rep[:, i] = f(x)
+                rep[i] = f(x, **kwargs)
             return rep
 
         return func
@@ -935,6 +990,69 @@ class AverageKernelMap:
             kern_out.append(k_i)
         kern_out = np.stack(kern_out, axis=0)
         return kern_out, bins
+
+
+class CombinedAGPRegression(gpt.models.ApproximateGP):
+    def __init__(self, inducing_points, periodic=True):
+        if len(inducing_points.shape) == 1 or inducing_points.shape[-1] != 2:
+            raise ValueError(
+                "need (N, 2) shape for inducing points but got {}".format(
+                    inducing_points.shape
+                )
+            )
+        inducing_points = self.add_delta_points(inducing_points)
+        if periodic:
+            inducing_points = self._make_periodic(inducing_points)
+            dims = list(range(inducing_points.shape[1]))
+            nd_comb = 2
+            nd_spec = 4
+        else:
+            dims = list(range(inducing_points.shape[1]))
+            nd_comb = 1
+            nd_spec = 2
+        dims_comb = dims[-nd_comb:]
+        dims_spec = dims[:nd_spec]
+        self.periodic = periodic
+        variational_distribution = gpt.variational.CholeskyVariationalDistribution(
+            inducing_points.size(0)
+        )
+        variational_strategy = gpt.variational.VariationalStrategy(
+            self,
+            inducing_points,
+            variational_distribution,
+            learn_inducing_locations=True,
+        )
+        super().__init__(variational_strategy)
+        self.mean_module = gpt.means.ConstantMean()
+        self.covar_module = gpt.kernels.ScaleKernel(
+            gpt.kernels.RBFKernel(active_dims=dims_comb)
+            + gpt.kernels.ScaleKernel(gpt.kernels.RBFKernel(active_dims=dims_spec))
+            + gpt.kernels.ConstantKernel()
+        )
+
+    def add_delta_points(self, x):
+        diff = x[:, 0] - x[:, 1]
+        return torch.concatenate((x, diff[:, None]), axis=1)
+
+    def _make_periodic(self, x):
+        if len(x.shape) == 1:
+            x = torch.unsqueeze(x, -1)
+        x = list(
+            torch.stack((torch.cos(x[:, i]), torch.sin(x[:, i])), axis=1)
+            for i in range(x.shape[1])
+        )
+        return torch.concatenate(x, axis=1)
+
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpt.distributions.MultivariateNormal(mean_x, covar_x)
+
+    def __call__(self, x, **kwargs):
+        x = self.add_delta_points(x)
+        if self.periodic:
+            x = self._make_periodic(x)
+        return super().__call__(x, **kwargs)
 
 
 class AGPRegression(gpt.models.ApproximateGP):
@@ -983,10 +1101,12 @@ def _fit_svgpr(
     x_preds,
     smoke_test=False,
     batch_size=2000,
-    num_epochs=15,
+    num_epochs=35,
     num_inducing=500,
+    combined_model=True,
+    two_d=False,
     lr=0.01,
-    return_model=False,
+    return_info=False,
     **kwargs,
 ):
     X_nan_mask = np.isnan(X)
@@ -1006,7 +1126,10 @@ def _fit_svgpr(
         y = y.cuda()
     inds = rng.choice(len(X), num_inducing, axis=0)
     pts = X[inds]
-    model = AGPRegression(pts, periodic=True)
+    if combined_model and two_d:
+        model = CombinedAGPRegression(pts, periodic=True)
+    else:
+        model = AGPRegression(pts, periodic=True)
     likelihood = gpt.likelihoods.GaussianLikelihood()
     # likelihood = gpt.likelihoods.StudentTLikelihood()
     if torch.cuda.is_available():
@@ -1029,6 +1152,7 @@ def _fit_svgpr(
     train_dataset = TensorDataset(X, y)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     epochs_iter = tqdm.notebook.tqdm(range(num_epochs), desc="Epoch")
+    losses = np.zeros(num_epochs)
     for i in epochs_iter:
         minibatch_iter = tqdm.notebook.tqdm(train_loader, desc="Minibatch", leave=False)
         for x_batch, y_batch in minibatch_iter:
@@ -1038,14 +1162,29 @@ def _fit_svgpr(
             minibatch_iter.set_postfix(loss=loss.item())
             loss.backward()
             optimizer.step()
+        losses[i] = loss.item()
     model.eval()
     likelihood.eval()
     with torch.no_grad():
         preds = model(x_preds).mean.cpu().numpy()
     out = preds
-    if return_model:
-        out = (preds, model)
+    if return_info:
+        out = {
+            "model": model,
+            "preds": preds,
+            "loss": losses,
+        }
     return out
+
+
+def get_full_kernel_preds(cs, func, mean=False):
+    xs, ys = np.meshgrid(cs, cs)
+    reps = func(np.stack((xs.flatten(), ys.flatten()), axis=1), mean=mean)
+    if not mean:
+        targ_shape = (reps.shape[0], len(cs), len(cs))
+    else:
+        targ_shape = (len(cs), len(cs))
+    return reps.reshape(targ_shape)
 
 
 def fit_full_average_kernel(
@@ -1053,8 +1192,10 @@ def fit_full_average_kernel(
     xs,
     target_x=-0.25,
     p_thr=0.4,
-    num_epochs=15,
+    num_epochs=35,
     n_bins=20,
+    return_info=False,
+    **kwargs,
 ):
     out_all = compute_continuous_distance_matrix(
         neurs,
@@ -1062,6 +1203,7 @@ def fit_full_average_kernel(
         x_targ=target_x,
     )
     kern_models = []
+    losses = []
     for out in out_all.values():
         mask = out["ps"][:, 0] > p_thr
         dists = out["dists"][mask][:, mask]
@@ -1076,10 +1218,16 @@ def fit_full_average_kernel(
         c_pred = np.linspace(-np.pi, np.pi, n_bins)
         c1s_pred, c2s_pred = np.meshgrid(c_pred, c_pred)
         cs_pred = np.stack((c1s_pred.flatten(), c2s_pred.flatten()), axis=1)
-        _, kern_model_i = _fit_svgpr(
-            cs, d_flat, cs_pred, num_epochs=num_epochs, return_model=True
+        out_i = _fit_svgpr(
+            cs,
+            d_flat,
+            cs_pred,
+            num_epochs=num_epochs,
+            return_info=True,
+            **kwargs,
         )
-        kern_models.append(kern_model_i)
+        kern_models.append(out_i["model"])
+        losses.append(out_i["loss"])
 
     def func(X, mean=False):
         preds = []
@@ -1092,7 +1240,10 @@ def fit_full_average_kernel(
             out = np.mean(out, axis=0)
         return out
 
-    return func
+    out = func
+    if return_info:
+        out = (func, kern_models, np.stack(losses, axis=0))
+    return out
 
 
 class KernelMap:
@@ -1222,6 +1373,7 @@ class KernelMap:
         row_cue=None,
         use_gp=True,
         return_model=False,
+        combined=False,
         **kwargs,
     ):
         dist_info = self.compute_distance_matrix(**kwargs)
@@ -1245,14 +1397,18 @@ class KernelMap:
             two_dims=two_dims,
             use_gp=use_gp,
             return_model=return_model,
+            combined=combined,
         )
 
     def get_func(self, **kwargs):
         (_, f), _ = self.get_kernel(use_gp=True, return_model=True, **kwargs)
 
-        def func(x):
+        def func(x, mean=True):
             with torch.no_grad():
-                y = f(x).mean.cpu().numpy()
+                if mean:
+                    y = f(x).mean.cpu().numpy()
+                else:
+                    y = f(x).sample().cpu().numpy()
             return y
 
         return func
@@ -1391,6 +1547,7 @@ def make_cued_kernel_map(
     bin_range=(-np.pi, np.pi),
     two_dims=False,
     same_cue=False,
+    filter_d1=False,
     **kwargs,
 ):
     akm = AverageKernelMap(
@@ -1593,7 +1750,7 @@ def prepare_data_continuous(
     x2_targ=None,
     regions=None,
     mask_ident=True,
-    with_std=False,
+    with_std=True,
     warn_x_diff=0.1,
     remove_outliers=False,
     outlier_thr=5,
