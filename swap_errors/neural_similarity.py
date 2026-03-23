@@ -1014,7 +1014,7 @@ class CombinedAGPRegression(gpt.models.ApproximateGP):
         dims_spec = dims[:nd_spec]
         self.periodic = periodic
         variational_distribution = gpt.variational.CholeskyVariationalDistribution(
-            inducing_points.size(0)
+            inducing_points.size(0),
         )
         variational_strategy = gpt.variational.VariationalStrategy(
             self,
@@ -1109,6 +1109,7 @@ def _fit_svgpr(
     return_info=False,
     **kwargs,
 ):
+    torch.set_default_dtype(torch.float)
     X_nan_mask = np.isnan(X)
     if len(X_nan_mask.shape) > 1:
         X_nan_mask = np.sum(X_nan_mask, axis=1) > 0
@@ -1167,12 +1168,13 @@ def _fit_svgpr(
     likelihood.eval()
     with torch.no_grad():
         preds = model(x_preds).mean.cpu().numpy()
-    out = preds
+    out = x_preds, preds
     if return_info:
         out = {
             "model": model,
             "preds": preds,
             "loss": losses,
+            "xs": x_preds,
         }
     return out
 
@@ -1274,6 +1276,7 @@ class KernelMap:
         col_mask,
         two_dims=False,
         use_gp=True,
+        return_model=False,
         **kwargs,
     ):
         dist_mat = dists[row_mask][:, col_mask].flatten()
@@ -1306,7 +1309,11 @@ class KernelMap:
         arr = arr_raw / arr_count
         bins = np.array(list(b[:-1] + np.diff(b)[0] / 2 for b in bins))
         if use_gp:
-            arr = _fit_svgpr(c_group, dist_mat, bins.T, **kwargs)
+            arr = _fit_svgpr(
+                c_group, dist_mat, bins.T, return_info=return_model, **kwargs
+            )
+            if return_model:
+                arr = (arr["preds"], arr["model"])
         if not two_dims:
             bins = bins[0]
         return arr, bins

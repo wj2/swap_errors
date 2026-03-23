@@ -1549,7 +1549,12 @@ def plot_target_similarity(
     filt_funcs = []
     for i, (k, v) in enumerate(ps_rep.items()):
         sim_k, block_k, filt_k = target_similarity(
-            v, xs_rep, ps_spont[k], xs_spont, offset=offset, use_filt=use_filts[i],
+            v,
+            xs_rep,
+            ps_spont[k],
+            xs_spont,
+            offset=offset,
+            use_filt=use_filts[i],
         )
         filt_funcs.append(filt_k)
         ind = _get_block_starts(block_k)[1]
@@ -1600,7 +1605,7 @@ def target_similarity(
 
     pre_ind = np.argmin(np.abs(xs_spont - spont_time))
     spont = p_spont["spks"][..., pre_ind]
-    
+
     rc = p_rep["rc"]
     tc = p_rep["c_targ"]
     block = p_rep["block"]
@@ -1643,9 +1648,9 @@ def target_similarity_dec(
     err = u.normalize_periodic_range(rc - tc)
     err_mask = err <= err_thr
     mask = np.logical_and(block >= block_thr, err_mask)
-    
+
     f1 = swa.block_colors(p_rep)
-    f2 = swa.block_colors(p_rep, offset=np.pi/2)
+    f2 = swa.block_colors(p_rep, offset=np.pi / 2)
     y = np.stack((f1(tc), f2(tc)), axis=1)
     pipe = na.make_model_pipeline(skc.LinearSVC, multioutput=True)
     pipe.fit(rep[mask], y[mask])
@@ -2315,15 +2320,17 @@ def compute_pro_delays(data):
     delay2 = data["WHEEL_ON_diode"] - data["SAMPLES_ON_diode"]
     return delay1, delay2
 
+
 def compute_retro_delays(data):
     delay1 = data["CUE2_ON_diode"] - data["SAMPLES_ON_diode"]
     delay2 = data["WHEEL_ON_diode"] - data["CUE2_ON_diode"]
     return delay1, delay2
-    
+
 
 def compute_single_delay(data):
     delay1 = data["WHEEL_ON_diode"] - data["SAMPLES_ON_diode"]
-    return delay1,
+    return (delay1,)
+
 
 def make_lm_tc_pops(
     data,

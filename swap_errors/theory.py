@@ -104,7 +104,7 @@ class SimplifiedDiscreteKernelTheory:
         probs = np.exp(mu) / np.sum(np.exp(mu), axis=1, keepdims=True)
         choices = np.zeros_like(samps)
         for i, prob in enumerate(probs):
-            choices[i] = self.rng.choice(self.bin_cents, size=1, p=prob)
+            choices[i] = self.rng.choice(self.bin_cents, size=1, p=prob)[0]
         return samps, choices
 
 

@@ -94,17 +94,17 @@ class SchematicFigure(KernelFigure):
             rates = fits[m]["samples"]["resp_rate"]
             sig_str = "monkey {}: {}".format(
                 m_use,
-                u.format_samps_sirange(sigs, units="\\radian\squared"),
+                u.format_samps_sirange(sigs, units="\\radian\\squared"),
             )
             self.save_stats_string(sig_str, "sig_{}".format(m_use))
-            guess_str = "monkey {}: \(p = \) {}".format(
+            guess_str = "monkey {}: \\(p = \\) {}".format(
                 m_use,
                 u.format_samps_sirange(rates[:, -1]),
             )
             self.save_stats_string(guess_str, "guess-rate_{}".format(m_use))
         sig_e = fits["Elmo"]["samples"]["sigma"]
         sig_w = fits["Waldorf"]["samples"]["sigma"]
-        sig_comp_stat = u.format_samps_sirange(sig_e - sig_w, units="\\radian\squared")
+        sig_comp_stat = u.format_samps_sirange(sig_e - sig_w, units="\\radian\\squared")
         sig_comp_str = "{} greater in monkey E than W".format(sig_comp_stat)
         self.save_stats_string(sig_comp_str, "sig_comparison")
 

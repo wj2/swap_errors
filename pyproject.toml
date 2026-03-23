@@ -39,6 +39,9 @@ dependencies = [
   "torch>=2.2.2",
   "seaborn>=0.13.2",
   "mat73>=0.65",
+  "ragged>=0.2",
+  "pynwb>=3.1.3",
+  "graphviz>=0.21",
 ]
 
 [project.urls]
