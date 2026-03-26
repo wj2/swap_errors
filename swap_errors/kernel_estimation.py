@@ -11,6 +11,33 @@ import general.torch.feedforward as gtf
 import general.torch.any as gta
 
 
+class KernelDistribution(dist.Distribution):
+    def __init__(self, mu, sigma):
+        if not isinstance(mu, torch.Tensor):
+            mu = torch.tensor(mu)
+        self.mu = mu
+        if not isinstance(sigma, torch.Tensor):
+            sigma = torch.tensor(sigma)
+        self.sigma = sigma
+        self.dist = dist.Normal(self.mu, self.sigma)
+        mu_comb = self.mu @ self.mu.T
+        sig_comb = self.sigma @ self.sigma.T
+        self.comb_dist = dist.Normal(mu_comb.flatten(), sig_comb.flatten())
+
+    def batch_shape(self):
+        return self.dist.batch_shape
+
+    def event_shape(self):
+        return self.dist.event_shape
+
+    def sample(self, *args, **kwargs):
+        samp = self.dist.sample(*args, **kwargs)
+        return samp @ samp.T
+
+    def log_prob(self, *args, **kwargs):
+        return self.comb_dist.log_prob(*args, **kwargs)
+
+
 class EigenfunctionModel(pyro.nn.PyroModule):
     def __init__(
         self,
@@ -33,22 +60,19 @@ class EigenfunctionModel(pyro.nn.PyroModule):
     def forward(self, x, x_samp=None, size=None):
         if size is None:
             size = x.shape[0] * (x.shape[0] - 1)
+            # size = x.shape[0] ** 2
         eye = ~torch.eye(len(x), dtype=torch.bool)
         if x_samp is not None:
             mu_targ = x_samp @ x_samp.T
             mu_targ = mu_targ[eye]
         else:
             mu_targ = None
-        ev_rate = pyro.sample("ev_rate", dist.HalfNormal(1))
-        ev_dist = dist.HalfNormal(ev_rate * torch.ones(self.k)).to_event(1)
-        evs = pyro.sample(
-            "evs",
-            ev_dist,
-        )
+        # mu_targ = (x_samp @ x_samp.T).flatten()
         with pyro.plate("data", size):
             loc, scale = self.func_net(x)
-            diag = torch.diag(evs)
-            mu = loc @ diag @ loc.T
+            # k_dist = KernelDistribution(loc, scale)
+            # k = pyro.sample("k", k_dist, obs=mu_targ)
+            mu = loc @ loc.T
             scales = scale @ scale.T
 
             mu = mu[eye]
@@ -64,29 +88,7 @@ class EigenfunctionGuide(pyro.nn.PyroModule):
         self.k = k
 
     def forward(self, x, x_samp=None, size=None):
-        evr_loc = pyro.param(
-            "evr_loc",
-            torch.tensor(1.0),
-            constraint=pyro.distributions.constraints.positive,
-        )
-        evr_scale = pyro.param(
-            "evr_scale",
-            torch.tensor(.05),
-            constraint=pyro.distributions.constraints.positive,
-        )
-        pyro.sample("ev_rate", dist.Normal(evr_loc, evr_scale))
-
-        evs_loc = pyro.param(
-            "evs_loc",
-            torch.ones(self.k),
-            constraint=pyro.distributions.constraints.positive,
-        )
-        evs_scale = pyro.param(
-            "evs_scale",
-            torch.ones(self.k) * .05,
-            constraint=pyro.distributions.constraints.positive,
-        )
-        pyro.sample("evs", dist.Normal(evs_loc, evs_scale).to_event(1))
+        pass
 
 
 class ProbabilisticEigenfunctionEstimator:
@@ -130,7 +132,7 @@ class ProbabilisticEigenfunctionEstimator:
     def n(self, x):
         return x.detach().cpu().numpy()
 
-    def fit(self, color, rs, n_epochs=100):
+    def fit(self, rs, color, num_epochs=100, batch_size=50):
         pyro.clear_param_store()
         c = self._model_y(color)
         adam_params = {"lr": self.learning_rate}
@@ -140,20 +142,30 @@ class ProbabilisticEigenfunctionEstimator:
         self.guide = EigenfunctionGuide(self.k)
         c = self.t(c)
         rs = self.t(rs)
-        loader = gta.batch_generator(c, rs)
+        loader = gta.batch_generator(c, rs, batch_size=batch_size)
 
         loss = pyro.infer.Trace_ELBO()
         svi = pyro.infer.SVI(self.model, self.guide, optimizer, loss=loss)
-        loss_record = np.zeros((n_epochs, len(loader)))
-        for i in range(n_epochs):
+        loss_record = np.zeros((num_epochs, len(loader)))
+        for i in range(num_epochs):
             for j, (c_i, rs_i) in enumerate(loader):
                 loss = svi.step(c, rs)
                 loss_record[i, j] = loss
-        return loss_record
+        out = {
+            "loss": loss_record,
+        }
+        return out
 
     def transform(self, color):
         c = self.t(self._model_y(color))
         return self.n(self.model.func_net(c)[0])
+
+    def compute_kernel(self, color):
+        r_c = self.transform(color)
+        return r_c @ r_c.T
+
+    def score(self, color, r):
+        return
 
 
 class NNEigenfunctionEstimator(gta.GenericModule, gta.GenericTrainingLoop):
@@ -268,18 +280,20 @@ def estimate_average_kernel(
     spk_key="spks",
     color_key="c_targ",
     n_funcs=8,
-    weight_decay=1e-10,
     norm=True,
+    model_kwargs=None,
+    model=NNEigenfunctionEstimator,
     **kwargs,
 ):
+    model_kwargs = {} if model_kwargs is None else model_kwargs
     t_ind = np.argmin(np.abs(xs - x_targ))
     k_funcs = []
     losses = []
     for pop in pops.values():
         pipe = na.make_model_pipeline(norm=True, pca=None)
-        X = pipe.fit_transform(pops[0]["spks"][..., t_ind])
-        y = pops[0]["c_targ"]
-        m = NNEigenfunctionEstimator(n_funcs, weight_decay=weight_decay)
+        X = pipe.fit_transform(pop["spks"][..., t_ind])
+        y = pop["c_targ"]
+        m = model(n_funcs, **model_kwargs)
         out_p = m.fit(X, y, **kwargs)
         losses.append(out_p["loss"])
         k_funcs.append(m.compute_kernel)
