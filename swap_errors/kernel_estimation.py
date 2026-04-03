@@ -4,6 +4,8 @@ import torch.nn as nn
 import pyro
 import pyro.distributions as dist
 import pyro.contrib.cevae as ce
+import sklearn.base as skb
+import sklearn.model_selection as skms
 
 import general.neural_analysis as na
 import general.utility as u
@@ -34,8 +36,10 @@ class KernelDistribution(dist.Distribution):
         samp = self.dist.sample(*args, **kwargs)
         return samp @ samp.T
 
-    def log_prob(self, *args, **kwargs):
-        return self.comb_dist.log_prob(*args, **kwargs)
+    def log_prob(self, kern, **kwargs):
+        eye = ~torch.eye(len(kern), dtype=bool)
+        lps = self.comb_dist.log_prob(kern.flatten(), **kwargs)
+        return torch.sum(torch.reshape(lps, (len(kern), len(kern))) * eye, axis=1)
 
 
 class EigenfunctionModel(pyro.nn.PyroModule):
@@ -59,26 +63,15 @@ class EigenfunctionModel(pyro.nn.PyroModule):
 
     def forward(self, x, x_samp=None, size=None):
         if size is None:
-            size = x.shape[0] * (x.shape[0] - 1)
-            # size = x.shape[0] ** 2
-        eye = ~torch.eye(len(x), dtype=torch.bool)
+            size = len(x)
         if x_samp is not None:
             mu_targ = x_samp @ x_samp.T
-            mu_targ = mu_targ[eye]
         else:
             mu_targ = None
-        # mu_targ = (x_samp @ x_samp.T).flatten()
         with pyro.plate("data", size):
             loc, scale = self.func_net(x)
-            # k_dist = KernelDistribution(loc, scale)
-            # k = pyro.sample("k", k_dist, obs=mu_targ)
-            mu = loc @ loc.T
-            scales = scale @ scale.T
-
-            mu = mu[eye]
-            scales = scales[eye]
-
-            k = pyro.sample("k", dist.Normal(mu, scales), obs=mu_targ)
+            k_dist = KernelDistribution(loc, scale)
+            k = pyro.sample("k", k_dist, obs=mu_targ)
         return k
 
 
@@ -91,27 +84,60 @@ class EigenfunctionGuide(pyro.nn.PyroModule):
         pass
 
 
-class ProbabilisticEigenfunctionEstimator:
+def estimate_n_funcs(
+    model,
+    X,
+    y,
+    n_funcs_range=(1, 50),
+    resource="num_epochs",
+    min_resources=30,
+    max_resources=150,
+    return_search=False,
+    **kwargs,
+):
+    n_funcs_candidates = np.arange(*n_funcs_range)
+    model_gs = skms.HalvingGridSearchCV(
+        model(n_funcs_candidates[0], **kwargs),
+        {"k": n_funcs_candidates},
+        refit=True,
+        resource=resource,
+        min_resources=min_resources,
+        max_resources=max_resources,
+    )
+    model_gs.fit(X, y)
+    if return_search:
+        out = model_gs.best_estimator_, model_gs
+    else:
+        out = model_gs.best_estimator_
+    return out
+
+
+class ProbabilisticEigenfunctionEstimator(skb.BaseEstimator):
     def __init__(
         self,
         k,
         periodic=True,
         layer_dims=(500, 100),
-        probe_bounds=(-np.pi, np.pi),
-        n_probe=1000,
         net_kwargs=None,
         learning_rate=1e-4,
+        num_epochs=100,
+        batch_size=50,
     ):
         super().__init__()
         self.k = k
         self.periodic = periodic
         self.layer_dims = layer_dims
-        self.probe_points = np.linspace(*probe_bounds, n_probe)
         if net_kwargs is None:
             net_kwargs = {}
         self.net_kwargs = net_kwargs
         self.use_optimizer = None
         self.learning_rate = learning_rate
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+        self.fitted = False
+
+    def __sklearn_is_fitted__(self):
+        return self.fitted
 
     @property
     def inp_dim(self):
@@ -132,7 +158,7 @@ class ProbabilisticEigenfunctionEstimator:
     def n(self, x):
         return x.detach().cpu().numpy()
 
-    def fit(self, rs, color, num_epochs=100, batch_size=50):
+    def fit(self, rs, color):
         pyro.clear_param_store()
         c = self._model_y(color)
         adam_params = {"lr": self.learning_rate}
@@ -142,19 +168,21 @@ class ProbabilisticEigenfunctionEstimator:
         self.guide = EigenfunctionGuide(self.k)
         c = self.t(c)
         rs = self.t(rs)
-        loader = gta.batch_generator(c, rs, batch_size=batch_size)
+        loader = gta.batch_generator(c, rs, batch_size=self.batch_size)
 
         loss = pyro.infer.Trace_ELBO()
         svi = pyro.infer.SVI(self.model, self.guide, optimizer, loss=loss)
-        loss_record = np.zeros((num_epochs, len(loader)))
-        for i in range(num_epochs):
+        loss_record = np.zeros((self.num_epochs, len(loader)))
+        for i in range(self.num_epochs):
             for j, (c_i, rs_i) in enumerate(loader):
                 loss = svi.step(c, rs)
                 loss_record[i, j] = loss
-        out = {
+        fit_record = {
             "loss": loss_record,
         }
-        return out
+        self.fit_record = fit_record
+        self.fitted = True
+        return self
 
     def transform(self, color):
         c = self.t(self._model_y(color))
@@ -164,8 +192,12 @@ class ProbabilisticEigenfunctionEstimator:
         r_c = self.transform(color)
         return r_c @ r_c.T
 
-    def score(self, color, r):
-        return
+    def score(self, rs, color):
+        color = self._model_y(color)
+        mu, sig = self.model.func_net(self.t(color))
+        k_dist = KernelDistribution(mu, sig)
+        r_kernel = self.t(rs @ rs.T)
+        return self.n(torch.mean(k_dist.log_prob(r_kernel)))
 
 
 class NNEigenfunctionEstimator(gta.GenericModule, gta.GenericTrainingLoop):
@@ -277,26 +309,32 @@ def estimate_average_kernel(
     pops,
     xs,
     x_targ=-0.25,
+    p_thr=.3,
+    p_ind=0,
+    ps_key="ps",
     spk_key="spks",
-    color_key="c_targ",
+    color_key="rc",
     n_funcs=8,
     norm=True,
-    model_kwargs=None,
-    model=NNEigenfunctionEstimator,
+    model=ProbabilisticEigenfunctionEstimator,
+    estimate_n=True,
     **kwargs,
 ):
-    model_kwargs = {} if model_kwargs is None else model_kwargs
     t_ind = np.argmin(np.abs(xs - x_targ))
     k_funcs = []
     losses = []
     for pop in pops.values():
         pipe = na.make_model_pipeline(norm=True, pca=None)
-        X = pipe.fit_transform(pop["spks"][..., t_ind])
-        y = pop["c_targ"]
-        m = model(n_funcs, **model_kwargs)
-        out_p = m.fit(X, y, **kwargs)
-        losses.append(out_p["loss"])
-        k_funcs.append(m.compute_kernel)
+        mask = pop[ps_key][:, p_ind] > p_thr
+        X = pipe.fit_transform(pop[spk_key][mask, ..., t_ind])
+        y = pop[color_key][mask]
+        if estimate_n:
+            est = estimate_n_funcs(model, X, y, **kwargs)
+        else:
+            est = model(n_funcs, **kwargs)
+            est = est.fit(X, y)
+        losses.append(est.fit_record["loss"])
+        k_funcs.append(est.compute_kernel)
 
     def func(pts, mean=False, meanfunc=np.mean):
         ks = np.stack(list(kf(pts) for kf in k_funcs), axis=0)
