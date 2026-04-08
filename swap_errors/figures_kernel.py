@@ -13,6 +13,7 @@ import swap_errors.figures as swf
 import swap_errors.theory as swt
 import swap_errors.tcc_model as stcc
 import swap_errors.visualization as swv
+import swap_errors.kernel_estimation as ke
 from . import neural_similarity as sns
 import sklearn.preprocessing as skp
 
@@ -474,6 +475,259 @@ def _make_yaxis_pi(ax):
     ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
 
 
+class DynamicsTheoryFigure(KernelFigure):
+    def __init__(self, fig_key="dynamics", colors=swf.colors, **kwargs):
+        fsize = (8, 6)
+        cf = u.ConfigParserColor()
+        cf.read(config_path)
+        params = cf[fig_key]
+        self.fig_key = fig_key
+        super().__init__(fsize, params, colors=colors, **kwargs)
+
+    def make_gss(self):
+        gss = {}
+
+        ring_axs = self.get_axs(
+            pu.make_mxn_gridspec(self.gs, 1, 3, 0, 40, 0, 70, 5, 5),
+            sharex="all",
+            sharey="all",
+        )
+        gss["panel_landscape"] = ring_axs[0, 0]
+        distr_axs = self.get_axs(
+            pu.make_mxn_gridspec(self.gs, 1, 2, 0, 35, 75, 100, 5, 5),
+            sharex="all",
+        )
+        gss["panel_eg_traj"] = (ring_axs[0, 1:], distr_axs[0])
+        gss["panel_sweep"] = self.get_axs((self.gs[45:90, :40],))[0, 0]
+        axs_sim = self.get_axs(
+            pu.make_mxn_gridspec(
+                self.gs,
+                3,
+                1,
+                45,
+                100,
+                45,
+                80,
+                5,
+                5,
+            ),
+            sharex="all",
+            sharey="all",
+        )[:, 0]
+        axs_hist = self.get_axs(
+            pu.make_mxn_gridspec(
+                self.gs,
+                3,
+                1,
+                45,
+                100,
+                85,
+                100,
+                5,
+                5,
+            ),
+            sharex="all",
+            sharey="all",
+        )[:, 0]
+        gss["panel_similarity"] = (axs_sim, axs_hist)
+        self.gss = gss
+
+    def _get_ring_simulation_params(
+        self,
+        noise_std="noise_std",
+        dt="dt",
+        tau="tau",
+        alpha="alpha",
+        init_str="init_str",
+    ):
+        return {
+            "noise_std": self.params.getfloat(noise_std),
+            "tau": self.params.getfloat(tau),
+            "alpha": self.params.getfloat(alpha),
+            "init_str": self.params.getfloat(init_str),
+        }
+
+    def _plot_ring(self, ax, scalebars=True, **kwargs):
+        rads = np.linspace(-np.pi, np.pi, 1000)
+        ring = u.radian_to_sincos(rads)
+        r_color = self.params.getcolor("radius_color")
+        ax.plot(*ring.T, color=r_color, **kwargs)
+        if scalebars:
+            gpl.clean_plot(ax, 0)
+            gpl.make_yaxis_scale_bar(ax, 1)
+            gpl.make_xaxis_scale_bar(ax, 1)
+
+    def panel_landscape(self):
+        key = "panel_landscape"
+        ax = self.gss[key]
+
+        params = self._get_ring_simulation_params()
+        params["noise_std"] = 0
+        coords = np.linspace(-1.5, 1.5, 100)
+        x, y = np.meshgrid(coords, coords)
+
+        r = np.sqrt(x**2 + y**2)
+        xdot = (1 - r) * np.tanh(x)
+        ydot = (1 - r) * np.tanh(y)
+        gpl.pcolormesh(
+            coords, coords, ydot**2 + xdot**2, ax=ax, vmax=0.1, vmin=0, cmap="Blues"
+        )
+        ax.set_xticks([-1, 0, 1])
+        ax.set_yticks([-1, 0, 1])
+        ax.set_aspect("equal")
+        self._plot_ring(ax)
+
+    def panel_eg_traj(self, resimulate=False):
+        key = "panel_eg_traj"
+        axs_traj, axs_distr = self.gss[key]
+        n_sims = self.params.getint("n_sims")
+        n_distr_trials = self.params.getint("n_distr_trials")
+
+        if self.data.get(key) is None or resimulate:
+            params1 = self._get_ring_simulation_params()
+            out1 = swt.simple_ring_trials(**params1, n_trials=n_distr_trials)
+            params2 = self._get_ring_simulation_params(noise_std="noise_std_high")
+            out2 = swt.simple_ring_trials(**params2, n_trials=n_distr_trials)
+            self.data[key] = (out1, out2)
+        outs = self.data[key]
+        for i, (errs, resp, targ, traj) in enumerate(outs):
+            self._plot_ring(axs_traj[i], zorder=0)
+            traj = traj[:n_sims]
+            resp = resp[:n_sims]
+            alpha = self.params.getfloat("bg_alpha")
+            axs_traj[i].plot(
+                *traj.T,
+                lw=0.5,
+                zorder=1,
+                alpha=alpha,
+                color=self.params.getcolor("bg_traj"),
+            )
+            axs_traj[i].plot(
+                *traj[-1:].T, lw=0.5, zorder=1, color=self.params.getcolor("main_traj")
+            )
+            s = self.params.getint("pt_size")
+            axs_traj[i].scatter(*resp.T, s=s, color="k", zorder=2, alpha=alpha)
+            axs_traj[i].scatter(
+                *resp[-1:].T,
+                s=s,
+                color=self.params.getcolor("resp_pt"),
+                zorder=2,
+            )
+            axs_traj[i].scatter(
+                *targ, s=s, color=self.params.getcolor("target_pt"), zorder=2
+            )
+            axs_traj[i].set_aspect("equal")
+
+            bins = np.linspace(-np.pi, np.pi, 20)
+            axs_distr[i].hist(errs, bins, density=True)
+            gpl.clean_plot(axs_distr[i], 0)
+            gpl.make_yaxis_scale_bar(axs_distr[i], 0.3, double=False, anchor=0)
+
+    def _get_animal_c(self):
+        data = self.load_pickles()
+        cs = {}
+        for m, (v, _) in data.items():
+            resps = np.concatenate(list(v_i["rc"] for v_i in v.values()))
+            targs = np.concatenate(list(v_i["c_targ"] for v_i in v.values()))
+            cs[m] = swt.circular_var(resps - targs)
+        return cs
+
+    def panel_sweep(self, recompute=False):
+        key = "panel_sweep"
+        ax = self.gss[key]
+        diff_thr = self.params.getfloat("diff_thr")
+
+        if self.data.get(key) is None or recompute:
+            nv_b = self.params.getlist("noise_var_bounds", typefunc=float)
+            is_b = self.params.getlist("init_str_bounds", typefunc=float)
+            res = self.params.getint("sweep_res")
+            init_str = np.linspace(*is_b, res)
+            noise_var = np.linspace(*nv_b, res)
+            sweep = swt.simple_ring_sweep(
+                init_str, noise_var, n_trials=self.params.getint("n_distr_trials")
+            )
+            self.data[key] = (init_str, noise_var, sweep)
+        init_str, noise_var, sweep = self.data[key]
+        m = gpl.pcolormesh(noise_var, init_str, sweep, ax=ax, cmap="Grays", zorder=0)
+        ax.set_xticks([0.05, 0.1, 0.15, 0.2])
+        ax.set_yticks([0, 0.3, 0.6, 0.9])
+        self.f.colorbar(m, ax=ax)
+
+        cs = self._get_animal_c()
+        for m, c_m in cs.items():
+            diff = np.abs(sweep - c_m)
+            inds = np.argmin(diff, axis=0)
+            mask = np.min(diff, axis=0) < diff_thr
+            init_traj = init_str[inds]
+            ax.plot(noise_var[mask], init_traj[mask], color=self.monkey_colors[m])
+
+    def panel_similarity(self, recompute=False):
+        key = "panel_similarity"
+        axs_sim, axs_hist = self.gss[key]
+        cs = self._get_animal_c()
+        n_distr_trials = self.params.getint("n_distr_trials")
+        guess_thr = self.params.getfloat("guess_thr")
+        use_m = "Waldorf"
+        nv_inds = np.array((30, 10))
+        comb_is = (1, .1)
+        if self.data.get(key) is None or recompute:
+            params = self._get_ring_simulation_params()
+            params.pop("noise_std")
+            params.pop("init_str")
+            c_targ = cs[use_m]
+            if self.data.get("panel_sweep") is None:
+                self.panel_sweep()
+            init_str, noise_var, sweep = self.data.get("panel_sweep")
+            diff = np.abs(sweep - c_targ)
+            inds = np.argmin(diff, axis=0)
+            init_traj = init_str[inds]
+            use_nv = noise_var[nv_inds]
+            use_is = init_traj[nv_inds]
+            out = {}
+            for i, nv_i in enumerate(use_nv):
+                is_i = use_is[i]
+                out[(is_i, nv_i)] = swt.simple_ring_trials(
+                    is_i, nv_i, n_trials=n_distr_trials, **params
+                )
+            out1 = swt.simple_ring_trials(
+                comb_is[0], use_nv[1], n_trials=n_distr_trials, **params
+            )
+            out2 = swt.simple_ring_trials(
+                comb_is[1], use_nv[1], n_trials=n_distr_trials, **params
+            )
+            out_comb = list(np.concatenate((x, out2[i])) for i, x in enumerate(out1))
+            out_comb[2] = out_comb[2][:2]
+            out[(comb_is, use_nv[0])] = out_comb
+            self.data[key] = out
+        out = self.data[key]
+        c_color = self.params.getcolor("correct_color")
+        g_color = self.params.getcolor("guess_color")
+        s_color = self.params.getcolor("swap_color")
+        bins = np.linspace(-np.pi, np.pi, 20)
+        for i, ((is_i, nv_i), (errs, _, targ, trajs)) in enumerate(out.items()):
+            mask = np.abs(errs) < guess_thr
+
+            init_comp = u.make_unit_vector(targ)
+            resps_all = u.make_unit_vector(trajs[:, -1])
+
+            r_targ = np.sum(init_comp[None, None] * trajs, axis=-1)
+            r_resp = np.sum(resps_all[:, None] * trajs, axis=-1)
+
+            xs = np.arange(r_targ.shape[-1])
+            # gpl.plot_trace_werr(xs, r_resp[mask], ax=axs[i])
+            gpl.plot_trace_werr(xs, r_resp[~mask], ax=axs_sim[i], color=s_color)
+            gpl.plot_trace_werr(xs, r_targ[mask], ax=axs_sim[i], color=c_color)
+            gpl.plot_trace_werr(xs, r_targ[~mask], ax=axs_sim[i], color=g_color)
+            gpl.make_yaxis_scale_bar(axs_sim[i], 0.5)
+            axs_hist[i].hist(errs, bins, density=True)
+            gpl.clean_plot(axs_hist[i], 0)
+            gpl.make_yaxis_scale_bar(axs_hist[i], 0.1, double=False, anchor=0)
+        for i, ax in enumerate(axs_sim):
+            gpl.make_xaxis_scale_bar(ax, 100, double=False, anchor=0)
+            if i < len(axs_sim) - 1:
+                gpl.clean_plot_bottom(ax)
+
+
 class ExpAverageFigure(KernelFigure):
     def __init__(self, fig_key="exp-avg", colors=swf.colors, **kwargs):
         fsize = (8, 8)
@@ -577,16 +831,16 @@ class ExpAverageFigure(KernelFigure):
         neurs, xs = data[monkey]
 
         if self.data.get(key) is None or refit:
-            c_pred = np.linspace(-np.pi, np.pi, n_bins)
-            func = sns.fit_full_average_kernel(
-                neurs,
-                xs,
-                target_x=target_x,
-                p_thr=p_thr,
+            func = self._get_full_average_kernel_func(
+                neurs, xs, monkey, target_x=target_x, p_thr=p_thr, refit=refit
             )
-            kern_map = sns.get_full_kernel_preds(c_pred, func, mean=True)
+            c_pred = np.linspace(-np.pi, np.pi, n_bins)
+            kern_map = func(c_pred, mean=True)
+            # kern_map = sns.get_full_kernel_preds(c_pred, func, mean=True)
             self.data[key] = (c_pred, kern_map)
         c_pred, kern_map = self.data[key]
+        if len(kern_map.shape) > 2:
+            kern_map = np.mean(kern_map, axis=0)
         v_extrem = np.abs(np.max(kern_map))
         m = gpl.pcolormesh(
             c_pred, c_pred, kern_map, ax=ax, vmin=-v_extrem, vmax=v_extrem, cmap=cmap
@@ -720,7 +974,8 @@ class ExpAverageFigure(KernelFigure):
     def _get_full_average_kernel_func(self, neurs, xs, monkey, refit=False, **kwargs):
         key = "full-kfunc-{}".format(monkey)
         if self.data.get(key) is None or refit:
-            kfunc = sns.fit_full_average_kernel(neurs, xs, **kwargs)
+            kfunc = ke.estimate_average_kernel(neurs, xs, **kwargs)
+            # kfunc = sns.fit_full_average_kernel(neurs, xs, **kwargs)
             self.data[key] = kfunc
         return self.data[key]
 
@@ -759,6 +1014,7 @@ class ExpAverageFigure(KernelFigure):
                     resps_all.extend(sess_data["rc"])
                 bhv_fits[monkey] = {}
                 for m2 in self.monkeys:
+                    # TRY WITH AND WITHOUT NORM
                     bhv_fits[monkey][m2] = stcc.fit_tcc_kernel_model(
                         np.array(targs_all),
                         np.array(dists_all),

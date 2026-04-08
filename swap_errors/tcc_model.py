@@ -733,12 +733,15 @@ def fit_tcc_kernel_model(
     resp_inds = torch.tensor(np.digitize(resps, bins) - 1)
     bin_cents = torch.tensor(bins[:-1] + np.diff(bins)[0] / 2, dtype=torch.float)
 
-    targs_grid, bc_grid = np.meshgrid(targs, bin_cents)
-    targ_pts = np.stack((targs_grid.flatten(), bc_grid.flatten()), axis=1)
-    targ_kfuncs = kernel_func(targ_pts, mean=True).reshape(targs_grid.shape).T
-    dists_grid, bc_grid = np.meshgrid(dists, bin_cents)
-    dist_pts = np.stack((dists_grid.flatten(), bc_grid.flatten()), axis=1)
-    dist_kfuncs = kernel_func(dist_pts, mean=True).reshape(dists_grid.shape).T
+    # targs_grid, bc_grid = np.meshgrid(targs, bin_cents)
+    # targ_pts = np.stack((targs_grid.flatten(), bc_grid.flatten()), axis=1)
+    # targ_kfuncs = kernel_func(targ_pts, mean=True).reshape(targs_grid.shape).T
+    # dists_grid, bc_grid = np.meshgrid(dists, bin_cents)
+    # dist_pts = np.stack((dists_grid.flatten(), bc_grid.flatten()), axis=1)
+    # dist_kfuncs = kernel_func(dist_pts, mean=True).reshape(dists_grid.shape).T
+    targ_kfuncs = kernel_func(targs, bin_cents, mean=True)
+    dist_kfuncs = kernel_func(dists, bin_cents, mean=True)
+    # print(targ_kfuncs.shape, dist_kfuncs.shape)
 
     targ_kfuncs = _norm_kfuncs(targ_kfuncs)
     dist_kfuncs = _norm_kfuncs(dist_kfuncs)

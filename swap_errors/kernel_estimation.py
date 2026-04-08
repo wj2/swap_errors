@@ -188,9 +188,12 @@ class ProbabilisticEigenfunctionEstimator(skb.BaseEstimator):
         c = self.t(self._model_y(color))
         return self.n(self.model.func_net(c)[0])
 
-    def compute_kernel(self, color):
-        r_c = self.transform(color)
-        return r_c @ r_c.T
+    def compute_kernel(self, color1, color2=None):
+        if color2 is None:
+            color2 = color1
+        r_c1 = self.transform(color1)
+        r_c2 = self.transform(color2)
+        return r_c1 @ r_c2.T
 
     def score(self, rs, color):
         color = self._model_y(color)
@@ -308,8 +311,8 @@ class NNEigenfunctionEstimator(gta.GenericModule, gta.GenericTrainingLoop):
 def estimate_average_kernel(
     pops,
     xs,
-    x_targ=-0.25,
-    p_thr=.3,
+    target_x=-0.25,
+    p_thr=.4,
     p_ind=0,
     ps_key="ps",
     spk_key="spks",
@@ -320,7 +323,7 @@ def estimate_average_kernel(
     estimate_n=True,
     **kwargs,
 ):
-    t_ind = np.argmin(np.abs(xs - x_targ))
+    t_ind = np.argmin(np.abs(xs - target_x))
     k_funcs = []
     losses = []
     for pop in pops.values():
@@ -336,8 +339,8 @@ def estimate_average_kernel(
         losses.append(est.fit_record["loss"])
         k_funcs.append(est.compute_kernel)
 
-    def func(pts, mean=False, meanfunc=np.mean):
-        ks = np.stack(list(kf(pts) for kf in k_funcs), axis=0)
+    def func(pts1, pts2=None, mean=False, meanfunc=np.mean):
+        ks = np.stack(list(kf(pts1, pts2) for kf in k_funcs), axis=0)
         if mean:
             ks = meanfunc(ks, axis=0)
         return ks

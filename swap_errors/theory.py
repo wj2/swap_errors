@@ -5,23 +5,33 @@ import scipy.special as sps
 import scipy.stats as sts
 import sklearn.neighbors as skn
 import sklearn.gaussian_process as skgp
+import functools as ft
 
 import general.rf_models as rfm
 import general.utility as u
 import general.plotting as gpl
 
 
+def ring_dynamic_step(vec, r_targ=1, alpha=0.1, noise_std=1, tau=1, rng=None):
+    r = np.sum(vec**2)
+    dots = alpha * (r_targ - r) * np.tanh(vec) + rng.normal(
+        0, noise_std, size=vec.shape
+    )
+    return dots / tau
+
+
 def simple_ring_simulation(
     init, alpha=0.1, noise_std=1, r_targ=1, dt=1, tau=1, time=1000
 ):
     rng = np.random.default_rng()
-
-    def _dynamic_step(vec):
-        r = np.sum(vec**2)
-        dots = alpha * (r_targ - r) * np.tanh(vec) + rng.normal(
-            0, noise_std, size=vec.shape
-        )
-        return dots / tau
+    _dynamic_step = ft.partial(
+        ring_dynamic_step,
+        r_targ=r_targ,
+        alpha=alpha,
+        noise_std=noise_std,
+        tau=tau,
+        rng=rng,
+    )
 
     n_steps = int(np.round(time / dt))
     vec = np.array(init)
@@ -34,11 +44,50 @@ def simple_ring_simulation(
     return traj
 
 
+def simple_ring_trials(
+    init_str=1,
+    noise_std=0.1,
+    tau=5,
+    time=1000,
+    alpha=0.01,
+    n_trials=1500,
+    dt=1,
+    init=(0, 1),
+):
+    errs = np.zeros(n_trials)
+    trajs = np.zeros((n_trials, time + 1, len(init)))
+    targ = np.array(init)
+    init_use = targ * init_str
+    resps = np.zeros((n_trials, len(init)))
+    for i in range(n_trials):
+        traj_i = simple_ring_simulation(
+            init_use, alpha=alpha, tau=tau, noise_std=noise_std, time=time, dt=dt
+        )
+        resps[i] = u.make_unit_vector(traj_i[-1])
+        resp_rad = np.arctan2(*resps[i])
+        errs[i] = resp_rad - np.arctan2(*targ)
+        trajs[i] = traj_i
+    return errs, resps, targ, trajs
+
+
+def circular_var(thetas):
+    c = np.sqrt(np.sum(np.sin(thetas)) ** 2 + np.sum(np.cos(thetas)) ** 2)
+    return 1 - c / len(thetas)
+
+
+def simple_ring_sweep(init_strengths, noise_stds, **kwargs):
+    c_sweep = np.zeros((len(init_strengths), len(noise_stds)))
+    for i, j in u.make_array_ind_iterator(c_sweep.shape):
+        errs = simple_ring_trials(init_strengths[i], noise_stds[j], **kwargs)[0]
+        c_sweep[i, j] = circular_var(errs)
+    return c_sweep
+
+
 def local_err(snr, wid):
     orig = (wid / snr) ** 2
 
     # comb = np.min([orig, np.ones_like(snr) * wid**2, threshold_err(snr, wid)], axis=0)
-    comb = np.min([orig, threshold_err(snr, wid)], axis=0)    
+    comb = np.min([orig, threshold_err(snr, wid)], axis=0)
     return comb
 
 
